@@ -14,21 +14,21 @@ What you *can* do is **report errors, gaps, and inconsistencies** via `contrib/`
 
 ```
 You find a problem
-       │
-       ▼
+       |
+       v
 Write a file in contrib/hive-core/
-       │
-       ▼
+       |
+       v
 Submit a merge request (or commit directly if you have access)
-       │
-       ▼
+       |
+       v
 Producer pipeline reads your contribution
-       │
-       ▼
+       |
+       v
 Investigates against actual source code
-       │
-       ├── Confirmed → KB updated, your file archived
-       └── Refuted → archived with explanation
+       |
+       +-- Confirmed -> KB updated, your file archived
+       +-- Refuted -> archived with explanation
 ```
 
 ## How to Contribute

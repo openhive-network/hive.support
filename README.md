@@ -71,13 +71,13 @@ Not yet covered: HAF, Wax, Hivemind, P2P protocol.
 This is a **consumer repo** — a read-only published snapshot of the knowledge base. You use it, you don't build it.
 
 ```
-Producer (private)              Consumer (this repo)
-┌─────────────────────┐         ┌─────────────────────┐
-│ Source code analysis │         │ reference/           │
-│ Research pipeline    │──publish──▶ research/findings/ │
-│ Verification         │         │ .claude/ agents+skills│
-│ Contrib digestion   │◀─feedback─ contrib/            │
-└─────────────────────┘         └─────────────────────┘
+Producer (private)                Consumer (this repo)
++-----------------------+         +-----------------------+
+| Source code analysis  |         | reference/            |
+| Research pipeline     |--publish-->  research/findings/ |
+| Verification          |         | .claude/ agents+skills|
+| Contrib digestion     |<-feedback--  contrib/           |
++-----------------------+         +-----------------------+
 ```
 
 - **reference/** and **research/** are generated and verified by the producer pipeline. Don't edit them directly.
