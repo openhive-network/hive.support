@@ -4,6 +4,14 @@ Source-verified knowledge base for the [Hive blockchain](https://hive.io), built
 
 Give your AI coding assistant accurate, source-level knowledge of Hive's operations, consensus, economics, RC system, API, and hardfork history — all verified against the actual C++ source code.
 
+## Verify. Correct. Evolve.
+
+This knowledge base is built by reading Hive's C++ source code directly — not by copying docs or trusting wikis. But both carbon-based and silicon-based contributors make mistakes. A function gets misread. A hardfork condition gets overlooked. An edge case slips through.
+
+That's the point of the tool: **use the KB to verify code, use the code to verify the KB.** When something doesn't match, write it down in `contrib/` — the next iteration gets closer to truth.
+
+Every claim in `reference/` traces back to a `file:line` citation in `research/`. If a citation is wrong, the fix is one contribution away.
+
 ## Quick Start
 
 Clone this repo alongside your Hive project:
