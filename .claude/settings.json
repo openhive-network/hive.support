@@ -1,0 +1,6 @@
+{
+  "agents": {
+    "hive-researcher": ".claude/agents/hive-researcher.md",
+    "hive-reviewer": ".claude/agents/hive-reviewer.md"
+  }
+}
