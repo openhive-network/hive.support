@@ -27,7 +27,7 @@ Source-code-verified reference for Hive blockchain (hived). All data from hive-c
 ## Important Non-Obvious Facts
 
 - **RC is non-consensus** — enforced at mempool only, not during block replay
-- **HIVE serializes as "STEEM"** in legacy wire format, HBD as "SBD", address prefix is "STM"
+- **HIVE serializes as "STEEM"** in legacy wire format, HBD as "SBD", public key prefix is "STM"
 - **No per-client API rate limiting** — must be done externally
 - **Only `"rc"` custom_json ID** is chain-interpreted; all others are app-layer conventions
 - **No max operations per transaction** — bounded only by 64KB tx size limit
@@ -36,3 +36,7 @@ Source-code-verified reference for Hive blockchain (hived). All data from hive-c
 ## Detailed Findings
 
 For deeper analysis with source file:line citations, see `../research/hive-core/findings/`.
+
+## Found an error?
+
+This KB is maintained by a pipeline that reads source code directly, but mistakes happen. If something here contradicts the code, write a contribution file in `contrib/hive-core/` — see [CONTRIBUTING.md](../CONTRIBUTING.md) for the format.

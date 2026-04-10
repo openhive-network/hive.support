@@ -78,6 +78,9 @@ Source code citations, test output, API responses, or reasoning.
 | `addition` | Something is missing that should be there |
 | `question` | Unsure about something, want it investigated |
 | `inconsistency` | KB says X but the code does Y |
+| `cascade` | A conceptual error that likely appears in many places (triggers KB-wide sweep) |
+
+**When to use `cascade`**: Most corrections are local — one wrong number, one missing field. But sometimes the error is conceptual: a term used incorrectly throughout the KB, or a misunderstanding that propagates across multiple documents. Use `cascade` when you suspect the same error appears in more than one place, directly or indirectly.
 
 ## Tips
 

@@ -108,7 +108,7 @@ The codebase maintains a clean separation between protocol-level validation (sta
 
 Steem-era artifacts persist throughout the codebase:
 - **Serialization**: HIVE serializes as "STEEM", HBD as "SBD" in legacy wire format (Part 01)
-- **Address prefix**: Still "STM" (Steem) for backward compatibility (Part 01)
+- **Public key prefix**: Still "STM" (Steem) for backward compatibility — note: `HIVE_ADDRESS_PREFIX` is a misleading constant name; on Hive, addresses are account names, not keys (Part 01)
 - **Dead operations**: `reset_account`, `set_reset_account` (always assert), `pow`, `pow2`, `custom_binary` (disabled by hardfork), `account_create_with_delegation` (disabled HF20) — 7 total (Part 02, 04)
 - **Phantom objects**: `block_stats_object` type ID 24 reserved but never defined (Part 05)
 - **Legacy objects**: `liquidity_reward_balance_object` unused since HF12, `comment_cashout_ex_object` empty since HF19 (Part 05)
@@ -170,7 +170,7 @@ The economic model involves tightly coupled mechanisms:
 
 **HF28**: Defined at block 100,000,000 (expected November 2025). Uses `next_hf_time()` function rather than compile-time constant.
 
-**Discrepancies found**: `HIVE_BLOCKCHAIN_PRECISION` comment says "actually HBD precision" but value (1000) applies to both HIVE and HBD. Address prefix still "STM" (Steem).
+**Discrepancies found**: `HIVE_BLOCKCHAIN_PRECISION` comment says "actually HBD precision" but value (1000) applies to both HIVE and HBD. Public key prefix still "STM" (Steem-era name; constant is misleadingly called `HIVE_ADDRESS_PREFIX`).
 
 ### Part 02: Operations Catalog
 

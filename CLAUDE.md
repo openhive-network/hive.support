@@ -66,6 +66,7 @@ hive.support/
 - **Quick lookup** (what fields does transfer_operation have?) -> `reference/operations.md`
 - **Deep investigation** (how exactly does the vote evaluator handle HF25 curation penalties?) -> `research/hive-core/findings/04-chain-evaluators.md`
 - **Verify a claim** (is X really true?) -> Read the source code at the file:line cited in findings
+- **Found an error?** -> Write a contribution file in `contrib/hive-core/` (see `CONTRIBUTING.md`)
 
 ## Agents and Skills
 

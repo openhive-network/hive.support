@@ -794,9 +794,9 @@ Fully documented in the sections above.
 - **File**: `hardfork_block.hpp:19-20`
 - **Issue**: HF17 at block 10,629,455 and HF18 at block 10,629,486 — only 31 blocks apart (~93 seconds). This is effectively simultaneous and suggests HF18 was a hotfix or companion change to HF17.
 
-### 3. Address Prefix Still "STM" (Steem)
+### 3. Public Key Prefix Still "STM" (Steem)
 - **File**: `config.hpp:212`
-- **Issue**: `HIVE_ADDRESS_PREFIX = "STM"` — the old Steem prefix is retained for backward compatibility. This is intentional (changing it would break all existing keys) but worth noting for documentation.
+- **Issue**: `HIVE_ADDRESS_PREFIX = "STM"` — the old Steem prefix is retained for backward compatibility. This is intentional (changing it would break all existing keys) but worth noting for documentation. Note: the constant name is misleading — "STM" prefixes public keys (e.g., `STM7abc...`), not addresses. On Hive, an address is an account name (username).
 
 ### 4. `HIVE_INIT_SUPPLY` is 0 on Mainnet
 - **File**: `config.hpp:49-50`

@@ -56,6 +56,7 @@ Examples:
 | `addition` | Something is missing from the KB that should be there |
 | `question` | You're unsure about something and want it investigated |
 | `inconsistency` | The KB says one thing but the code does another |
+| `cascade` | A conceptual error that likely appears in many places (triggers KB-wide sweep) |
 
 ## Directory Structure
 
