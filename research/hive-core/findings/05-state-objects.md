@@ -555,7 +555,7 @@ Open internal market (HIVE/HBD) limit orders.
 
 **Source:** `detail/state/convert_request_object.hpp`
 
-Pending HBD→HIVE conversion requests (3.5-day delay).
+Pending HBD->HIVE conversion requests (3.5-day delay).
 
 **Fields:**
 
@@ -580,7 +580,7 @@ Pending HBD→HIVE conversion requests (3.5-day delay).
 
 **Source:** `detail/state/collateralized_convert_request_object.hpp`
 
-Pending HIVE→HBD collateralized conversion requests (3.5-day delay). HBD is given immediately; HIVE collateral returned after conversion minus actual price.
+Pending HIVE->HBD collateralized conversion requests (3.5-day delay). HBD is given immediately; HIVE collateral returned after conversion minus actual price.
 
 **Fields:**
 

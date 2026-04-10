@@ -173,8 +173,8 @@ Operations override `get_required_*_authorities()` to declare which authority le
 
 | ID | Operation | Fields (serialization order) | Required Authority | Notes |
 |----|-----------|-----|-------------------|-------|
-| 8 | `convert_operation` | `owner`: account_name, `requestid`: uint32_t, `amount`: asset | **active** (owner) | HBD→HIVE only. Converts after HIVE_CONVERSION_DELAY (3.5 days). |
-| 48 | `collateralized_convert_operation` | `owner`: account_name, `requestid`: uint32_t, `amount`: asset | **active** (owner) | Since HF25. HIVE→HBD. HBD delivered immediately; excess HIVE collateral returned after HIVE_COLLATERALIZED_CONVERSION_DELAY. |
+| 8 | `convert_operation` | `owner`: account_name, `requestid`: uint32_t, `amount`: asset | **active** (owner) | HBD->HIVE only. Converts after HIVE_CONVERSION_DELAY (3.5 days). |
+| 48 | `collateralized_convert_operation` | `owner`: account_name, `requestid`: uint32_t, `amount`: asset | **active** (owner) | Since HF25. HIVE->HBD. HBD delivered immediately; excess HIVE collateral returned after HIVE_COLLATERALIZED_CONVERSION_DELAY. |
 
 ### Account Operations
 

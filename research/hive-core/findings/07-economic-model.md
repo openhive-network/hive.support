@@ -10,7 +10,7 @@ Key characteristics:
 - Content rewards use a convergent linear author curve and linear curation curve (post-HF25)
 - 50% of content rewards go to curators, 50% to authors (post-HF21)
 - HBD earns interest on savings balances only (post-HF25), compounded monthly, rate set by witness median
-- Two conversion mechanisms exist: HBD→HIVE (3.5-day delay, no fee) and HIVE→HBD collateralized (3.5-day delay, 5% fee, 200% collateral)
+- Two conversion mechanisms exist: HBD->HIVE (3.5-day delay, no fee) and HIVE->HBD collateralized (3.5-day delay, 5% fee, 200% collateral)
 - HBD supply is managed through print rate throttling and a hard price cap at 30% of market cap
 
 ---
@@ -374,7 +374,7 @@ Post-HF25, only savings HBD earns interest. This was a deliberate change to enco
 
 ## Conversions
 
-### HBD → HIVE (Regular Conversion)
+### HBD -> HIVE (Regular Conversion)
 
 **Operation**: `convert_operation`
 **Evaluator**: `convert_evaluator::do_apply()` at `hive_evaluator_transfer.cpp:457`
@@ -385,7 +385,7 @@ Post-HF25, only savings HBD earns interest. This was a deliberate change to enco
 3. A `convert_request_object` is created with completion date = now + `HIVE_CONVERSION_DELAY`
 4. After delay, `process_conversions()` executes:
    ```cpp
-   amount_to_issue = convert_amount * current_median_history  // HBD → HIVE at median price
+   amount_to_issue = convert_amount * current_median_history  // HBD -> HIVE at median price
    adjust_balance(owner, amount_to_issue)
    ```
 
@@ -395,7 +395,7 @@ Post-HF25, only savings HBD earns interest. This was a deliberate change to enco
 - **Price used**: median price at **completion time** (not submission time)
 - Supply adjustment: HBD burned, HIVE created
 
-### HIVE → HBD (Collateralized Conversion)
+### HIVE -> HBD (Collateralized Conversion)
 
 **Operation**: `collateralized_convert_operation` (HF25+)
 **Evaluator**: `collateralized_convert_evaluator::do_apply()` at `hive_evaluator_transfer.cpp:473`
@@ -451,7 +451,7 @@ The DHF is a decentralized treasury that funds proposals voted on by stakeholder
 ### Funding Sources
 
 1. **Inflation allocation**: 10% of new HIVE (post-HF21), converted to HBD and deposited to treasury (see Inflation section)
-2. **Daily HIVE→HBD conversion**: Treasury's liquid HIVE is converted to HBD at 0.05% per day
+2. **Daily HIVE->HBD conversion**: Treasury's liquid HIVE is converted to HBD at 0.05% per day
 3. **Beneficiary rewards**: Posts with treasury as beneficiary send rewards as HBD to treasury
 4. **Direct transfers**: Anyone can transfer HBD/HIVE to the treasury account
 
@@ -515,7 +515,7 @@ The "return proposal" is a community convention — a proposal that acts as a fu
 
 ## Vesting Mechanics (Power Up / Power Down)
 
-### Power Up (HIVE → VESTS)
+### Power Up (HIVE -> VESTS)
 
 **Operation**: `transfer_to_vesting_operation`
 **Evaluator**: `transfer_to_vesting_evaluator::do_apply()` at `hive_evaluator_transfer.cpp:292`
@@ -538,7 +538,7 @@ else
 
 **Delayed voting** (HF24+): After power-up, the new vesting shares are subject to a 30-day voting delay to prevent instant influence purchases.
 
-### Power Down (VESTS → HIVE)
+### Power Down (VESTS -> HIVE)
 
 **Operation**: `withdraw_vesting_operation`
 **Evaluator**: `withdraw_vesting_evaluator::do_apply()` at `hive_evaluator_transfer.cpp:327`
@@ -619,7 +619,7 @@ if min_price > current_median_history:
 | Pre-HF26 | 10% |
 | HF26+ | **30%** |
 
-**Effect**: When the cap is hit, the artificial price makes conversions from HBD→HIVE less favorable, discouraging conversion attacks.
+**Effect**: When the cap is hit, the artificial price makes conversions from HBD->HIVE less favorable, discouraging conversion attacks.
 
 **HF24 change**: Treasury HBD is excluded from `calculate_HBD_percent()` calculations:
 ```cpp
@@ -698,8 +698,8 @@ From `_apply_block()` at `database.cpp:2325`:
 | `HIVE_DEFAULT_HBD_INTEREST_RATE` | 1000 (10%) | Default HBD APR |
 | `HIVE_HBD_INTEREST_COMPOUND_INTERVAL_SEC` | 2,592,000 (30 days) | Interest compound interval |
 | `HIVE_SECONDS_PER_YEAR` | 31,536,000 | Seconds in 365 days |
-| `HIVE_CONVERSION_DELAY` | 302,400s (3.5 days) | HBD→HIVE delay |
-| `HIVE_COLLATERALIZED_CONVERSION_DELAY` | 302,400s (3.5 days) | HIVE→HBD delay |
+| `HIVE_CONVERSION_DELAY` | 302,400s (3.5 days) | HBD->HIVE delay |
+| `HIVE_COLLATERALIZED_CONVERSION_DELAY` | 302,400s (3.5 days) | HIVE->HBD delay |
 | `HIVE_CONVERSION_COLLATERAL_RATIO` | 20,000 (200%) | Required collateral |
 | `HIVE_COLLATERALIZED_CONVERSION_FEE` | 500 (5%) | Conversion fee |
 | `HIVE_FEED_INTERVAL_BLOCKS` | 1,200 (1 hour) | Feed update frequency |
@@ -715,7 +715,7 @@ From `_apply_block()` at `database.cpp:2325`:
 | `HIVE_CONTENT_CONSTANT_HF21` | 2,000,000,000,000 | Curve parameter |
 | `HIVE_PROPOSAL_MAINTENANCE_PERIOD` | 3,600 (1 hour) | DHF payment interval |
 | `HIVE_DAILY_PROPOSAL_MAINTENANCE_PERIOD` | 86,400 (24 hours) | Treasury conversion interval |
-| `HIVE_PROPOSAL_CONVERSION_RATE` | 5 basis points (0.05%) | Daily HIVE→HBD rate for treasury |
+| `HIVE_PROPOSAL_CONVERSION_RATE` | 5 basis points (0.05%) | Daily HIVE->HBD rate for treasury |
 | `HIVE_MAX_WITHDRAW_ROUTES` | 10 | Max power-down destinations |
 | `HIVE_UPVOTE_LOCKOUT_SECONDS` | 43,200 (12 hours) | Pre-cashout lockout |
 
@@ -755,7 +755,7 @@ From `_apply_block()` at `database.cpp:2325`:
 | Curation payment | `database_comment.cpp` | `pay_curators()` at line 129 |
 | Author payment | `database_comment.cpp` | `cashout_comment_helper()` at line 197 |
 | HBD creation | `database.cpp` | `create_hbd()` at line 949 |
-| Vote → rshares | `hive_evaluator_social.cpp` | `hf20_vote_evaluator()` at line 605 |
+| Vote -> rshares | `hive_evaluator_social.cpp` | `hf20_vote_evaluator()` at line 605 |
 | Curation weight | `hive_evaluator_social.cpp` | Lines 779–829 |
 | HBD interest | `database.cpp` | `adjust_balance(HBD)` at line 3206 |
 | Savings interest | `database.cpp` | `adjust_savings_balance(HBD)` at line 3265 |

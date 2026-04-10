@@ -39,8 +39,8 @@ If the query can't be answered at all, say so clearly.
 
 ## Examples
 
-- `/hive-lookup transfer_operation fields` → returns the fields table for transfer_operation from operations.md
-- `/hive-lookup HBD print rate` → returns the HBD print rate section from economics.md
-- `/hive-lookup rc cost model` → returns the RC cost calculation from rc.md
-- `/hive-lookup HIVE_MAX_WITNESSES` → returns the constant value from constants.md
-- `/hive-lookup custom_json authority` → returns the authority requirements for custom_json_operation
+- `/hive-lookup transfer_operation fields` -> returns the fields table for transfer_operation from operations.md
+- `/hive-lookup HBD print rate` -> returns the HBD print rate section from economics.md
+- `/hive-lookup rc cost model` -> returns the RC cost calculation from rc.md
+- `/hive-lookup HIVE_MAX_WITNESSES` -> returns the constant value from constants.md
+- `/hive-lookup custom_json authority` -> returns the authority requirements for custom_json_operation

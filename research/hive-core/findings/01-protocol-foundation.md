@@ -27,12 +27,12 @@ This document captures the complete protocol foundation of the Hive blockchain a
 - **Impact**: Chain ID is mixed into transaction signature digests, preventing cross-chain replay attacks.
 
 ### 5. Version Comparison Has Major-Version Compatibility Hack
-- **What**: The `version` struct comparison operators treat major versions 0 and 1 as equivalent. This was added for HF24 (the Steem→Hive fork) where the major version changed from 0 to 1, but some witnesses still ran old nodes reporting version 0.x.
+- **What**: The `version` struct comparison operators treat major versions 0 and 1 as equivalent. This was added for HF24 (the Steem->Hive fork) where the major version changed from 0 to 1, but some witnesses still ran old nodes reporting version 0.x.
 - **Where**: `version.hpp:50-61`
 - **Impact**: `version(0, 23, 0) == version(1, 23, 0)` returns true. This is a permanent backward-compatibility quirk.
 
 ### 6. HBD Hard Limit Changed Significantly Across Hardforks
-- **What**: The HBD-to-market-cap ratio at which printing stops changed dramatically: HF14 (2%→5%), HF20 (9%→10%), HF26 (20%→20% start/stop, identical). An artificial price floor kicks in at 10% pre-HF26 and 30% post-HF26.
+- **What**: The HBD-to-market-cap ratio at which printing stops changed dramatically: HF14 (2%->5%), HF20 (9%->10%), HF26 (20%->20% start/stop, identical). An artificial price floor kicks in at 10% pre-HF26 and 30% post-HF26.
 - **Where**: `config.hpp:339-346`
 - **Impact**: HF26 effectively doubled the "start reducing" threshold from 10% to 20% and raised the hard limit from 10% to 30%.
 
@@ -429,8 +429,8 @@ Additionally, `witness` authority is tracked separately for block signing.
 - Each key or account in an authority has a `weight_type` (`uint16_t`) weight
 - The authority has a `weight_threshold` (`uint32_t`)
 - To satisfy an authority, the sum of weights of provided keys/accounts must be ≥ threshold
-- Example: threshold=2, key_A weight=1, key_B weight=1 → both keys needed (2-of-2)
-- Example: threshold=1, key_A weight=1, key_B weight=1 → either key works (1-of-2)
+- Example: threshold=2, key_A weight=1, key_B weight=1 -> both keys needed (2-of-2)
+- Example: threshold=1, key_A weight=1, key_B weight=1 -> either key works (1-of-2)
 
 ### Multi-sig
 
@@ -606,7 +606,7 @@ Triple encoding: `major.hardfork.release` packed in `uint32_t`:
 - Bits [16-23]: hardfork version (minor)
 - Bits [0-15]: release version
 
-Current: `version(1, 28, 6)` → `0x011C0006`
+Current: `version(1, 28, 6)` -> `0x011C0006`
 
 ### Hardfork Version
 
@@ -769,7 +769,7 @@ Fully documented in the sections above.
 | Transaction struct | `transaction.hpp` | 12-53 | ref_block, expiration, operations |
 | TaPoS encoding | `transaction.cpp` | 84-88 | Block number + prefix extraction |
 | Tx ID computation | `transaction.cpp` | 58-64 | SHA-256 truncated to 20 bytes |
-| Signature digest | `transaction.cpp` | 29-38 | chain_id + transaction → SHA-256 |
+| Signature digest | `transaction.cpp` | 29-38 | chain_id + transaction -> SHA-256 |
 | Transaction validation | `transaction.cpp` | 40-56 | operations.size() > 0, per-op validate |
 | Version struct | `version.hpp` | 15-77 | Major.HF.release in uint32 |
 | Hardfork version | `version.hpp` | 79-102 | Masks release bits |

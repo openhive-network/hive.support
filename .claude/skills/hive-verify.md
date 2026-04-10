@@ -49,7 +49,7 @@ Correction (if applicable):
 
 ## Examples
 
-- `/hive-verify "voting power regenerates over 5 days"` → Check economics.md and findings for vote mana regeneration time
-- `/hive-verify "HBD interest rate is set by witnesses"` → Check economics.md for HBD interest mechanism
-- `/hive-verify "transfer_operation requires active authority"` → Check operations.md for transfer authority
-- `/hive-verify "RC is enforced during block replay"` → Check rc.md — this should be DENIED (RC is mempool-only)
+- `/hive-verify "voting power regenerates over 5 days"` -> Check economics.md and findings for vote mana regeneration time
+- `/hive-verify "HBD interest rate is set by witnesses"` -> Check economics.md for HBD interest mechanism
+- `/hive-verify "transfer_operation requires active authority"` -> Check operations.md for transfer authority
+- `/hive-verify "RC is enforced during block replay"` -> Check rc.md — this should be DENIED (RC is mempool-only)

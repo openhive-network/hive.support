@@ -61,14 +61,14 @@ Examples:
 
 ```
 contrib/
-├── README.md          ← This file
-├── hive-core/
-│   ├── *.md           ← Pending contributions
-│   └── .digested/     ← Archived after pipeline processed them
-├── haf/
-│   └── ...
-└── <topic>/
-    └── ...
+|-- README.md          <- This file
+|-- hive-core/
+|   |-- *.md           <- Pending contributions
+|   +-- .digested/     <- Archived after pipeline processed them
+|-- haf/
+|   +-- ...
++-- <topic>/
+    +-- ...
 ```
 
 ## Important

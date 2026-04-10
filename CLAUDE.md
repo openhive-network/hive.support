@@ -37,25 +37,25 @@ All data verified against hive-core commit `44c3fd880` (origin/develop).
 
 ```
 hive.support/
-├── CLAUDE.md              ← You are here
-├── reference/             ← COMPACT LOOKUP DOCS (start here)
-│   ├── README.md          ← Navigation guide
-│   ├── operations.md      ← All 93 operations
-│   ├── state-objects.md   ← All state objects
-│   ├── constants.md       ← All config constants
-│   ├── economics.md       ← Economic model
-│   ├── consensus.md       ← Consensus mechanisms
-│   ├── api.md             ← API endpoints
-│   ├── rc.md              ← Resource Credits
-│   └── hardforks.md       ← Hardfork history
-├── research/
-│   └── hive-core/
-│       └── findings/      ← DETAILED ANALYSIS (with source file:line citations)
-├── contrib/               ← FEEDBACK — write here to improve the KB
-└── .claude/
-    ├── settings.json      ← Agent and skill configuration
-    ├── agents/            ← Hive-specialized agents
-    └── skills/            ← Hive slash commands
+|-- CLAUDE.md              <- You are here
+|-- reference/             <- COMPACT LOOKUP DOCS (start here)
+|   |-- README.md          <- Navigation guide
+|   |-- operations.md      <- All 93 operations
+|   |-- state-objects.md   <- All state objects
+|   |-- constants.md       <- All config constants
+|   |-- economics.md       <- Economic model
+|   |-- consensus.md       <- Consensus mechanisms
+|   |-- api.md             <- API endpoints
+|   |-- rc.md              <- Resource Credits
+|   +-- hardforks.md       <- Hardfork history
+|-- research/
+|   +-- hive-core/
+|       +-- findings/      <- DETAILED ANALYSIS (with source file:line citations)
+|-- contrib/               <- FEEDBACK -- write here to improve the KB
++-- .claude/
+    |-- settings.json      <- Agent and skill configuration
+    |-- agents/            <- Hive-specialized agents
+    +-- skills/            <- Hive slash commands
 ```
 
 **reference/** = compact lookup tables for quick answers
@@ -63,9 +63,9 @@ hive.support/
 
 ## When to Use What
 
-- **Quick lookup** (what fields does transfer_operation have?) → `reference/operations.md`
-- **Deep investigation** (how exactly does the vote evaluator handle HF25 curation penalties?) → `research/hive-core/findings/04-chain-evaluators.md`
-- **Verify a claim** (is X really true?) → Read the source code at the file:line cited in findings
+- **Quick lookup** (what fields does transfer_operation have?) -> `reference/operations.md`
+- **Deep investigation** (how exactly does the vote evaluator handle HF25 curation penalties?) -> `research/hive-core/findings/04-chain-evaluators.md`
+- **Verify a claim** (is X really true?) -> Read the source code at the file:line cited in findings
 
 ## Agents and Skills
 

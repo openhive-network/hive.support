@@ -4,7 +4,7 @@
 
 The Hive blockchain has undergone **28 hardforks** from genesis to the current version. Hardforks 1–23 occurred during the Steem era (major version 0), while hardforks 24–28 are Hive-native (major version 1). The hardfork system uses a witness supermajority voting mechanism (17/21) introduced at HF5; prior hardforks activated purely by time. Each hardfork is defined in a `.hf` file under `libraries/protocol/hardfork.d/`, applied via `database::apply_hardfork()` with one-time state migrations, and gated throughout the codebase via `has_hardfork()` checks (225+ occurrences across 19 chain-layer source files).
 
-The most critical hardfork is **HF23** (the Steem→Hive fork), which cleared Steemit/Tron-affiliated accounts and was **forced without witness majority** — a unique override in the code. **HF20** introduced the Resource Credits system, the single largest feature addition. **HF28** (block 100,000,000) is the most recent, with an expected activation in November 2025.
+The most critical hardfork is **HF23** (the Steem->Hive fork), which cleared Steemit/Tron-affiliated accounts and was **forced without witness majority** — a unique override in the code. **HF20** introduced the Resource Credits system, the single largest feature addition. **HF28** (block 100,000,000) is the most recent, with an expected activation in November 2025.
 
 ## Hardfork System Architecture
 
@@ -36,7 +36,7 @@ Each `.hf` file defines:
 ```
 while last_hardfork < HIVE_NUM_HARDFORKS
   AND hardfork_times[last_hardfork + 1] <= head_block_time()
-  → apply_hardfork(last_hardfork + 1)
+  -> apply_hardfork(last_hardfork + 1)
 ```
 
 **Post-HF5 (witness vote + time)**:
@@ -240,7 +240,7 @@ if( major_v() == 0 && _val == 1 )  // 0.HF == 1.HF
 - **Version**: 0.16
 - **One-time migration**: Feed history window trimmed to `HIVE_FEED_HISTORY_WINDOW`
 - **Key changes**:
-  - **Power down changed from 104 weeks to 13 weeks** (`HIVE_VESTING_WITHDRAW_INTERVALS`: 104 → 13)
+  - **Power down changed from 104 weeks to 13 weeks** (`HIVE_VESTING_WITHDRAW_INTERVALS`: 104 -> 13)
   - Conversion delay changed to `HIVE_CONVERSION_DELAY`
   - Equihash PoW enabled (#551)
   - **New inflation model**: 9.5% starting rate, decreasing 0.01% every 250k blocks toward 0.95% floor
@@ -257,7 +257,7 @@ if( major_v() == 0 && _val == 1 )  // 0.HF == 1.HF
   - Global `total_reward_fund_hive` and `total_reward_shares2` zeroed
   - Comment cashout fix applied
 - **Key changes**:
-  - Comment depth limit increased (6 → 65,535)
+  - Comment depth limit increased (6 -> 65,535)
   - Reward fund system created (per-pool rewards)
   - `pow2` (mining) **disabled** permanently (#770)
   - Various comment payout timing changes
@@ -278,7 +278,7 @@ if( major_v() == 0 && _val == 1 )  // 0.HF == 1.HF
 - **Version**: 0.19
 - **One-time migration**:
   - Vote power reserve rate set to `HIVE_REDUCED_VOTE_POWER_RATE` (10 full votes/day)
-  - Reward fund: recent_claims reset, author curve → linear, curation curve → square_root
+  - Reward fund: recent_claims reset, author curve -> linear, curation curve -> square_root
   - All zero-amount delegation objects removed
   - Old cashouts removed
 - **Key changes**:
@@ -295,10 +295,10 @@ if( major_v() == 0 && _val == 1 )  // 0.HF == 1.HF
 - **One-time migration**:
   - **RC system fully initialized**: parameter objects, usage buckets, pool, stats objects
   - All existing accounts: RC mana set to maximum, `rc_adjustment` set to `HIVE_RC_HISTORICAL_ACCOUNT_CREATION_ADJUSTMENT`
-  - Delegation return period → `HIVE_DELEGATION_RETURN_PERIOD_HF20` (5 days)
-  - Reverse auction → 15 minutes
+  - Delegation return period -> `HIVE_DELEGATION_RETURN_PERIOD_HF20` (5 days)
+  - Reverse auction -> 15 minutes
   - HBD limits: start 9%, stop 10%
-  - Available account subsidies → 0
+  - Available account subsidies -> 0
   - Witness account creation fees multiplied by `HIVE_CREATE_ACCOUNT_WITH_HIVE_MODIFIER`
 - **Key changes**:
   - **Resource Credits (RC) system** — the single largest feature addition in blockchain history
@@ -318,10 +318,10 @@ if( major_v() == 0 && _val == 1 )  // 0.HF == 1.HF
 - **Time**: 2019-08-27 15:00:00 UTC
 - **Version**: 0.21
 - **One-time migration**:
-  - Proposal fund percent → 10%
-  - Content reward percent → 65%
-  - Downvote pool percent → 25%
-  - Reverse auction → 5 minutes
+  - Proposal fund percent -> 10%
+  - Content reward percent -> 65%
+  - Downvote pool percent -> 25%
+  - Reverse auction -> 5 minutes
   - Treasury account created and locked
   - Reward fund: 50% curation, convergent_linear author curve, convergent_square_root curation curve, `HIVE_CONTENT_CONSTANT_HF21`
 - **Key changes**:
@@ -346,7 +346,7 @@ if( major_v() == 0 && _val == 1 )  // 0.HF == 1.HF
   - Contains `hardforkprotect::get_steemit_accounts()` — the list of ~360 accounts to be cleared at HF23
 - **Note**: Rapid follow-up to HF21, mainly fixing downvote pool integration issues
 
-### HF23 — The Steem→Hive Fork ⚡
+### HF23 — The Steem->Hive Fork ⚡
 - **Block**: 41,818,752
 - **Time**: 2020-03-20 14:00:00 UTC
 - **Version**: 0.23
@@ -375,7 +375,7 @@ if( major_v() == 0 && _val == 1 )  // 0.HF == 1.HF
     - 4 accounts won airdrop appeal (proposal #104)
     - 14 accounts won airdrop appeal (proposal #111)
   - **Chain ID set** to Hive mainnet: `beeab0de00000000000000000000000000000000000000000000000000000000`
-  - **Treasury renamed**: `steem.dao` → `hive.fund` (new account created, balance consolidated)
+  - **Treasury renamed**: `steem.dao` -> `hive.fund` (new account created, balance consolidated)
   - Blockchain configuration updated
 - **Key changes**:
   - Major version changed from 0 to 1
@@ -397,7 +397,7 @@ if( major_v() == 0 && _val == 1 )  // 0.HF == 1.HF
   - Mid voting window: 48 hours
 - **Key changes**:
   - **Recurrent transfers** enabled (`recurrent_transfer_operation`)
-  - **`collateralized_convert` operation** enabled (HIVE→HBD with 2x collateral)
+  - **`collateralized_convert` operation** enabled (HIVE->HBD with 2x collateral)
   - **Governance vote expiration**: 365 days (`HIVE_GOVERNANCE_VOTE_EXPIRATION_PERIOD`)
   - HBD hard cap no longer counts treasury balance (#140)
   - Proposal end date update extension allowed
@@ -466,8 +466,8 @@ if( major_v() == 0 && _val == 1 )  // 0.HF == 1.HF
 | Disabled witnesses skipped | HF14 | `witness_schedule.cpp:166` |
 | Custom JSON enabled | HF14 | `hive_evaluator.cpp:380` |
 | Posting authority verification | HF15 | `hive_evaluator_account.cpp:329` |
-| Power down 104→13 weeks | HF16 | `hive_evaluator_transfer.cpp:362` |
-| Inflation model (9.5%→0.95%) | HF16 | `database.cpp:1710` |
+| Power down 104->13 weeks | HF16 | `hive_evaluator_transfer.cpp:362` |
+| Inflation model (9.5%->0.95%) | HF16 | `database.cpp:1710` |
 | Witness schedule 20/0/1 | HF17 | `database_hardfork.cpp:269` |
 | Comment depth 65535 | HF17 | `hive_evaluator_social.cpp:185` |
 | Reward fund system | HF17 | `database_hardfork.cpp:278` |
@@ -491,7 +491,7 @@ if( major_v() == 0 && _val == 1 )  // 0.HF == 1.HF
 | Accounts restored from HF23 | HF24 | `database_hardfork.cpp:473` |
 | Treasury renamed (hive.fund) | HF24 | `database_hardfork.cpp:529` |
 | Delayed voting | HF24 | `database.cpp:1656` |
-| HIVE→treasury auto-converts to HBD | HF24 | `hive_evaluator_transfer.cpp:262` |
+| HIVE->treasury auto-converts to HBD | HF24 | `hive_evaluator_transfer.cpp:262` |
 | update_proposal enabled | HF24 | `dhf_evaluator.cpp:107` |
 | Recurrent transfers | HF25 | `hive_evaluator_transfer.cpp:908` |
 | Collateralized convert | HF25 | `hive_evaluator_transfer.cpp:475` |
@@ -557,7 +557,7 @@ if( major_v() == 0 && _val == 1 )  // 0.HF == 1.HF
 
 ## Key Discoveries
 
-1. **HF23 forced activation is unique**: The only hardfork that bypasses witness majority voting. This was hardcoded specifically for the Steem→Hive fork — once current version is HF22, HF23 is forced regardless of witness votes.
+1. **HF23 forced activation is unique**: The only hardfork that bypasses witness majority voting. This was hardcoded specifically for the Steem->Hive fork — once current version is HF22, HF23 is forced regardless of witness votes.
 
 2. **HF17 and HF18 activated simultaneously**: Same timestamp (2017-03-30 15:00 UTC), only 31 blocks apart. HF18 has no one-time migration and no conditional code — it's purely a version marker.
 
@@ -571,7 +571,7 @@ if( major_v() == 0 && _val == 1 )  // 0.HF == 1.HF
 
 7. **HF22 contains the HF23 exclusion list**: The `get_steemit_accounts()` function was defined in `0_22.hf` but only called at HF23. This means the list was prepared one hardfork in advance.
 
-8. **HF24 has dual time semantics**: Both `TIME` (earliest allowed) and `ACTUAL_TIME` (when it really happened). The gap is 8 days (Oct 6 → Oct 14), showing how long it took witnesses to approve.
+8. **HF24 has dual time semantics**: Both `TIME` (earliest allowed) and `ACTUAL_TIME` (when it really happened). The gap is 8 days (Oct 6 -> Oct 14), showing how long it took witnesses to approve.
 
 9. **Version comparison ignores major version**: Comparing `0.20` and `1.20` would be equal. This was specifically designed for the HF24 transition where some witnesses hadn't upgraded from version 0.x.
 
@@ -581,7 +581,7 @@ if( major_v() == 0 && _val == 1 )  // 0.HF == 1.HF
 
 | Parameter | Pre-HF16 | HF16 | HF20 | HF21 | HF25 | HF26 |
 |-----------|----------|------|------|------|------|------|
-| Inflation | Fixed formula | 9.5%→0.95% | — | — | — | — |
+| Inflation | Fixed formula | 9.5%->0.95% | — | — | — | — |
 | Power down | 104 weeks | 13 weeks | — | — | — | — |
 | Reverse auction | — | — | 15 min | 5 min | **0 (disabled)** | — |
 | HBD cap start | — | — | 9% | — | — | **20%** |
@@ -660,7 +660,7 @@ Mining was deprecated at HF13 (pow) and disabled at HF17 (pow2), so the miner sl
 
 3. **h23_balances persists permanently**: The `hardfork_property_object` stores HF23 cleared balances forever in shared memory, even though restoration happened at HF24. This is dead weight after HF24 but remains in the state.
 
-4. **HF23 TAPOS reset was commented out**: The code to clear the TAPOS buffer (preventing replay attacks after the fork) is present but commented out with a note that it "breaks live 5M mirrornet instance." This means the Steem→Hive fork did NOT clear TAPOS — replay protection relied on the chain ID change at HF24 instead.
+4. **HF23 TAPOS reset was commented out**: The code to clear the TAPOS buffer (preventing replay attacks after the fork) is present but commented out with a note that it "breaks live 5M mirrornet instance." This means the Steem->Hive fork did NOT clear TAPOS — replay protection relied on the chain ID change at HF24 instead.
 
 5. **Version comparison quirk**: The major version 0↔1 equivalence means `version(0, 28, 0)` would compare equal to `version(1, 28, 0)`. This could theoretically cause issues if a version 0.x node attempted to connect to the Hive network, but in practice such old nodes wouldn't be running HF28 code.
 

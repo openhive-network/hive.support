@@ -67,7 +67,7 @@ The operation name can be with or without the `_operation` suffix:
 
 ## Examples
 
-- `/hive-op transfer` → full profile of transfer_operation
-- `/hive-op delegate_vesting_shares` → delegation operation with its complex evaluator
-- `/hive-op witness_update` → witness configuration with all fields
-- `/hive-op custom_json` → custom_json with its special multi-authority model
+- `/hive-op transfer` -> full profile of transfer_operation
+- `/hive-op delegate_vesting_shares` -> delegation operation with its complex evaluator
+- `/hive-op witness_update` -> witness configuration with all fields
+- `/hive-op custom_json` -> custom_json with its special multi-authority model

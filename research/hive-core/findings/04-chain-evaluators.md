@@ -11,10 +11,10 @@ methods they call to mutate chain state.
 
 ```
 evaluator<OperationType>                     (abstract base)
-  └─ evaluator_impl<EvaluatorType>           (template CRTP bridge)
-       └─ transfer_evaluator                 (concrete, via HIVE_DEFINE_EVALUATOR macro)
-       └─ vote_evaluator
-       └─ ... (one per operation type)
+  +-- evaluator_impl<EvaluatorType>          (template CRTP bridge)
+       +-- transfer_evaluator                (concrete, via HIVE_DEFINE_EVALUATOR macro)
+       +-- vote_evaluator
+       +-- ... (one per operation type)
 ```
 
 **Key files:**
@@ -131,29 +131,29 @@ The full call chain from block application to evaluator execution:
 
 ```
 database::apply_block(full_block, skip, block_ctrl)
-  └─ database::_apply_block(full_block, block_ctrl)
-       ├─ notify_pre_apply_block(note)
-       ├─ FOR EACH transaction in block:
-       │    └─ database::apply_transaction(trx, skip)
-       │         └─ database::_apply_transaction(trx)
-       │              ├─ validate_transaction(trx, skip)
-       │              ├─ create<transaction_object>  (dupe check)
-       │              ├─ notify_pre_apply_transaction(note)
-       │              ├─ rc().reset_tx_info(trx)
-       │              ├─ FOR EACH operation in transaction:
-       │              │    └─ database_impl::apply_operation(op)
-       │              │         ├─ notify_pre_apply_operation(note)
-       │              │         ├─ rc().handle_operation_discount(op)  [HF20+]
-       │              │         ├─ _evaluator_registry.get_evaluator(op).apply(op)
-       │              │         │    └─ evaluator_impl::apply(op)
-       │              │         │         └─ ConcreteEvaluator::do_apply(typed_op)
-       │              │         └─ notify_post_apply_operation(note)
-       │              ├─ rc().finalize_transaction(trx)
-       │              └─ notify_post_apply_transaction(note)
-       │
-       ├─ [End-of-block processing — see Section 3]
-       ├─ notify_post_apply_block(note)
-       └─ migrate_irreversible_state(old_lib)
+  +-- database::_apply_block(full_block, block_ctrl)
+       |-- notify_pre_apply_block(note)
+       |-- FOR EACH transaction in block:
+       |    +-- database::apply_transaction(trx, skip)
+       |         +-- database::_apply_transaction(trx)
+       |              |-- validate_transaction(trx, skip)
+       |              |-- create<transaction_object>  (dupe check)
+       |              |-- notify_pre_apply_transaction(note)
+       |              |-- rc().reset_tx_info(trx)
+       |              |-- FOR EACH operation in transaction:
+       |              |    +-- database_impl::apply_operation(op)
+       |              |         |-- notify_pre_apply_operation(note)
+       |              |         |-- rc().handle_operation_discount(op)  [HF20+]
+       |              |         |-- _evaluator_registry.get_evaluator(op).apply(op)
+       |              |         |    +-- evaluator_impl::apply(op)
+       |              |         |         +-- ConcreteEvaluator::do_apply(typed_op)
+       |              |         +-- notify_post_apply_operation(note)
+       |              |-- rc().finalize_transaction(trx)
+       |              +-- notify_post_apply_transaction(note)
+       |
+       |-- [End-of-block processing -- see Section 3]
+       |-- notify_post_apply_block(note)
+       +-- migrate_irreversible_state(old_lib)
 ```
 
 ### 1.5 Signal/Plugin Integration
@@ -717,7 +717,7 @@ hardfork-conditional behavior, and key business logic.
   - Sufficient vesting (net of delegations)
   - HF28: prevents no-op cancellation and redundant power-down set
 - **Business Logic**: `amount == 0` cancels active power-down. `amount > 0` sets weekly withdrawal rate = `amount / intervals`. Pre-HF16: 104 intervals. Post-HF16: 13 intervals. HF21: fixes rounding by incrementing rate if `rate * intervals < total`.
-- **Hardfork Notes**: HF16 (interval change 104→13), HF20 (negative VESTS rejection, RC), HF21 (rounding fix), HF28 (no-op prevention)
+- **Hardfork Notes**: HF16 (interval change 104->13), HF20 (negative VESTS rejection, RC), HF21 (rounding fix), HF28 (no-op prevention)
 
 ---
 
@@ -745,7 +745,7 @@ hardfork-conditional behavior, and key business logic.
 - **Removes**: —
 - **Virtual Ops**: — (actual conversion emits `fill_convert_request_operation` later)
 - **Chain-State Checks**: Requires non-null price feed
-- **Business Logic**: HBD→HIVE. Deducts HBD now, creates delayed request. HIVE paid out after `HIVE_CONVERSION_DELAY` (3.5 days post-HF16) at median price at completion time.
+- **Business Logic**: HBD->HIVE. Deducts HBD now, creates delayed request. HIVE paid out after `HIVE_CONVERSION_DELAY` (3.5 days post-HF16) at median price at completion time.
 - **Hardfork Notes**: HF16 (delay change)
 
 ---
@@ -763,7 +763,7 @@ hardfork-conditional behavior, and key business logic.
   - `hbd_print_rate > 0` (HBD creation not blocked)
   - Converted amount > 0
   - New HBD doesn't violate global `hbd_stop_percent` cap
-- **Business Logic**: HIVE→HBD with 2x overcollateralization. Immediate HBD payout at `current_min_history` price minus fee. Excess collateral returned after `HIVE_COLLATERALIZED_CONVERSION_DELAY` at median price.
+- **Business Logic**: HIVE->HBD with 2x overcollateralization. Immediate HBD payout at `current_min_history` price minus fee. Excess collateral returned after `HIVE_COLLATERALIZED_CONVERSION_DELAY` at median price.
 - **Hardfork Notes**: HF25 (introduced)
 
 ---
@@ -774,7 +774,7 @@ hardfork-conditional behavior, and key business logic.
 - **Modifies**: seller balance (deducted), potentially other orders and balances via `apply_order()`
 - **Creates**: `limit_order_object`
 - **Removes**: — (but `apply_order()` may remove matched orders)
-- **Virtual Ops**: — (but `apply_order()` → `match()` emits `fill_order_operation`)
+- **Virtual Ops**: — (but `apply_order()` -> `match()` emits `fill_order_operation`)
 - **Chain-State Checks**:
   - Expiration must be in future
   - HF20+: max 28-day expiration
@@ -1171,7 +1171,7 @@ hardfork-conditional behavior, and key business logic.
 - **Chain-State Checks**:
   - No replies (cannot delete comment with replies)
   - Cashout object must exist (cannot delete after payout)
-  - HF19+: net_rshares must be ≤ 0 (hard error). Pre-HF19: positive rshares → silent no-op with virtual op.
+  - HF19+: net_rshares must be ≤ 0 (hard error). Pre-HF19: positive rshares -> silent no-op with virtual op.
 - **Business Logic**: Removes comment and all its votes. Pre-HF19: positive votes caused soft failure. HF19+: hard rejection.
 - **Hardfork Notes**: HF19 (hard rejection of voted-on delete)
 

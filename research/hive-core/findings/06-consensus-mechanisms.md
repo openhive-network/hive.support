@@ -385,7 +385,7 @@ No per-transaction undo sessions — entire block is atomic. If any transaction 
 
 ### Transaction Application Chain
 
-**`apply_transaction()`** → sets skip flags → **`_apply_transaction()`** (`database.cpp:2644-2702`):
+**`apply_transaction()`** -> sets skip flags -> **`_apply_transaction()`** (`database.cpp:2644-2702`):
 
 1. **Status check**: verify TX_STATUS is set
 2. **Duplicate check**: `is_known_transaction(trx_id)` (unless `skip_transaction_dupe_check`)
@@ -594,7 +594,7 @@ best_block = max(fast_approved_block_num, last_generated_block_num)
 2. For each fork tip (blocks with no children):
    - Walk backwards counting witness approvals
    - A witness's approval of block N counts as approval of all ancestors
-   - If ≥ required witnesses approve a block → candidate for new LIB
+   - If ≥ required witnesses approve a block -> candidate for new LIB
 3. Select the highest such block across all fork tips
 4. Check if the candidate LIB is on the main branch or a different fork
 5. If on another fork: may trigger a fork switch (only if that fork is at least as long)

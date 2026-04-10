@@ -36,7 +36,7 @@ FC_TODO( "Add || db.has_hardfork( X ) to make RC part of consensus since X" );
 ```
 
 This means:
-- **`is_in_control()` (producing/validating new tx)**: RC is strictly enforced; insufficient RC → transaction rejected
+- **`is_in_control()` (producing/validating new tx)**: RC is strictly enforced; insufficient RC -> transaction rejected
 - **`is_processing_block()`**: Insufficient RC is logged but the transaction is accepted
 - **Replay**: RC is calculated but not enforced
 - The `last_max_rc` field is described as "for bug catching with RC code, can be removed once RC becomes part of consensus"
@@ -188,7 +188,7 @@ cost = (pool_regen_share * coeff_a >> shift) * resource_count / (coeff_b + curre
 Where:
 - `coeff_a` and `shift`: Derived from curve generation, encode `tau/k` (characteristic time / price sensitivity)
 - `coeff_b`: `inelasticity_threshold * pool_eq` — below this pool level, price rises rapidly
-- `current_pool`: Current pool level (higher pool → lower price)
+- `current_pool`: Current pool level (higher pool -> lower price)
 - `+1`: Ensures minimum cost of 1 RC per resource used
 
 **Key behavior**: As the pool drains (more demand), price increases. When pool is at equilibrium, prices are moderate. When pool goes negative/zero, price is at maximum (`coeff_b` prevents division by zero).
@@ -268,9 +268,9 @@ new_current_mana = min(current_mana + u_regen, max_mana);
 
 ### Key Properties
 
-- **Full regeneration**: 0 → max takes exactly 5 days (432,000 seconds)
+- **Full regeneration**: 0 -> max takes exactly 5 days (432,000 seconds)
 - **Lazy evaluation**: Mana is only regenerated on-demand (before operations that read/modify it)
-- **RC uses `skip_cap_regen = true`**: The dt cap (`dt > regen_time → dt = regen_time`) is skipped for RC, meaning very old accounts that haven't transacted in months get full regeneration on first use
+- **RC uses `skip_cap_regen = true`**: The dt cap (`dt > regen_time -> dt = regen_time`) is skipped for RC, meaning very old accounts that haven't transacted in months get full regeneration on first use
 - **Mana can go negative**: `use_mana()` uses saturating subtraction and allows negative values (capped at `int64_t::min()`)
 
 ### Maximum RC Calculation

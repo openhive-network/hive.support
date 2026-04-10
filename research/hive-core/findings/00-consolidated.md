@@ -76,9 +76,9 @@ The Hive blockchain is a Delegated Proof of Stake system producing blocks every 
 
 **Category**: Deliberate economic policy change, not a code defect.
 
-**What it is**: `config.hpp:343-344` sets `hbd_start_percent = hbd_stop_percent = 2000 (20%)`, eliminating the gradual throttling band. `database.cpp:2881-2886` — when `start == stop`, the middle branch (gradual scaling) is unreachable, creating binary 100%→0% switching.
+**What it is**: `config.hpp:343-344` sets `hbd_start_percent = hbd_stop_percent = 2000 (20%)`, eliminating the gradual throttling band. `database.cpp:2881-2886` — when `start == stop`, the middle branch (gradual scaling) is unreachable, creating binary 100%->0% switching.
 
-**History**: Pre-HF14: no throttling. HF14-HF19: gradual 2%→5% band. HF20-HF25: gradual 9%→10% band. HF26+: cliff at 20%. Each step was a governance decision. These constants are hardcoded, not witness-adjustable — they require a hardfork to change.
+**History**: Pre-HF14: no throttling. HF14-HF19: gradual 2%->5% band. HF20-HF25: gradual 9%->10% band. HF26+: cliff at 20%. Each step was a governance decision. These constants are hardcoded, not witness-adjustable — they require a hardfork to change.
 
 **Whether this is optimal**: Legitimate economic policy question, but the code does exactly what it was configured to do. The community/witnesses approved HF26 with these parameters.
 
@@ -88,9 +88,9 @@ The Hive blockchain is a Delegated Proof of Stake system producing blocks every 
 
 **What it is**: `sync_block_writer.cpp:228-260` handles three cases when a fork switch fails partway through. The code explicitly documents all three in comments at lines 228-232:
 
-1. **New fork still longer** (bad block was late) → stay on partial new fork. Correct.
-2. **New fork now shorter, common ancestor not irreversible** → revert to old fork. Correct.
-3. **New fork shorter, but blocks became irreversible** → cannot revert. Correct.
+1. **New fork still longer** (bad block was late) -> stay on partial new fork. Correct.
+2. **New fork now shorter, common ancestor not irreversible** -> revert to old fork. Correct.
+3. **New fork shorter, but blocks became irreversible** -> cannot revert. Correct.
 
 **Why case 3 is not a bug**: If LIB advanced past the common ancestor during the fork switch (via `update_last_irreversible_block()` called in `_apply_block()` at `database.cpp:2321`), the undo data for those blocks has been discarded and the block log is written. Reverting is physically impossible. The exception propagates, which is the only correct behavior. For LIB to advance, 16/21 witnesses must have confirmed blocks on the new fork — an extremely unlikely scenario to then have a later block fail.
 
@@ -404,7 +404,7 @@ Testnet-only feature. When enabled (via colony/queen plugin), the witness plugin
 **3. What is `hf_21_stall_block`?** — RESOLVED
 Constant block number `35922615` in `hardfork.d/0_21.hf`. Marks a specific point for the **iceberg** feature — a blockchain converter plugin that generates valid blockchain slices from a range of mainnet blocks for mirrornet/testing. Iceberg creates condensed histories with all necessary account/comment context. Comment says "remove when iceberg is implemented." Iceberg implementation exists in the converter tool but the stall_block reference persists.
 
-**4. Plans to migrate `account_name_type` → `account_id_type`?** — RESOLVED: no active plan
+**4. Plans to migrate `account_name_type` -> `account_id_type`?** — RESOLVED: no active plan
 Investigated GitLab issues, MRs, branches, and commit history — no active work, no filed issues, no branches. The TODOs are informal ABW annotations in 5 state object files (`global_property_object.hpp:63`, `escrow_object.hpp:40-42`, `limit_order_object.hpp:46`, `savings_withdraw_object.hpp:27-28`) noting it "can be replaced" with caveats like "would make looking for escrow object harder." These are aspirational comments, not tracked work.
 
 **5. Plans to refactor `account_object`?** — ASK TEAM
@@ -413,7 +413,7 @@ Investigated GitLab issues, MRs, branches, and commit history — no active work
 ### Consensus
 
 **6. How is HF28 activation controlled?** — RESOLVED
-Dual-trigger: block number AND time. `hardfork_block.hpp:30` sets `HIVE_HARDFORK_1_28_BLOCK = 100000000`. `hardfork.d/1_28.hf` sets time via `next_hf_time()` → mainnet `1763557200` (2025-11-19 13:00 UTC). Overridable via `HIVE_HF28_TIME` env var. `process_hardforks()` in `database_hardfork.cpp:114-144` requires BOTH conditions (time reached AND block number reached naturally through consensus). Neither condition alone triggers activation.
+Dual-trigger: block number AND time. `hardfork_block.hpp:30` sets `HIVE_HARDFORK_1_28_BLOCK = 100000000`. `hardfork.d/1_28.hf` sets time via `next_hf_time()` -> mainnet `1763557200` (2025-11-19 13:00 UTC). Overridable via `HIVE_HF28_TIME` env var. `process_hardforks()` in `database_hardfork.cpp:114-144` requires BOTH conditions (time reached AND block number reached naturally through consensus). Neither condition alone triggers activation.
 
 **7. Fork DB capacity and undo stack interaction?** — RESOLVED
 Fork DB has `max_size = 1024` blocks (`fork_database.hpp:207`). Blocks older than `head - 1024` are rejected (`fork_database.cpp:77-79`). Oldest block in fork DB = last irreversible block (`fork_database.cpp:440-441`). When blocks fall off the fork DB, their undo data is committed — they become irreversible. This enforces a hard **1024-block reorg limit** (~51 minutes at 3s blocks).
@@ -666,7 +666,7 @@ Part 04 says HBD interest is "hidden as side effect of adjust_balance(HBD)" whil
 | API methods | ~175 |
 | `has_hardfork()` checks | 225+ across 19 files |
 | Tracked bugs/issues | 9 (1 arch debt, 3 bugs [1 fixed], 2 tech debt, 2 errata/policy, 1 low) |
-| Open questions | 25 → 21 resolved, 2 known/unresolved, 2 ask-team |
+| Open questions | 25 -> 21 resolved, 2 known/unresolved, 2 ask-team |
 | Notable findings | 8 (reclassified from "critical" after verification) |
 | Recommendations | 10 |
 | Recommendations | 11 |

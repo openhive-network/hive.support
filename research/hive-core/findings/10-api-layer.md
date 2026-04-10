@@ -24,7 +24,7 @@ All plugins inherit from `appbase::plugin<Impl>` (CRTP pattern). The framework m
 
 - **Plugin registration** via `APPBASE_PLUGIN_REQUIRES((dep1)(dep2))` macro
 - **Dependency resolution** — plugins are initialized in dependency order
-- **Lifecycle management** — 4 states: `registered` → `initialized` → `started` → `stopped`
+- **Lifecycle management** — 4 states: `registered` -> `initialized` -> `started` -> `stopped`
 
 **Plugin lifecycle hooks:**
 1. `plugin_initialize(options)` — Setup resources, register APIs
@@ -38,7 +38,7 @@ All plugins inherit from `appbase::plugin<Impl>` (CRTP pattern). The framework m
 **Source:** `libraries/plugins/json_rpc/`
 
 The `json_rpc_plugin` is the central API registry. It:
-- Maintains a map of `api_name → {method_name → handler_function}`
+- Maintains a map of `api_name -> {method_name -> handler_function}`
 - Supports two calling conventions in requests
 - Provides introspection via `jsonrpc.get_methods()` and `jsonrpc.get_signature()`
 
@@ -50,12 +50,12 @@ The `json_rpc_plugin` is the central API registry. It:
 **Request routing flow:**
 ```
 HTTP/WS request (JSON string)
-    → json_rpc_plugin::call(body)
-    → Parse JSON, validate JSON-RPC 2.0 format
-    → process_params() — extract api_name + method_name
-    → find_api_method() — lookup in _registered_apis map
-    → Execute handler (with read/write lock as appropriate)
-    → Return json_rpc_response {jsonrpc, result|error, id}
+    -> json_rpc_plugin::call(body)
+    -> Parse JSON, validate JSON-RPC 2.0 format
+    -> process_params() — extract api_name + method_name
+    -> find_api_method() — lookup in _registered_apis map
+    -> Execute handler (with read/write lock as appropriate)
+    -> Return json_rpc_response {jsonrpc, result|error, id}
 ```
 
 **Two calling conventions:**
@@ -200,8 +200,8 @@ Provides 4 transport endpoints:
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
 | `get_escrow` | (from: string, escrow_id: uint32) | optional\<escrow_object\> | |
-| `get_conversion_requests` | (account: string) | vector\<convert_request\> | HBD→HIVE |
-| `get_collateralized_conversion_requests` | (account: string) | vector\<collateralized_convert_request\> | HIVE→HBD |
+| `get_conversion_requests` | (account: string) | vector\<convert_request\> | HBD->HIVE |
+| `get_collateralized_conversion_requests` | (account: string) | vector\<collateralized_convert_request\> | HIVE->HBD |
 | `find_recurrent_transfers` | (account: string) | vector\<recurrent_transfer\> | |
 
 #### Blockchain Data (5 methods)
@@ -472,7 +472,7 @@ list_object_args_type {
 | `get_feed_history` | (none) | database_api | |
 | `get_active_witnesses` | (include_future?) | database_api | |
 | `get_withdraw_routes` | (account, type?) | database_api | outgoing/incoming/all |
-| `list_my_accounts` | (public_keys: vector) | account_by_key_api + database_api | Key→account→details |
+| `list_my_accounts` | (public_keys: vector) | account_by_key_api + database_api | Key->account->details |
 | `list_accounts` | (lower_bound, limit) | Direct chain DB | |
 | `get_dynamic_global_properties` | (none) | database_api | |
 | `get_account` | (name) | Direct chain DB + metadata | Returns optional |
@@ -480,8 +480,8 @@ list_object_args_type {
 | `get_transaction` | (txid) | account_history_api | |
 | `list_witnesses` | (lower_bound, limit) | database_api | |
 | `get_witness` | (name) | database_api | Returns optional |
-| `get_conversion_requests` | (account) | database_api | HBD→HIVE |
-| `get_collateralized_conversion_requests` | (account) | database_api | HIVE→HBD |
+| `get_conversion_requests` | (account) | database_api | HBD->HIVE |
+| `get_collateralized_conversion_requests` | (account) | database_api | HIVE->HBD |
 | `get_order_book` | (limit) | market_history_api | |
 | `get_open_orders` | (account) | Direct chain DB | |
 | `get_owner_history` | (account) | database_api | |
@@ -678,7 +678,7 @@ list_object_args_type {
 **Source:** `libraries/plugins/witness/`
 **Purpose:** Block production for witness nodes.
 
-- Manages witness signing keys (public→private key map)
+- Manages witness signing keys (public->private key map)
 - Schedules block production based on witness slots
 - Tracks production conditions (not_synced, not_my_turn, no_private_key, low_participation, lag, etc.)
 - Fast-confirm mode for rapid block confirmation
@@ -756,26 +756,26 @@ list_object_args_type {
 ## Plugin Dependency Graph
 
 ```
-webserver_plugin ← json_rpc_plugin ← chain_plugin (CORE)
-                                         ↑
-                    ┌────────────────────┼──────────────────────┐
-                    │                    │                      │
+webserver_plugin <- json_rpc_plugin <- chain_plugin (CORE)
+                                         ^
+                    +--------------------+----------------------+
+                    |                    |                      |
                p2p_plugin         market_history_plugin    reputation_plugin
-                    ↑              transaction_status_plugin
-                    │              state_snapshot_plugin
+                    ^              transaction_status_plugin
+                    |              state_snapshot_plugin
               witness_plugin       account_by_key_plugin
                                    account_history_rocksdb_plugin
 
 API plugins (all depend on json_rpc_plugin + their data source plugin):
-  condenser_api_plugin → database_api, block_api, account_history_api, etc.
-  database_api_plugin → chain_plugin (direct DB access)
-  wallet_bridge_api_plugin → database_api, block_api, account_history_api, etc.
-  block_api_plugin → chain_plugin
-  account_history_api_plugin → account_history_rocksdb_plugin
-  rc_api_plugin → chain_plugin (RC subsystem)
-  market_history_api_plugin → market_history_plugin
-  reputation_api_plugin → reputation_plugin
-  transaction_status_api_plugin → transaction_status_plugin
+  condenser_api_plugin -> database_api, block_api, account_history_api, etc.
+  database_api_plugin -> chain_plugin (direct DB access)
+  wallet_bridge_api_plugin -> database_api, block_api, account_history_api, etc.
+  block_api_plugin -> chain_plugin
+  account_history_api_plugin -> account_history_rocksdb_plugin
+  rc_api_plugin -> chain_plugin (RC subsystem)
+  market_history_api_plugin -> market_history_plugin
+  reputation_api_plugin -> reputation_plugin
+  transaction_status_api_plugin -> transaction_status_plugin
 ```
 
 ---
@@ -804,7 +804,7 @@ API plugins (all depend on json_rpc_plugin + their data source plugin):
 
 5. **broadcast_transaction_synchronous has custom callback tracking** — Both condenser_api and wallet_bridge_api implement their own sync broadcast by registering post_apply_block callbacks that match transaction IDs, with expiration-based cleanup.
 
-6. **get_account_references is permanently broken** — The condenser_api method throws "Needs to be refactored for Hive" and has been disabled since the Steem→Hive fork.
+6. **get_account_references is permanently broken** — The condenser_api method throws "Needs to be refactored for Hive" and has been disabled since the Steem->Hive fork.
 
 7. **Operation filtering uses bitmask system** — `get_account_history` accepts two uint64 bitmasks (low + high) where each bit corresponds to an operation type ID. This allows querying for specific operation types without server-side configuration.
 
