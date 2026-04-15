@@ -514,7 +514,7 @@ Part 04 says HBD interest is "hidden as side effect of adjust_balance(HBD)" whil
 | Asset validation | `asset.cpp` | 128-286 |
 | Authority struct | `include/hive/protocol/authority.hpp` | 7-55 |
 | Account name validation | `authority.cpp` | 58-122 |
-| Operation variant (all 94 types) | `include/hive/protocol/operations.hpp` | 15-125 |
+| Operation variant (93 types: 50 regular + 43 virtual) | `include/hive/protocol/operations.hpp` | 15-125 |
 | Base operation class | `include/hive/protocol/base.hpp` | 13-29 |
 | Regular operation structs | `include/hive/protocol/hive_operations.hpp` | — |
 | DHF operation structs | `include/hive/protocol/dhf_operations.hpp` | — |
@@ -578,7 +578,7 @@ Part 04 says HBD interest is "hidden as side effect of adjust_balance(HBD)" whil
 
 | Object | File |
 |--------|------|
-| Object type enum (39 IDs) | `hive_object_types.hpp:47-88` |
+| Object type enum (39 IDs) | `hive_object_types.hpp:47-89` |
 | dynamic_global_property_object | `detail/state/global_property_object.hpp` |
 | account_object (50+ fields) | `detail/state/account_object.hpp` |
 | account_authority_object | `detail/state/account_object.hpp:339` |

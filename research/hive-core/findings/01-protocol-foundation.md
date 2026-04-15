@@ -743,8 +743,8 @@ Fully documented in the sections above.
 | Block interval constant | `config.hpp` | 56 | `HIVE_BLOCK_INTERVAL = 3` |
 | All timing constants | `config.hpp` | 56-207 | Block, cashout, recovery, feed timings |
 | All economic constants | `config.hpp` | 215-346 | Inflation, rewards, HBD limits |
-| All size limits | `config.hpp` | 348-399 | Transaction, block, memo, name sizes |
-| Special accounts | `config.hpp` | 441-458 | null, temp, miners, treasury |
+| All size limits | `config.hpp` | 348-399 | Transaction, block, name, URL sizes and miscellaneous limits |
+| Special accounts | `config.hpp` | 441-458 | null, temp, miners, proxy-to-self, root-post-parent, plus OBSOLETE/NEW treasury constants (treasury name resolved via `database::get_treasury_name()`) |
 | DHF constants | `config.hpp` | 460-469 | Proposal system |
 | RC constants | `config.hpp` | 479-494 | Resource credits |
 | NAI bit layout | `asset_symbol.hpp` | 9-32 | Precision bits, shift, NAI encoding |
@@ -778,7 +778,7 @@ Fully documented in the sections above.
 | HF count | `hardfork.d/0-preamble.hf` | 16-19 | `HIVE_NUM_HARDFORKS = 28` |
 | Chain IDs | `config.hpp` | 137-143 | Mainnet "beeab0de...", testnet, mirrornet |
 | HBD interest calc | `hbd_interest.hpp` | 8-23 | Balance-seconds / year * rate |
-| Collateral estimation | `hive_collateral.hpp` | 8-26 | 200% ratio with 5% fee |
+| Collateral estimation | `hive_collateral.hpp` | 8-26 | `estimate_hive_collateral()` formula (uses ratio + fee constants from `config.hpp`) |
 | Testnet overrides | `testnet_blockchain_configuration.hpp` | 27-285 | All configurable defaults |
 | `base_operation` | `base.hpp` | 13-29 | Required authorities interface |
 

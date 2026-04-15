@@ -757,7 +757,7 @@ From `_apply_block()` at `database.cpp:2325`:
 | HBD creation | `database.cpp` | `create_hbd()` at line 949 |
 | Vote -> rshares | `hive_evaluator_social.cpp` | `hf20_vote_evaluator()` at line 605 |
 | Curation weight | `hive_evaluator_social.cpp` | Lines 779–829 |
-| HBD interest | `database.cpp` | `adjust_balance(HBD)` at line 3206 |
+| HBD interest | `database.cpp` | `adjust_balance(HBD)` accrual logic at line 3186 |
 | Savings interest | `database.cpp` | `adjust_savings_balance(HBD)` at line 3265 |
 | Interest formula | `hbd_interest.hpp` | `evaluate_hbd_interest()` at line 9 |
 | Conversions | `database_conversion.cpp` | `process_conversions()` at line 34 |
