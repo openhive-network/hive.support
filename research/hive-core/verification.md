@@ -2,1328 +2,1336 @@
 
 - Topic: `hive-core`
 - Pinned: `develop@2026-04-02` (`44c3fd880`)
-- Run: 2026-04-15T07:53:51+02:00
-- Citations audited: 165
+- Run: 2026-05-26T17:31:54+02:00
+- Citations audited: 166
 
 
-### [1/165] libraries/protocol/include/hive/protocol/config.hpp:56-458 — All timing/economic/size constants
+### [1/166] libraries/protocol/include/hive/protocol/config.hpp:56-458 — All timing/economic/size constants
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/config.hpp:56-458
 STATUS: confirmed
-REASON: The cited range covers all timing constants (BLOCK_INTERVAL, CASHOUT_WINDOW_SECONDS, etc.), economic constants (INFLATION_RATE, CONTENT_REWARD_PERCENT, HBD interest/limits, etc.), and size constants (MAX_BLOCK_SIZE, MAX_MEMO_SIZE, MAX_TRANSACTION_SIZE, etc.) as claimed.
+REASON: The cited line range contains all timing constants (block interval, cashout windows, recovery periods), economic constants (inflation rates, APR percentages, reward percentages, HBD limits), and size constants (max memo, max transaction, max block size, name lengths) as claimed.
 SUGGESTED_FIX: none
 
-### [2/165] libraries/protocol/include/hive/protocol/asset_symbol.hpp:9-53 — NAI bit layout and encoding
+### [2/166] libraries/protocol/include/hive/protocol/asset_symbol.hpp:9-53 — NAI bit layout and encoding
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/asset_symbol.hpp:9-53
 STATUS: confirmed
-REASON: Lines 9-53 define the complete NAI bit layout (precision bits, control bits, shift), reserved NAI values for native assets, asset_num encoding formulas, and symbol serialization constants, directly supporting the cited claim.
+REASON: The excerpt defines HIVE_ASSET_SYMBOL_PRECISION_BITS (4), HIVE_ASSET_CONTROL_BITS (1), HIVE_NAI_SHIFT, and the HIVE_ASSET_NUM_* macros that encode NAI via `((SMT_MAX_NAI + NAI) << HIVE_NAI_SHIFT) | PRECISION`, directly documenting the NAI bit layout and encoding.
 SUGGESTED_FIX: none
 
-### [3/165] libraries/protocol/include/hive/protocol/asset.hpp:21-186 — Asset struct and price
+### [3/166] libraries/protocol/include/hive/protocol/asset.hpp:21-186 — Asset struct and price
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/asset.hpp:21-186
 STATUS: confirmed
-REASON: Lines 21-96 define `struct asset` (fields: amount, symbol; arithmetic/comparison operators with symbol-match assertions), lines 98-127 define `struct legacy_asset`, and lines 139-186 define `struct price` (fields: base, quote; validate, max, min), all matching the "Asset struct and price" claim.
+REASON: The cited range spans the `asset` struct (line 21-96) and the `price` struct (line 139-186), directly supporting the claim about "Asset struct and price".
 SUGGESTED_FIX: none
 
-### [4/165] libraries/protocol/asset.cpp:128-286 — Asset validation
+### [4/166] libraries/protocol/asset.cpp:128-286 — Asset validation
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/asset.cpp:128-286
 STATUS: confirmed
-REASON: Lines 128-286 contain asset symbol validation logic including NAI range/checksum validation (`asset_num_from_nai`), decimal-place enforcement for HIVE/HBD/VESTS, space determination, and the `validate()` method that checks all SMT asset_num invariants.
+REASON: The cited range contains multiple asset validation routines including `asset_num_from_nai()` (NAI range, check digit, decimal places), `is_vesting()`, `get_paired_symbol()`, `space()`, and the explicit `validate()` method, all of which directly support the "Asset validation" claim.
 SUGGESTED_FIX: none
 
-### [5/165] libraries/protocol/include/hive/protocol/authority.hpp:7-55 — Authority struct
+### [5/166] libraries/protocol/include/hive/protocol/authority.hpp:7-55 — Authority struct
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/authority.hpp:7-55
 STATUS: confirmed
-REASON: The source excerpt shows the complete `authority` struct definition at exactly lines 7-55, matching the claimed location with all fields (weight_threshold, account_auths, key_auths), classification enum, and member functions intact.
+REASON: The source excerpt at lines 7-55 defines the `authority` struct with its classification enum, constructors, helper methods, and the three core fields (`weight_threshold`, `account_auths`, `key_auths`), directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [6/165] libraries/protocol/authority.cpp:58-122 — Account name validation
+### [6/166] libraries/protocol/authority.cpp:58-122 — Account name validation
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/authority.cpp:58-122
 STATUS: confirmed
-REASON: The source excerpt shows the `check_account_name` function at exactly lines 58-122, implementing account name validation (length, segment, and character checks), which matches the KB citation precisely.
+REASON: Lines 58-122 contain the complete `check_account_name` function which validates account name length, segment structure, and per-character allowed sets — directly supporting the "Account name validation" claim.
 SUGGESTED_FIX: none
 
-### [7/165] libraries/protocol/include/hive/protocol/operations.hpp:15-125 — Operation variant (93 types: 50 regular + 43 virtual)
+### [7/166] libraries/protocol/include/hive/protocol/operations.hpp:15-125 — Operation variant (93 types: 50 regular + 43 virtual)
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/operations.hpp:15-125
 STATUS: confirmed
-REASON: The source excerpt shows exactly 50 regular operations (indices 0-49, lines 16-74) and 43 virtual operations (last_regular + 1 through last_regular + 43, lines 80-122), totaling 93 types as claimed.
+REASON: The static_variant spans regular operations numbered 0-49 (50 total) and virtual operations from last_regular+1 through last_regular+43 (43 total), summing to 93 as claimed.
 SUGGESTED_FIX: none
 
-### [8/165] libraries/protocol/include/hive/protocol/base.hpp:13-29 — Base operation class
+### [8/166] libraries/protocol/include/hive/protocol/base.hpp:13-29 — Base operation class
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/base.hpp:13-29
 STATUS: confirmed
-REASON: The source excerpt shows `base_operation` (lines 13-23) and `virtual_operation` (lines 25-29) exactly at the cited lines, matching the claim of a base operation class with authority, validation, and virtuality methods.
+REASON: The cited lines define `base_operation` (13-23) and `virtual_operation` (25-29), directly supporting the claim about the base operation class.
 SUGGESTED_FIX: none
 
-### [9/165] libraries/protocol/include/hive/protocol/hive_custom_operations.hpp:8-17 — RC custom operations
+### [9/166] libraries/protocol/include/hive/protocol/hive_custom_operations.hpp:8-17 — RC custom operations
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/hive_custom_operations.hpp:8-17
 STATUS: confirmed
-REASON: The excerpt shows the `delegate_rc_operation` struct definition (the sole RC custom operation) with its fields, validation, and posting authority requirement, directly supporting the "RC custom operations" claim.
+REASON: The cited lines define `delegate_rc_operation` struct with RC delegation fields, directly supporting the claim about RC custom operations.
 SUGGESTED_FIX: none
 
-### [10/165] libraries/protocol/hive_operations.cpp:1-866 — Operation validate() methods
+### [10/166] libraries/protocol/hive_operations.cpp:1-866 — Operation validate() methods
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/hive_operations.cpp:1-866
 STATUS: confirmed
-REASON: The file contains validate() method implementations for numerous operations (account_create, comment, transfer, vote, escrow, etc.) spanning the full cited range, directly supporting the claim about operation validate() methods.
+REASON: The cited file spans lines 1-866 and contains numerous operation `validate()` method implementations (account_create, transfer, vote, comment, witness_update, escrow_*, recurrent_transfer, etc.), directly supporting the claim about operation validate() methods.
 SUGGESTED_FIX: none
 
-### [11/165] libraries/protocol/dhf_operations.cpp:1-62 — DHF operation validation
+### [11/166] libraries/protocol/dhf_operations.cpp:1-62 — DHF operation validation
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/dhf_operations.cpp:1-62
 STATUS: confirmed
-REASON: The source excerpt covers the complete file with validation logic for all four DHF operations (create_proposal, update_proposal, update_proposal_votes, remove_proposal), matching the cited claim of DHF operation validation.
+REASON: The cited file contains validate() implementations for all four DHF operations (create_proposal, update_proposal, update_proposal_votes, remove_proposal), directly supporting the "DHF operation validation" claim.
 SUGGESTED_FIX: none
 
-### [12/165] libraries/protocol/include/hive/protocol/block_header.hpp:15-26 — Block header struct
+### [12/166] libraries/protocol/include/hive/protocol/block_header.hpp:15-26 — Block header struct
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/block_header.hpp:15-26
 STATUS: confirmed
-REASON: The source excerpt shows the complete `block_header` struct definition at exactly the cited lines with fields `previous`, `timestamp`, `witness`, `transaction_merkle_root`, and `extensions`, matching the claimed block header struct.
+REASON: Lines 15-26 contain the `struct block_header` definition with its fields (previous, timestamp, witness, transaction_merkle_root, extensions), directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [13/165] libraries/protocol/include/hive/protocol/transaction.hpp:12-53 — Transaction struct
+### [13/166] libraries/protocol/include/hive/protocol/transaction.hpp:12-53 — Transaction struct
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/transaction.hpp:12-53
 STATUS: confirmed
-REASON: The source excerpt shows the complete `transaction` struct at exactly lines 12-53, matching the cited location and content verbatim.
+REASON: The cited lines define the `transaction` struct with its fields (ref_block_num, ref_block_prefix, expiration, operations, extensions) and methods, directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [14/165] libraries/protocol/transaction.cpp:40-55 — Transaction validation
+### [14/166] libraries/protocol/transaction.cpp:40-55 — Transaction validation
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/transaction.cpp:40-55
 STATUS: confirmed
-REASON: The source excerpt shows `transaction::validate()` at lines 40-45 enforcing non-empty operations and validating each operation, plus the notify-variant overload at lines 47-56, directly supporting the "transaction validation" claim.
+REASON: Lines 40-55 contain the two `transaction::validate()` method definitions that perform transaction-level validation (requiring at least one operation and invoking `operation_validate` on each), directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [15/165] libraries/protocol/include/hive/protocol/version.hpp:15-77 — Version encoding
+### [15/166] libraries/protocol/include/hive/protocol/version.hpp:15-77 — Version encoding
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/version.hpp:15-77
 STATUS: confirmed
-REASON: Lines 15-77 contain the complete `version` struct showing the packed uint32_t encoding with major (bits 24-31), hardfork (bits 16-23), and release (bits 0-15) fields, plus HF24 major-version compatibility logic — directly supporting the "Version encoding" claim.
+REASON: The cited range contains the `version` struct definition with its constructor (major/hardfork/release triple) and the bit-extraction accessors `major_v()`, `minor_v()`, `rev_v()` that document the 32-bit `v_num` encoding scheme.
 SUGGESTED_FIX: none
 
-### [16/165] libraries/protocol/include/hive/protocol/hardfork_block.hpp:3-30 — Hardfork block numbers
+### [16/166] libraries/protocol/include/hive/protocol/hardfork_block.hpp:3-30 — Hardfork block numbers
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/hardfork_block.hpp:3-30
 STATUS: confirmed
-REASON: The source excerpt at lines 3-30 contains exactly the hardfork block number defines (HF0.1 through HF1.28) as claimed, matching the cited file and line range verbatim.
+REASON: Lines 3-30 contain exactly the `#define HIVE_HARDFORK_*_BLOCK` constants (HF0_1 through HF1_28), which directly defines the hardfork block numbers as claimed.
 SUGGESTED_FIX: none
 
-### [17/165] libraries/protocol/include/hive/protocol/config.hpp:137-143 — Chain IDs
+### [17/166] libraries/protocol/include/hive/protocol/config.hpp:137-143 — Chain IDs
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/config.hpp:137-143
 STATUS: confirmed
-REASON: The excerpt shows the exact chain ID definitions for mirrornet (`4200...`) and mainnet (`beeab0de...`) at the cited lines, directly supporting the "Chain IDs" claim.
+REASON: Lines 137-143 define HIVE_CHAIN_ID for both Mirrornet (0x42...) and Hive mainnet (beeab0de...), directly supporting the "Chain IDs" claim.
 SUGGESTED_FIX: none
 
-### [18/165] libraries/protocol/include/hive/protocol/validation.hpp:64-115 — Validation helpers
+### [18/166] libraries/protocol/include/hive/protocol/validation.hpp:64-115 — Validation helpers
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/validation.hpp:64-115
 STATUS: confirmed
-REASON: Lines 64-115 contain exactly the validation helper functions claimed — `validate_string_max_size`, `validate_is_utf8`, `validate_string_is_not_empty`, `validate_number_in_100_percent_range`, `validate_account_name`, and `validate_permlink`.
+REASON: The cited range contains multiple inline validation helper functions (validate_string_max_size, validate_is_utf8, validate_string_is_not_empty, validate_number_in_100_percent_range, validate_account_name, validate_permlink), directly supporting the "Validation helpers" claim.
 SUGGESTED_FIX: none
 
-### [19/165] libraries/protocol/include/hive/protocol/hbd_interest.hpp:8-23 — HBD interest calc
+### [19/166] libraries/protocol/include/hive/protocol/hbd_interest.hpp:8-23 — HBD interest calc
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/hbd_interest.hpp:8-23
 STATUS: confirmed
-REASON: The source excerpt at lines 8-23 contains the complete `evaluate_hbd_interest` static method implementing the dollar-seconds accumulator pattern, matching the code reference table entry "HBD interest calc."
+REASON: Lines 8-23 contain the `hbd_interest` struct with `evaluate_hbd_interest` implementing the standard interest formula (hbd_seconds / HIVE_SECONDS_PER_YEAR * hbd_interest_rate / HIVE_100_PERCENT), directly supporting the "HBD interest calc" claim.
 SUGGESTED_FIX: none
 
-### [20/165] libraries/protocol/include/hive/protocol/hive_collateral.hpp:8-26 — Collateral estimation
+### [20/166] libraries/protocol/include/hive/protocol/hive_collateral.hpp:8-26 — Collateral estimation
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/hive_collateral.hpp:8-26
 STATUS: confirmed
-REASON: The source excerpt shows the `estimate_hive_collateral` static method at exactly lines 8-26, implementing collateral estimation using `multiply_with_fee`, `HIVE_COLLATERALIZED_CONVERSION_FEE`, and `HIVE_CONVERSION_COLLATERAL_RATIO`, which directly supports the "Collateral estimation" claim.
+REASON: The cited lines define the `hive_collateral` struct with the `estimate_hive_collateral` static method that computes required collateral from HBD amount using the min price feed and conversion fee/ratio, directly supporting the "Collateral estimation" claim.
 SUGGESTED_FIX: none
 
-### [21/165] libraries/protocol/include/hive/protocol/testnet_blockchain_configuration.hpp:27-285 — Testnet overrides
+### [21/166] libraries/protocol/include/hive/protocol/testnet_blockchain_configuration.hpp:27-285 — Testnet overrides
 Source: `00-consolidated.md`
 
 CITATION: libraries/protocol/include/hive/protocol/testnet_blockchain_configuration.hpp:27-285
 STATUS: confirmed
-REASON: Lines 27-285 contain the full `configuration` class defining all testnet-overridable parameters (cashout windows, voting windows, feed intervals, governance voting, initial supply, RC settings, etc.) with shorter defaults than mainnet.
+REASON: The cited range contains the `configuration` class defining testnet-specific overrides (cashout windows, voting periods, supply, hardfork times, RC stats frequency) with `#ifdef IS_TEST_NET` guards, directly supporting the "Testnet overrides" claim.
 SUGGESTED_FIX: none
 
-### [22/165] libraries/chain/database.cpp:2183-2369 — Block application (`_apply_block`)
+### [22/166] libraries/chain/database.cpp:2183-2369 — Block application (`_apply_block`)
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/database.cpp:2183-2369
 STATUS: confirmed
-REASON: The source excerpt shows the complete `_apply_block` method at exactly lines 2183-2369, matching the claimed function name, file, and line range verbatim.
+REASON: The source at lines 2183-2369 defines `database::_apply_block`, matching the claim about block application exactly.
 SUGGESTED_FIX: none
 
-### [23/165] libraries/chain/database.cpp:2757-2779 — Block header validation
+### [23/166] libraries/chain/database.cpp:2757-2779 — Block header validation
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/database.cpp:2757-2779
 STATUS: confirmed
-REASON: The source excerpt shows `validate_block_header` at exactly lines 2757-2779, performing previous-block linkage, timestamp ordering, witness signing key, and schedule checks, which directly supports the "block header validation" claim.
+REASON: Lines 2757-2779 contain `database::validate_block_header` which validates the previous block ID, timestamp ordering, witness signing key, and witness schedule slot — directly supporting the "Block header validation" claim.
 SUGGESTED_FIX: none
 
-### [24/165] libraries/chain/database.cpp:2644-2702 — Transaction application
+### [24/166] libraries/chain/database.cpp:2644-2702 — Transaction application
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/database.cpp:2644-2702
 STATUS: confirmed
-REASON: The source excerpt shows the complete `_apply_transaction` method performing duplicate check, validation, transaction object creation, pre-apply notification, RC reset, operation-by-operation application via `apply_operation`, RC finalization, and post-apply notification, which directly supports the "Transaction application" claim.
+REASON: The cited range is exactly the `_apply_transaction` function which handles transaction application including duplicate check, validation, dupe-DB insertion, RC reset, operation iteration, and pre/post notifications.
 SUGGESTED_FIX: none
 
-### [25/165] libraries/chain/database.cpp:2722-2746 — Operation dispatch
+### [25/166] libraries/chain/database.cpp:2722-2746 — Operation dispatch
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/database.cpp:2722-2746
 STATUS: confirmed
-REASON: The excerpt shows `database_impl::apply_operation` which is the canonical operation dispatch path: pre-notify, RC discount, `_evaluator_registry.get_evaluator(op).apply(op)`, post-notify — directly supporting an "operation dispatch" claim.
+REASON: The cited lines show database_impl::apply_operation which dispatches operations via _evaluator_registry.get_evaluator(op).apply(op) with pre/post notifications and RC handling, directly supporting the "Operation dispatch" claim.
 SUGGESTED_FIX: none
 
-### [26/165] libraries/chain/database.cpp:2956-3064 — LIB calculation
+### [26/166] libraries/chain/database.cpp:2956-3064 — LIB calculation
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/database.cpp:2956-3064
 STATUS: confirmed
-REASON: The cited lines contain the complete `update_last_irreversible_block()` function, which implements the LIB calculation including the pre-voting fallback, replay-mode nth_element algorithm, and fork-db-based `find_new_last_irreversible_block` path with fast-confirm cleanup.
+REASON: Lines 2956-3064 contain the complete `database::update_last_irreversible_block` function implementing LIB calculation, including pre-voting fallback (HIVE_MAX_WITNESSES offset), post-voting witness-schedule-based threshold using HIVE_IRREVERSIBLE_THRESHOLD, and fork-switch handling.
 SUGGESTED_FIX: none
 
-### [27/165] libraries/chain/database.cpp:2899-2954 — Fast confirm processing
+### [27/166] libraries/chain/database.cpp:2899-2954 — Fast confirm processing
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/database.cpp:2899-2954
 STATUS: confirmed
-REASON: The source excerpt at the cited lines shows the complete `process_fast_confirm_transaction` method, which validates HF26 gating, checks witness scheduling, deduplicates by tracking per-witness approvals, and triggers irreversibility updates — directly supporting the "fast confirm processing" claim.
+REASON: The cited range contains the `process_fast_confirm_transaction` function, which implements fast-confirm processing including HF26 assertion, witness schedule validation, deduplication by block number, and irreversibility update.
 SUGGESTED_FIX: none
 
-### [28/165] libraries/chain/database.cpp:3066-3097 — Irreversibility migration
+### [28/166] libraries/chain/database.cpp:3066-3097 — Irreversibility migration
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/database.cpp:3066-3097
 STATUS: confirmed
-REASON: The source excerpt shows the `migrate_irreversible_state` function exactly at lines 3066-3097, matching the claimed location and demonstrating the irreversibility migration logic (store block, commit undo state, notify irreversible blocks) as described.
+REASON: The cited lines contain the `migrate_irreversible_state` function which performs the irreversibility migration by storing the block, committing undo state, and notifying irreversible blocks.
 SUGGESTED_FIX: none
 
-### [29/165] libraries/chain/database.cpp:2789-2841 — Participation tracking
+### [29/166] libraries/chain/database.cpp:2789-2841 — Participation tracking
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/database.cpp:2789-2841
 STATUS: confirmed
-REASON: The source excerpt directly shows participation tracking via the `participation_count` and `recent_slots_filled` fields being updated in a sliding-window bitfield loop within `update_global_dynamic_data`, exactly matching the claimed behavior.
+REASON: The cited range contains the participation tracking logic, including updates to dgp.participation_count and dgp.recent_slots_filled at lines 2820-2822.
 SUGGESTED_FIX: none
 
-### [30/165] libraries/chain/database.cpp:2843-2868 — HBD print rate / virtual supply
+### [30/166] libraries/chain/database.cpp:2843-2868 — HBD print rate / virtual supply
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/database.cpp:2843-2868
 STATUS: confirmed
-REASON: Lines 2843-2866 implement `calculate_HBD_percent()` which computes the HBD debt ratio against virtual supply (the print rate gate), and line 2868 begins `update_virtual_supply()`, directly supporting the "HBD print rate / virtual supply" claim.
+REASON: The excerpt shows `calculate_HBD_percent()` (lines 2843-2866) computing HBD's share of virtual_supply as the print rate, with HF24 treasury exclusion and HF21 rounding, and line 2868 begins `update_virtual_supply()`, directly supporting the HBD print rate / virtual supply claim.
 SUGGESTED_FIX: none
 
-### [31/165] libraries/chain/database.cpp:1704 — Inflation distribution
+### [31/166] libraries/chain/database.cpp:1704 — Inflation distribution
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/database.cpp:1704
 STATUS: confirmed
-REASON: Line 1704 is `void database::process_funds()`, the function responsible for inflation distribution (vesting/reward shares per block, liquidity shares daily), directly supporting the claim.
+REASON: Line 1704 is the definition of `database::process_funds()`, with the preceding comment confirming it pays out vesting and reward shares every block — the inflation distribution entry point.
 SUGGESTED_FIX: none
 
-### [32/165] libraries/chain/database.cpp:61-71 — next_hf_time()
+### [32/166] libraries/chain/database.cpp:61-71 — next_hf_time()
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/database.cpp:61-71
 STATUS: confirmed
-REASON: The source excerpt shows the `next_hf_time()` function at exactly lines 61-71, matching the cited location and claim.
+REASON: The source excerpt shows `next_hf_time()` defined exactly at lines 61-71, matching the citation precisely.
 SUGGESTED_FIX: none
 
-### [33/165] libraries/chain/database.cpp:1422-1540 — Account clearing/restoration
+### [33/166] libraries/chain/database.cpp:1422-1540 — Account clearing/restoration
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/database.cpp:1422-1540
 STATUS: confirmed
-REASON: The excerpt directly contains `restore_accounts()` (line 1422), `clear_accounts()` (line 1461), and `clear_account()` (line 1474), which collectively implement HF23 account clearing and balance restoration via the treasury.
+REASON: The cited range contains `restore_accounts` (1422-1459), `clear_accounts` (1461-1472), and the beginning of `clear_account` (1474-1540+), directly implementing account clearing and restoration.
 SUGGESTED_FIX: none
 
-### [34/165] libraries/chain/hive_evaluator_transfer.cpp:75-957 — Transfer evaluators
+### [34/166] libraries/chain/hive_evaluator_transfer.cpp:75-957 — Transfer evaluators
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/hive_evaluator_transfer.cpp:75-957
 STATUS: confirmed
-REASON: The source excerpt spans lines 75–957 and contains all transfer-related evaluators (escrow_transfer, escrow_approve, escrow_dispute, escrow_release, transfer, transfer_to_vesting, withdraw_vesting, set_withdraw_vesting_route, convert, collateralized_convert, limit_order_create/create2/cancel, transfer_to/from_savings, cancel_transfer_from_savings, claim_reward_balance, delegate_vesting_shares, recurrent_transfer), confirming the "Transfer evaluators" claim.
+REASON: The cited range spans the bodies of all transfer-related evaluators (escrow_transfer, transfer, transfer_to_vesting, withdraw_vesting, convert, collateralized_convert, limit_order_*, transfer_to_savings, transfer_from_savings, claim_reward_balance, delegate_vesting_shares, recurrent_transfer), matching the "Transfer evaluators" claim.
 SUGGESTED_FIX: none
 
-### [35/165] libraries/chain/hive_evaluator_account.cpp:130-657 — Account evaluators
+### [35/166] libraries/chain/hive_evaluator_account.cpp:130-657 — Account evaluators
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/hive_evaluator_account.cpp:130-657
 STATUS: confirmed
-REASON: Lines 130-657 contain all account evaluators: create_account helper, account_create, account_create_with_delegation, account_update, account_update2, claim_account, create_claimed_account, request_account_recovery, recover_account, change_recovery_account, decline_voting_rights, reset_account, and set_reset_account evaluators, exactly matching the "Account evaluators" claim.
+REASON: The cited range contains the account evaluator implementations (create, update, update2, claim, create_claimed, request_recovery, recover, change_recovery, decline_voting_rights, reset, set_reset), directly matching the "Account evaluators" claim.
 SUGGESTED_FIX: none
 
-### [36/165] libraries/chain/hive_evaluator_social.cpp:55-864 — Social evaluators
+### [36/166] libraries/chain/hive_evaluator_social.cpp:55-864 — Social evaluators
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/hive_evaluator_social.cpp:55-864
 STATUS: confirmed
-REASON: Lines 55–864 contain the complete social evaluator implementations (delete_comment_evaluator, comment_options_evaluator, comment_evaluator, pre_hf20_vote_evaluator, hf20_vote_evaluator, vote_evaluator) exactly as claimed, with the file ending at line 866.
+REASON: The cited range spans delete_comment_evaluator, comment_options_evaluator, comment_evaluator, pre_hf20_vote_evaluator, hf20_vote_evaluator, and vote_evaluator — all social evaluators in the file as the claim asserts.
 SUGGESTED_FIX: none
 
-### [37/165] libraries/chain/hive_evaluator.cpp:62-628 — Witness/custom/pow evaluators
+### [37/166] libraries/chain/hive_evaluator.cpp:62-628 — Witness/custom/pow evaluators
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/hive_evaluator.cpp:62-628
 STATUS: confirmed
-REASON: Lines 62-628 contain exactly the witness evaluators (witness_update, witness_set_properties, account_witness_proxy, account_witness_vote, feed_publish, witness_block_approve), custom evaluators (custom, custom_json, custom_binary), and pow evaluators (pow, pow2) as claimed.
+REASON: Lines 62-628 contain the witness evaluators (witness_update, witness_set_properties, account_witness_proxy, account_witness_vote, feed_publish, witness_block_approve), custom evaluators (custom, custom_json, custom_binary), and pow evaluators (pow, pow2), matching the claim verbatim.
 SUGGESTED_FIX: none
 
-### [38/165] libraries/chain/dhf_evaluator.cpp:32-252 — DHF evaluators
+### [38/166] libraries/chain/dhf_evaluator.cpp:32-252 — DHF evaluators
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/dhf_evaluator.cpp:32-252
 STATUS: confirmed
-REASON: Lines 32-252 contain all four DHF evaluator implementations (create_proposal, update_proposal, update_proposal_votes, remove_proposal) exactly as cited.
+REASON: The cited range spans the four DHF evaluators (create_proposal at line 32, update_proposal at 103, update_proposal_votes at 155, remove_proposal at 213, ending at line 252), directly supporting the "DHF evaluators" claim.
 SUGGESTED_FIX: none
 
-### [39/165] libraries/chain/database_comment.cpp:129-379 — Comment cashout/curation
+### [39/166] libraries/chain/database_comment.cpp:129-379 — Comment cashout/curation
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/database_comment.cpp:129-379
 STATUS: confirmed
-REASON: Lines 129-195 contain `pay_curators()` and lines 197-377 contain `cashout_comment_helper()`, which together implement the full comment cashout and curation reward distribution logic as claimed.
+REASON: The cited range covers `pay_curators` (line 129) and `cashout_comment_helper` (line 197) and ends at the start of `process_comment_cashout` (line 379), directly implementing comment cashout and curation reward distribution.
 SUGGESTED_FIX: none
 
-### [40/165] libraries/chain/witness_schedule.cpp:152-396 — Witness scheduling
+### [40/166] libraries/chain/witness_schedule.cpp:152-396 — Witness scheduling
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/witness_schedule.cpp:152-396
 STATUS: confirmed
-REASON: The excerpt at lines 152-396 contains the complete `update_witness_schedule4` function covering elected/miner/timeshare witness selection, virtual time scheduling, xorshift shuffle, and hardfork version voting — all core witness scheduling logic.
+REASON: Lines 152-396 contain the `update_witness_schedule4` function which implements witness scheduling (selecting voted/miner/timeshare witnesses, updating virtual schedule, shuffling, and writing the schedule object).
 SUGGESTED_FIX: none
 
-### [41/165] libraries/chain/database_witness.cpp:284-306 — Witness missed blocks
+### [41/166] libraries/chain/database_witness.cpp:284-306 — Witness missed blocks
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/database_witness.cpp:284-306
 STATUS: confirmed
-REASON: The source excerpt at the cited lines directly implements witness missed block tracking — incrementing `total_missed`, emitting `producer_missed_operation`, and conditionally disabling witnesses via `shutdown_witness_operation` — which fully supports the "Witness missed blocks" claim.
+REASON: The cited lines define `update_witness_missed_blocks`, which iterates over scheduled witnesses, increments `total_missed`, and pushes `producer_missed_operation` for each missed slot, directly supporting the "witness missed blocks" claim.
 SUGGESTED_FIX: none
 
-### [42/165] libraries/chain/fork_database.cpp:20-330 — Fork database
+### [42/166] libraries/chain/fork_database.cpp:20-330 — Fork database
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/fork_database.cpp:20-330
 STATUS: confirmed
-REASON: The source excerpt at lines 20-330 contains the core fork_database implementation (pop_block, push_block, _push_block, _push_next, set_max_size, fetch_block, fetch_branch_from, etc.), directly supporting the "Fork database" claim.
+REASON: The cited file and line range contains the fork_database class implementation (push_block, pop_block, fetch_branch_from, head tracking, unlinked block handling), directly supporting the "Fork database" claim.
 SUGGESTED_FIX: none
 
-### [43/165] libraries/chain/sync_block_writer.cpp:162-367 — Fork switching
+### [43/166] libraries/chain/sync_block_writer.cpp:162-367 — Fork switching
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/sync_block_writer.cpp:162-367
 STATUS: confirmed
-REASON: Lines 162-264 contain the `switch_forks()` method implementing fork switching (pop old branch, push new branch, handle failures, restore original fork), and lines 266-367 contain the related `find_new_last_irreversible_block()` method — both directly support the "Fork switching" claim.
+REASON: Line 162 begins the `switch_forks` function which implements fork switching (popping old branch, pushing new branch, handling failure rollback), and the range extends through related LIB-determination logic that supports the broader fork-switching topic.
 SUGGESTED_FIX: none
 
-### [44/165] libraries/chain/block_log.cpp:338-515 — Block log read/write
+### [44/166] libraries/chain/block_log.cpp:338-515 — Block log read/write
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/block_log.cpp:338-515
 STATUS: confirmed
-REASON: The cited lines contain the block log's core append (write) and read methods — `append_raw`, `multi_append_raw`, `append`, `read_raw_block_data_by_num`, `read_block_id_by_num`, and `read_block_by_num` — which directly support the "block log read/write" claim.
+REASON: The excerpt shows block_log read/write methods (append_raw, multi_append_raw, read_raw_block_data_by_num, append, flush, read_block_id_by_num, read_block_by_num) spanning the cited line range, directly supporting the "Block log read/write" claim.
 SUGGESTED_FIX: none
 
-### [45/165] libraries/chain/block_log_artifacts.cpp:46-166 — Block log artifacts
+### [45/166] libraries/chain/block_log_artifacts.cpp:46-166 — Block log artifacts
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/block_log_artifacts.cpp:46-166
 STATUS: confirmed
-REASON: Lines 46-166 define the two core block log artifact structs (`artifact_file_header` and `artifact_file_chunk`) including file format versioning, block position/compression flags bitfield layout, and block ID packing, directly supporting the "Block log artifacts" claim.
+REASON: The cited range contains the `artifact_file_header` and `artifact_file_chunk` struct definitions that constitute the on-disk format of block log artifacts, directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [46/165] libraries/chain/include/hive/chain/hive_object_types.hpp:47-89 — Object type enum (39 IDs)
+### [46/166] libraries/chain/include/hive/chain/hive_object_types.hpp:47-89 — Object type enum (39 IDs)
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/include/hive/chain/hive_object_types.hpp:47-89
 STATUS: confirmed
-REASON: The enum at lines 47-89 contains exactly 39 enumerator values (dynamic_global_property_object_type through rc_expired_delegation_object_type), matching the claimed count.
+REASON: Counting the enum entries in the cited range yields exactly 39 object type IDs (33 core + 6 RC), matching the claim.
 SUGGESTED_FIX: none
 
-### [47/165] libraries/chain/include/hive/chain/detail/state/account_object.hpp:339 — account_authority_object
+### [47/166] libraries/chain/include/hive/chain/detail/state/account_object.hpp:339 — account_authority_object
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/include/hive/chain/detail/state/account_object.hpp:339
 STATUS: confirmed
-REASON: The source at line 339 shows the `account_authority_object` class declaration exactly as cited.
+REASON: Line 339 contains the class declaration for `account_authority_object`, directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [48/165] libraries/chain/include/hive/chain/detail/state/comment_object.hpp:372 — comment_vote_object
+### [48/166] libraries/chain/include/hive/chain/detail/state/comment_object.hpp:372 — comment_vote_object
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/include/hive/chain/detail/state/comment_object.hpp:372
 STATUS: confirmed
-REASON: Line 372 contains the `comment_vote_object` class definition exactly as cited.
+REASON: Line 372 contains the class declaration `class comment_vote_object`, directly supporting the claim referencing this object.
 SUGGESTED_FIX: none
 
-### [49/165] libraries/chain/include/hive/chain/detail/state/witness_objects.hpp:69 — witness_object
+### [49/166] libraries/chain/include/hive/chain/detail/state/witness_objects.hpp:69 — witness_object
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/include/hive/chain/detail/state/witness_objects.hpp:69
 STATUS: confirmed
-REASON: The source at line 69 shows the `witness_object` class definition exactly as cited.
+REASON: Line 69 defines `class witness_object`, directly matching the claim.
 SUGGESTED_FIX: none
 
-### [50/165] libraries/chain/include/hive/chain/detail/state/witness_objects.hpp:183 — witness_schedule_object
+### [50/166] libraries/chain/include/hive/chain/detail/state/witness_objects.hpp:183 — witness_schedule_object
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/include/hive/chain/detail/state/witness_objects.hpp:183
 STATUS: confirmed
-REASON: Line 183 contains the `witness_schedule_object` class definition exactly as cited.
+REASON: Line 183 contains the class declaration for witness_schedule_object, directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [51/165] libraries/chain/rc/rc_utility.cpp:547-581 — Non-consensus enforcement
+### [51/166] libraries/chain/rc/rc_utility.cpp:547-581 — Non-consensus enforcement
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/rc/rc_utility.cpp:547-581
 STATUS: confirmed
-REASON: The code confirms non-consensus RC enforcement: line 547 shows RC is only asserted when `is_in_control()` (mempool validation), while the else branch at line 562-581 merely logs insufficient RC during block processing instead of rejecting, and line 545's FC_TODO explicitly notes RC is not yet part of consensus.
+REASON: The excerpt shows RC exhaustion throws `not_enough_rc_exception` only when `db.is_in_control() || db.is_reapplying_one_tx()` (mempool path), while the `is_processing_block()` branch merely logs and accepts the transaction — directly supporting non-consensus enforcement.
 SUGGESTED_FIX: none
 
-### [52/165] libraries/chain/rc/rc_utility.cpp:799-831 — Mana deduction (finalize_tx)
+### [52/166] libraries/chain/rc/rc_utility.cpp:799-831 — Mana deduction (finalize_tx)
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/rc/rc_utility.cpp:799-831
 STATUS: confirmed
-REASON: The source excerpt shows `finalize_transaction` at lines 799-831 performing exactly the claimed mana deduction flow: counting resources, computing RC cost, and calling `use_account_rcs` to deduct mana.
+REASON: The cited range shows `resource_credits::finalize_transaction` computing total RC cost and deducting mana via `use_account_rcs(total_cost)` at line 818, directly supporting the "Mana deduction (finalize_tx)" claim.
 SUGGESTED_FIX: none
 
-### [53/165] libraries/chain/rc/rc_utility.cpp:26-110 — RC delegation mechanics
+### [53/166] libraries/chain/rc/rc_utility.cpp:26-110 — RC delegation mechanics
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/rc/rc_utility.cpp:26-110
 STATUS: confirmed
-REASON: Lines 26-110 contain the complete `delegate_rc_evaluator::do_apply` implementation covering HF26 gating, minimum delegation threshold, create/update/delete delegation logic, mana regeneration, re-delegation prevention, and delegable RC sufficiency checks — fully supporting the "RC delegation mechanics" claim.
+REASON: Lines 26-110 contain the complete delegate_rc_evaluator::do_apply implementation covering HF26 gating, minimum delegation check, create/update/delete delegation logic, manabar regeneration, and the delegable RC assertion—the core RC delegation mechanics.
 SUGGESTED_FIX: none
 
-### [54/165] libraries/chain/rc/rc_utility.cpp:401-443 — Delegation overflow
+### [54/166] libraries/chain/rc/rc_utility.cpp:401-443 — Delegation overflow
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/rc/rc_utility.cpp:401-443
 STATUS: confirmed
-REASON: The cited lines directly implement RC delegation overflow detection (line 408), removal of excess delegations with a per-block object limit (lines 413-435), and adjustment of `delegated_rc` (lines 438-441), exactly matching the "Delegation overflow" claim.
+REASON: Lines 403-443 implement the RC delegation overflow logic — computing `delegation_overflow`, calling `remove_delegations`, and creating/modifying `rc_expired_delegation_object` to track unfinished removals — directly supporting the "Delegation overflow" claim.
 SUGGESTED_FIX: none
 
-### [55/165] libraries/chain/rc/rc_utility.cpp:505-537 — Flood surcharge
+### [55/166] libraries/chain/rc/rc_utility.cpp:505-537 — Flood surcharge
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/rc/rc_utility.cpp:505-537
 STATUS: confirmed
-REASON: The excerpt shows the flood surcharge mechanism exactly as described — calculating a surcharge based on mempool fullness relative to flood_level, with privileged witness operations exempted, and the surcharge added to the RC cost check.
+REASON: The excerpt at lines 505-537 directly implements the flood surcharge logic, computing `surcharge` from `(blocks_in_mempool - flood_level) * flood_surcharge` when mempool exceeds the flood level.
 SUGGESTED_FIX: none
 
-### [56/165] libraries/chain/rc/resource_count.cpp:136-631 — Resource counting
+### [56/166] libraries/chain/rc/resource_count.cpp:136-631 — Resource counting
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/rc/resource_count.cpp:136-631
 STATUS: confirmed
-REASON: The cited range covers the complete resource counting implementation: the `handle_operation_discount` differential usage mechanism (lines 136-168), the `count_operation_visitor` with per-operation cost handlers for all 5 resource types (lines 170-570), and the `resource_credits::count_resources` aggregation function (lines 572-631).
+REASON: The cited range contains the resource counting machinery — `handle_operation_discount` (differential usage), the `count_operation_visitor` per-op visitor tallying state_bytes/execution_time/market/new_account counts, and the `count_resources` function that aggregates them into the per-resource result — directly supporting the "Resource counting" claim.
 SUGGESTED_FIX: none
 
-### [57/165] libraries/chain/rc/resource_sizes.cpp:45-165 — State byte sizes
+### [57/166] libraries/chain/rc/resource_sizes.cpp:45-165 — State byte sizes
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/rc/resource_sizes.cpp:45-165
 STATUS: confirmed
-REASON: Lines 45-165 contain the complete `state_object_size_info` constructor defining all RC state byte size costs (TEMPORARY, LASTING, PERSISTENT multipliers and per-operation object sizes), exactly matching the index entry's claim.
+REASON: Lines 45-165 contain the `state_object_size_info` constructor defining TEMPORARY/LASTING/PERSISTENT state byte units and all per-operation state byte sizes, directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [58/165] libraries/chain/rc/resource_sizes.cpp:167-242 — Execution time benchmarks
+### [58/166] libraries/chain/rc/resource_sizes.cpp:167-242 — Execution time benchmarks
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/rc/resource_sizes.cpp:167-242
 STATUS: confirmed
-REASON: The cited lines contain the `operation_exec_info` constructor with detailed execution time benchmarks (in nanoseconds) for all operations, exactly matching the claim of "execution time benchmarks."
+REASON: Lines 167-242 contain the `operation_exec_info` constructor initializing execution time benchmarks for all operations (e.g., account_create_time, vote_time, transfer_time), directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [59/165] libraries/chain/rc/rc_curve.cpp:32-98 — Price curve computation
+### [59/166] libraries/chain/rc/rc_curve.cpp:32-98 — Price curve computation
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/rc/rc_curve.cpp:32-98
 STATUS: confirmed
-REASON: The excerpt contains the `generate_rc_curve_params` function at exactly lines 32-98, implementing the price curve computation with coefficients A (coeff_a, shift) and B (coeff_b) derived from decay, elasticity, and pool equilibrium parameters.
+REASON: Lines 32-98 contain the `generate_rc_curve_params` function which computes the RC price curve parameters (coeff_a, coeff_b, shift) from dynamics and curve-gen inputs, matching the claim verbatim.
 SUGGESTED_FIX: none
 
-### [60/165] libraries/chain/util/rd.cpp:23-118 — Pool dynamics (decay)
+### [60/166] libraries/chain/util/rd.cpp:23-118 — Pool dynamics (decay)
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/util/rd.cpp:23-118
 STATUS: confirmed
-REASON: Lines 23-118 contain `rd_compute_pool_decay()`, `rd_apply()`, and `rd_setup_dynamics_params()` which directly implement pool dynamics and decay mechanics including decay computation, budget-decay balance, and equilibrium calculation.
+REASON: The cited range covers `rd_compute_pool_decay`, `rd_apply`, and `rd_setup_dynamics_params`, which together implement the pool decay dynamics (decay formula, budget/decay/max_pool application, and equilibrium pool sizing).
 SUGGESTED_FIX: none
 
-### [61/165] libraries/chain/include/hive/chain/util/manabar.hpp:42-141 — Manabar struct
+### [61/166] libraries/chain/include/hive/chain/util/manabar.hpp:42-141 — Manabar struct
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/include/hive/chain/util/manabar.hpp:42-141
-STATUS: confirmed
-REASON: The source excerpt at lines 42-141 contains the manabar struct's core methods (regenerate_mana, has_mana, use_mana) and the update_manabar helper function, confirming the "Manabar struct" claim; however, note that the KB table in 00-consolidated.md line 617 lists the path as `include/hive/chain/rc/manabar.hpp` (wrong subdirectory — should be `util/`, as the namespace `hive::chain::util` confirms).
-SUGGESTED_FIX: none
+STATUS: drifted
+REASON: The cited range 42-141 starts mid-method (inside regenerate_mana) rather than at the struct definition, and extends past the struct's closing brace at line 102 into the separate update_manabar utility function (lines 104-141).
+SUGGESTED_FIX: Narrow the citation to the actual struct bounds — likely something like manabar.hpp:~25-102 (start of struct through its closing `};`); flag for manual review to confirm the struct's opening line.
 
-### [62/165] libraries/chain/util/dhf_processor.cpp:145-325 — DHF payment processing
+### [62/166] libraries/chain/util/dhf_processor.cpp:145-325 — DHF payment processing
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/util/dhf_processor.cpp:145-325
 STATUS: confirmed
-REASON: Lines 145-325 contain the complete DHF payment processing pipeline: budget calculation, proposal sorting by votes, payment transfers with budget cap, maintenance period scheduling, old proposal removal, funding recording, and the top-level `run()` entry point — all directly supporting the "DHF payment processing" claim.
+REASON: The cited range covers the core DHF payment processing functions — calculate_maintenance_budget, transfer_payments, make_payments, record_funding, and run — directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [63/165] libraries/chain/util/dhf_processor.cpp:145 — DHF budget calculation
+### [63/166] libraries/chain/util/dhf_processor.cpp:145 — DHF budget calculation
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/util/dhf_processor.cpp:145
 STATUS: confirmed
-REASON: Line 145 is the signature of `calculate_maintenance_budget`, which is precisely the DHF budget calculation function the claim references.
+REASON: Line 145 is the signature of `dhf_processor::calculate_maintenance_budget`, which directly implements DHF budget calculation by drawing from the treasury fund.
 SUGGESTED_FIX: none
 
-### [64/165] libraries/chain/util/dhf_processor.cpp:325 — DHF HIVE->HBD conversion
+### [64/166] libraries/chain/util/dhf_processor.cpp:325 — DHF HIVE->HBD conversion
 Source: `00-consolidated.md`
 
 CITATION: libraries/chain/util/dhf_processor.cpp:325
 STATUS: confirmed
-REASON: Line 325 defines `dhf_processor::convert_funds()` with a daily-maintenance-period gate, directly supporting the claim about DHF HIVE->HBD conversion.
+REASON: Line 325 is the entry point of `dhf_processor::convert_funds`, the function that handles the DHF's HIVE->HBD conversion during daily maintenance.
 SUGGESTED_FIX: none
 
-### [65/165] libraries/protocol/include/hive/protocol/config.hpp:56 — HIVE_BLOCK_INTERVAL = 3
+### [65/166] libraries/protocol/include/hive/protocol/config.hpp:56 — HIVE_BLOCK_INTERVAL = 3
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/config.hpp:56
 STATUS: confirmed
-REASON: Line 56 defines `HIVE_BLOCK_INTERVAL` as `3`, exactly matching the claim.
+REASON: Line 56 contains `#define HIVE_BLOCK_INTERVAL                   3`, matching the claim verbatim.
 SUGGESTED_FIX: none
 
-### [66/165] libraries/protocol/include/hive/protocol/config.hpp:56-207 — Block, cashout, recovery, feed timings
+### [66/166] libraries/protocol/include/hive/protocol/config.hpp:56-207 — Block, cashout, recovery, feed timings
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/config.hpp:56-207
 STATUS: confirmed
-REASON: Lines 56-207 contain all four timing categories: block interval/blocks-per-day (56-60), cashout windows and upvote lockout (155-162), owner auth recovery and account recovery expiration (167-170), and feed interval/history window/max feed age (189-196).
+REASON: The cited range contains block timings (lines 56-60), cashout windows (73-77, 155-159), owner/account recovery periods (86-89, 167-170), and feed interval/history/age constants (108-112, 189-193), matching all four categories in the claim.
 SUGGESTED_FIX: none
 
-### [67/165] libraries/protocol/include/hive/protocol/config.hpp:215-346 — Inflation, rewards, HBD limits
+### [67/166] libraries/protocol/include/hive/protocol/config.hpp:215-346 — Inflation, rewards, HBD limits
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/config.hpp:215-346
 STATUS: confirmed
-REASON: Lines 257-259 define inflation rate constants (start 978, stop 95, narrowing period 250000), lines 260-265 define reward distribution percentages (content, vesting, proposal for HF16 and HF21), and lines 339-346 define HBD market cap limits (start/stop/hard limit for HF14, HF20, HF26).
+REASON: The cited range contains inflation constants (lines 257-259), reward percentages and APR constants (lines 260-265, 282-294, 331-335), and HBD limit constants (lines 337-346), directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [68/165] libraries/protocol/include/hive/protocol/config.hpp:348-399 — Transaction, block, name, URL sizes and miscellaneous limits
+### [68/166] libraries/protocol/include/hive/protocol/config.hpp:348-399 — Transaction, block, name, URL sizes and miscellaneous limits
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/config.hpp:348-399
 STATUS: confirmed
-REASON: Lines 348-399 contain exactly the claimed transaction, block, name, URL size limits and miscellaneous constants (account name 3-16, permlink 0-256, witness URL 2048, max transaction 64KB, max block 2MB, min block 115, max authority membership 40, max URL 127, etc.).
+REASON: The cited range contains account name lengths (348-349), permlink lengths (351-352), witness URL length (353), transaction size limits (360, 364), block size limits (365-367), URL length (379), and other miscellaneous limits as the claim describes.
 SUGGESTED_FIX: none
 
-### [69/165] libraries/protocol/include/hive/protocol/config.hpp:441-458 — null, temp, miners, proxy-to-self, root-post-parent, plus OBSOLETE/NEW treasury constants (treasury name resolved via `database::get_treasury_name()`)
+### [69/166] libraries/protocol/include/hive/protocol/config.hpp:441-458 — null, temp, miners, proxy-to-self, root-post-parent, plus OBSOLETE/NEW treasury constants (treasury name resolved via `database::get_treasury_name()`)
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/config.hpp:441-458
 STATUS: confirmed
-REASON: The source excerpt at lines 441-458 defines exactly the reserved accounts listed in the claim (null, temp, miners, proxy-to-self, root-post-parent) plus the OBSOLETE/NEW treasury constants with the comment directing use of `database::get_treasury_name()`.
+REASON: The cited lines define HIVE_MINER_ACCOUNT, HIVE_NULL_ACCOUNT, HIVE_TEMP_ACCOUNT, HIVE_PROXY_TO_SELF_ACCOUNT, HIVE_ROOT_POST_PARENT, OBSOLETE_TREASURY_ACCOUNT, and NEW_HIVE_TREASURY_ACCOUNT, with the comment explicitly directing use of database::get_treasury_name() for treasury resolution.
 SUGGESTED_FIX: none
 
-### [70/165] libraries/protocol/include/hive/protocol/config.hpp:460-469 — Proposal system
+### [70/166] libraries/protocol/include/hive/protocol/config.hpp:460-469 — Proposal system
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/config.hpp:460-469
 STATUS: confirmed
-REASON: The source excerpt at lines 460-469 defines the Hive Proposal System constants (treasury fee, subject max length, max IDs, fee increase schedule, conversion rate), directly supporting the "Proposal system" claim.
+REASON: Lines 460-469 contain the "HIVE PROPOSAL SYSTEM support" section with proposal-related constants (treasury fee, subject length, max IDs, fee increase parameters, conversion rate), directly supporting the proposal system claim.
 SUGGESTED_FIX: none
 
-### [71/165] libraries/protocol/include/hive/protocol/config.hpp:479-494 — Resource credits
+### [71/166] libraries/protocol/include/hive/protocol/config.hpp:479-494 — Resource credits
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/config.hpp:479-494
 STATUS: confirmed
-REASON: The source excerpt at lines 479-494 contains the RC-related constants (regen time, bucket time, window bucket count, stats report frequency, historical account creation adjustment, max accounts per delegation op) exactly as cited.
+REASON: Lines 479-494 contain the "HIVE RC related constants" block defining RC regen time, bucket time/count, stats report frequency, historical account creation adjustment, and max accounts per delegation op, supporting the "Resource credits" claim.
 SUGGESTED_FIX: none
 
-### [72/165] libraries/protocol/include/hive/protocol/asset_symbol.hpp:9-32 — Precision bits, shift, NAI encoding
+### [72/166] libraries/protocol/include/hive/protocol/asset_symbol.hpp:9-32 — Precision bits, shift, NAI encoding
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/asset_symbol.hpp:9-32
 STATUS: confirmed
-REASON: Lines 9-32 define exactly the precision bits (4), control bits (1), NAI shift (5), per-asset precisions (HBD=3, HIVE=3, VESTS=6), reserved NAI values (1,2,3), and the ASSET_NUM encoding formula `(NAI << shift) | precision`, all matching the claim.
+REASON: The cited range defines HIVE_ASSET_SYMBOL_PRECISION_BITS (line 9), HIVE_NAI_SHIFT (line 11), and the NAI-encoded asset numbers for HBD/HIVE/VESTS (lines 30-32), directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [73/165] libraries/protocol/include/hive/protocol/asset_symbol.hpp:20-22 — HBD=3, HIVE=3, VESTS=6
+### [73/166] libraries/protocol/include/hive/protocol/asset_symbol.hpp:20-22 — HBD=3, HIVE=3, VESTS=6
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/asset_symbol.hpp:20-22
 STATUS: confirmed
-REASON: Lines 20-22 define HIVE_PRECISION_HBD as 3, HIVE_PRECISION_HIVE as 3, and HIVE_PRECISION_VESTS as 6, exactly matching the claim.
+REASON: Lines 20-22 define HIVE_PRECISION_HBD=3, HIVE_PRECISION_HIVE=3, HIVE_PRECISION_VESTS=6, exactly matching the claim.
 SUGGESTED_FIX: none
 
-### [74/165] libraries/protocol/include/hive/protocol/asset_symbol.hpp:36-53 — STEEM/SBD/TESTS/TBD/HIVE/HBD/VESTS
+### [74/166] libraries/protocol/include/hive/protocol/asset_symbol.hpp:36-53 — STEEM/SBD/TESTS/TBD/HIVE/HBD/VESTS
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/asset_symbol.hpp:36-53
 STATUS: confirmed
-REASON: Lines 36-53 define all seven symbol names exactly as claimed: VESTS (lines 36,43), TESTS (line 37 via OBSOLETE on testnet), STEEM (line 44 via OBSOLETE on mainnet), HIVE (lines 38,45), TBD (line 39 via OBD on testnet), SBD (line 46 via OBD on mainnet), and HBD (lines 40,47).
+REASON: All seven symbols (STEEM, SBD, TESTS, TBD, HIVE, HBD, VESTS) are defined verbatim in the cited range via the mainnet/testnet #ifdef branches.
 SUGGESTED_FIX: none
 
-### [75/165] libraries/protocol/include/hive/protocol/asset_symbol.hpp:157-216 — Legacy vs NAI pack/unpack
+### [75/166] libraries/protocol/include/hive/protocol/asset_symbol.hpp:157-216 — Legacy vs NAI pack/unpack
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/asset_symbol.hpp:157-216
 STATUS: confirmed
-REASON: The source excerpt shows exactly the legacy vs NAI pack/unpack logic at the cited lines — pack() branches on legacy_space to serialize HIVE/HBD/VESTS as their obsolete symbol constants, otherwise serializes the raw asset_num; unpack() switches on the first 4 bytes to detect legacy symbols or falls through to raw NAI deserialization.
+REASON: The excerpt shows both pack() (lines 157-187) branching on legacy_space/pack_type::legacy to emit OBSOLETE/OBD/VESTS legacy symbols vs. raw asset_num, and unpack() (lines 189-216) switching on the legacy 4-byte sentinels vs. NAI asset_num, directly supporting the legacy-vs-NAI pack/unpack claim.
 SUGGESTED_FIX: none
 
-### [76/165] libraries/protocol/include/hive/protocol/asset.hpp:21-96 — Amount + symbol with operator overloads
+### [76/166] libraries/protocol/include/hive/protocol/asset.hpp:21-96 — Amount + symbol with operator overloads
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/asset.hpp:21-96
 STATUS: confirmed
-REASON: The `asset` struct at lines 21-96 contains `amount` and `symbol` fields with operator overloads for `+=`, `-=`, unary `-`, `==`, `<`, `<=`, `!=`, `>`, `>=`, binary `-`, and binary `+`, exactly matching the claim.
+REASON: The cited range defines the `asset` struct with `amount` and `symbol` fields plus operator overloads for +=, -=, unary -, ==, <, <=, !=, >, >=, binary -, and binary +, directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [77/165] libraries/protocol/include/hive/protocol/asset.hpp:139-186 — Base/quote pair
+### [77/166] libraries/protocol/include/hive/protocol/asset.hpp:139-186 — Base/quote pair
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/asset.hpp:139-186
 STATUS: confirmed
-REASON: The `price` struct at lines 139-186 clearly contains `asset base` and `asset quote` members (lines 141-142), confirming the "base/quote pair" claim verbatim.
+REASON: The cited lines define `struct price` with `asset base` and `asset quote` members, directly supporting the base/quote pair claim.
 SUGGESTED_FIX: none
 
-### [78/165] libraries/protocol/include/hive/protocol/asset.hpp:218-261 — Typed thin wrappers
+### [78/166] libraries/protocol/include/hive/protocol/asset.hpp:218-261 — Typed thin wrappers
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/asset.hpp:218-261
 STATUS: confirmed
-REASON: The source excerpt shows `tiny_asset` as a template struct parameterized on a symbol constant, wrapping only a `share_type amount` with conversions to/from the full `asset` type, which directly supports the "typed thin wrappers" claim.
+REASON: The cited lines define the `tiny_asset` template struct parameterized by `_SYMBOL`, which is a typed thin wrapper around `share_type amount` enforcing a fixed asset symbol via compile-time templating.
 SUGGESTED_FIX: none
 
-### [79/165] libraries/protocol/include/hive/protocol/asset.hpp:268-322 — Typed price wrappers
+### [79/166] libraries/protocol/include/hive/protocol/asset.hpp:268-322 — Typed price wrappers
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/asset.hpp:268-322
 STATUS: confirmed
-REASON: The source excerpt shows the `tiny_price` template class at exactly lines 268-322, which is a typed price wrapper using template parameters for base and quote symbol types with compile-time type checking, matching the claim verbatim.
+REASON: The cited lines define the `tiny_price` class template parameterized by base/quote symbols, directly supporting the claim of typed price wrappers.
 SUGGESTED_FIX: none
 
-### [80/165] libraries/protocol/asset.cpp:80-126 — 8-digit Damm algorithm
+### [80/166] libraries/protocol/asset.cpp:80-126 — 8-digit Damm algorithm
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/asset.cpp:80-126
 STATUS: confirmed
-REASON: The source at lines 80-126 implements exactly an 8-digit Damm algorithm checksum, with MAX_DAMM_VALUE of 100000000 (10^8) and extraction of 8 digits (d0-d7), matching the claim verbatim.
+REASON: The source excerpt at lines 80-126 implements `damm_checksum_8digit(uint32_t value)` with an explicit comment referencing the Damm algorithm and processes 8 decimal digits (d0-d7) via the standard Damm lookup table, directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [81/165] libraries/protocol/asset.cpp:261-283 — NAI range + control bit checks
+### [81/166] libraries/protocol/asset.cpp:261-283 — NAI range + control bit checks
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/asset.cpp:261-283
 STATUS: confirmed
-REASON: The source excerpt shows `asset_symbol_type::validate()` at lines 261-283 performing exactly the described NAI range checks (SMT_MIN_NAI/SMT_MAX_NAI), control bit check (SMT_ASSET_NUM_CONTROL_MASK), and decimal places check, matching the claim.
+REASON: Lines 274-276 explicitly validate NAI range (SMT_MIN_NAI <= nai_data_digits <= SMT_MAX_NAI) and the control bit (nai_1bit == SMT_ASSET_NUM_CONTROL_MASK), directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [82/165] libraries/protocol/asset.cpp:310-325 — uint128 cross-multiplication
+### [82/166] libraries/protocol/asset.cpp:310-325 — uint128 cross-multiplication
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/asset.cpp:310-325
 STATUS: confirmed
-REASON: The source shows `uint128_t result` used for cross-multiplication of asset amount by price numerator before dividing by denominator (lines 313, 316, 322), exactly matching the claimed uint128 cross-multiplication pattern.
+REASON: The excerpt shows `uint128_t result` being multiplied by one side of the price and divided by the other (lines 316 and 322), which is exactly the uint128 cross-multiplication pattern claimed.
 SUGGESTED_FIX: none
 
-### [83/165] libraries/protocol/asset.cpp:337-340 — Returns `HIVE_MAX_SATOSHIS
+### [83/166] libraries/protocol/asset.cpp:337-340 — Returns `HIVE_MAX_SATOSHIS
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/asset.cpp:337-340
 STATUS: confirmed
-REASON: The source excerpt shows `price::max_satoshis()` returning `HIVE_MAX_SATOSHIS` at exactly the cited lines, matching the claim verbatim.
+REASON: The source excerpt at lines 337-340 shows `price::max_satoshis()` returning `HIVE_MAX_SATOSHIS`, directly supporting the claim verbatim.
 SUGGESTED_FIX: none
 
-### [84/165] libraries/protocol/include/hive/protocol/types.hpp:66-81 — All fundamental typedefs
+### [84/166] libraries/protocol/include/hive/protocol/types.hpp:66-81 — All fundamental typedefs
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/types.hpp:66-81
 STATUS: confirmed
-REASON: The cited lines contain exactly the fundamental protocol typedefs (private_key_type, chain_id_type, account_name_type, block_id_type, checksum_type, transaction_id_type, digest_type, signature_type, share_type, ushare_type, weight_type, contribution_id_type, custom_id_type) as claimed.
+REASON: Lines 66-81 contain the protocol namespace opening followed by all fundamental typedefs (private_key_type, chain_id_type, account_name_type, block_id_type, checksum_type, transaction_id_type, digest_type, signature_type, share_type, ushare_type, weight_type, contribution_id_type, custom_id_type), directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [85/165] libraries/protocol/include/hive/protocol/types.hpp:83-103 — Key data + base58 encoding
+### [85/166] libraries/protocol/include/hive/protocol/types.hpp:83-103 — Key data + base58 encoding
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/types.hpp:83-103
 STATUS: confirmed
-REASON: The source excerpt shows `public_key_type` with `fc::ecc::public_key_data key_data`, a `binary_key` inner struct with a `check` field (for checksum), and an explicit constructor from `std::string base58str`, directly supporting the claim of key data + base58 encoding.
+REASON: The public_key_type struct at lines 83-103 contains fc::ecc::public_key_data key_data plus constructor and operator std::string for base58 string conversion, supporting the "Key data + base58 encoding" claim.
 SUGGESTED_FIX: none
 
-### [86/165] libraries/protocol/include/hive/protocol/authority.hpp:7-55 — Threshold + key/account maps
+### [86/166] libraries/protocol/include/hive/protocol/authority.hpp:7-55 — Threshold + key/account maps
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/authority.hpp:7-55
 STATUS: confirmed
-REASON: The source excerpt directly shows the `authority` struct with `weight_threshold` (uint32_t), `key_authority_map` (flat_map of public keys to weights), and `account_authority_map` (flat_map of account names to weights), confirming the "threshold + key/account maps" claim.
+REASON: The authority struct at lines 7-55 explicitly defines `weight_threshold` (line 52), `account_auths` as `account_authority_map` (line 53), and `key_auths` as `key_authority_map` (line 54), directly matching the "threshold + key/account maps" claim.
 SUGGESTED_FIX: none
 
-### [87/165] libraries/protocol/authority.cpp:58-122 — RFC 1035 with Hive rules
+### [87/166] libraries/protocol/authority.cpp:58-122 — RFC 1035 with Hive rules
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/authority.cpp:58-122
 STATUS: confirmed
-REASON: The code implements DNS-label-style validation (dot-separated segments, must start with letter, end with letter/digit, interior allows letter/digit/hyphen) matching RFC 1035 structure, with Hive-specific restrictions (lowercase-only, minimum 3-char segments, Hive length constants).
+REASON: The source implements DNS-label-style validation (dot-separated segments, start with letter, end with letter/digit, middle allows letter/digit/hyphen) which matches RFC 1035 with Hive-specific additions (lowercase-only, 3-char minimum per segment, Hive length bounds).
 SUGGESTED_FIX: none
 
-### [88/165] libraries/protocol/include/hive/protocol/block_header.hpp:15-26 — previous, timestamp, witness, merkle root
+### [88/166] libraries/protocol/include/hive/protocol/block_header.hpp:15-26 — previous, timestamp, witness, merkle root
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/block_header.hpp:15-26
 STATUS: confirmed
-REASON: The struct at lines 15-26 contains exactly the fields claimed — `previous` (line 18), `timestamp` (line 20), `witness` (line 21), and `transaction_merkle_root` (line 22) — plus `extensions`, matching the claim with the minor detail that the KB abbreviates `transaction_merkle_root` to "merkle root".
+REASON: The block_header struct at lines 15-26 contains exactly the four fields claimed: previous (block_id_type), timestamp (fc::time_point_sec), witness (string), and transaction_merkle_root (checksum_type).
 SUGGESTED_FIX: none
 
-### [89/165] libraries/protocol/block.cpp:13-16 — endian_reverse_u32(id._hash[0])
+### [89/166] libraries/protocol/block.cpp:13-16 — endian_reverse_u32(id._hash[0])
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/block.cpp:13-16
 STATUS: confirmed
-REASON: The source excerpt at lines 13-16 shows `fc::endian_reverse_u32(id._hash[0])` verbatim, matching the claimed expression.
+REASON: The cited lines show `num_from_id` returning `fc::endian_reverse_u32(id._hash[0])`, which matches the claim verbatim.
 SUGGESTED_FIX: none
 
-### [90/165] libraries/protocol/block.cpp:19-46 — Pairwise hashing
+### [90/166] libraries/protocol/block.cpp:19-46 — Pairwise hashing
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/block.cpp:19-46
 STATUS: confirmed
-REASON: The source clearly implements pairwise hashing in the Merkle root calculation, as shown by the comment "hash ID's in pairs" (line 34) and the loop that hashes adjacent pairs via `digest_type::hash( std::make_pair( ids[i], ids[i+1] ) )` (line 39).
+REASON: The excerpt shows `legacy_calculate_merkle_root()` explicitly hashing IDs in pairs via `digest_type::hash(std::make_pair(ids[i], ids[i+1]))` with a comment "hash ID's in pairs", directly supporting the pairwise hashing claim.
 SUGGESTED_FIX: none
 
-### [91/165] libraries/protocol/include/hive/protocol/transaction.hpp:12-53 — ref_block, expiration, operations
+### [91/166] libraries/protocol/include/hive/protocol/transaction.hpp:12-53 — ref_block, expiration, operations
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/transaction.hpp:12-53
 STATUS: confirmed
-REASON: The source at lines 12-53 shows the `transaction` struct with fields `ref_block_num`, `ref_block_prefix`, `expiration`, and `operations`, directly confirming the claimed fields.
+REASON: The transaction struct at lines 12-53 contains ref_block_num/ref_block_prefix (line 14-15), expiration (line 17), and operations (line 19), matching the claim.
 SUGGESTED_FIX: none
 
-### [92/165] libraries/protocol/transaction.cpp:84-88 — Block number + prefix extraction
+### [92/166] libraries/protocol/transaction.cpp:84-88 — Block number + prefix extraction
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/transaction.cpp:84-88
 STATUS: confirmed
-REASON: The source excerpt shows `set_reference_block` extracting `ref_block_num` via `endian_reverse_u32(reference_block._hash[0])` and `ref_block_prefix` via `reference_block._hash[1]`, which is exactly block number + prefix extraction from a block ID.
+REASON: Lines 84-88 define `set_reference_block` which extracts `ref_block_num` (via endian-reversed first hash word) and `ref_block_prefix` (second hash word) from a block_id, exactly matching the claim about block number + prefix extraction.
 SUGGESTED_FIX: none
 
-### [93/165] libraries/protocol/transaction.cpp:58-64 — SHA-256 truncated to 20 bytes
+### [93/166] libraries/protocol/transaction.cpp:58-64 — SHA-256 truncated to 20 bytes
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/transaction.cpp:58-64
 STATUS: confirmed
-REASON: `digest(pack)` produces a SHA-256 hash (32 bytes), and the `memcpy` with `std::min(sizeof(result), sizeof(h))` truncates it to `sizeof(transaction_id_type)` which is 20 bytes (ripemd160-sized type).
+REASON: The cited lines show `transaction::id()` computing a digest and using `memcpy` with `std::min(sizeof(result), sizeof(h))` to truncate the hash into the smaller `transaction_id_type`, which matches the truncation mechanism described in the claim.
 SUGGESTED_FIX: none
 
-### [94/165] libraries/protocol/transaction.cpp:29-38 — chain_id + transaction -> SHA-256
+### [94/166] libraries/protocol/transaction.cpp:29-38 — chain_id + transaction -> SHA-256
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/transaction.cpp:29-38
 STATUS: confirmed
-REASON: The `sig_digest` method packs `chain_id` then `*this` (the transaction) into a `digest_type::encoder` (which is `fc::sha256`), directly supporting the claim.
+REASON: The sig_digest function packs chain_id followed by the transaction into a digest_type encoder (FC's SHA-256), exactly matching the claim.
 SUGGESTED_FIX: none
 
-### [95/165] libraries/protocol/transaction.cpp:40-56 — operations.size() > 0, per-op validate
+### [95/166] libraries/protocol/transaction.cpp:40-56 — operations.size() > 0, per-op validate
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/transaction.cpp:40-56
 STATUS: confirmed
-REASON: Lines 40-56 show two overloads of transaction::validate(), both asserting operations.size() > 0 and iterating per-op to call operation_validate(), exactly matching the claim.
+REASON: Lines 40-56 show transaction::validate() asserting operations.size() > 0 and calling operation_validate(op) for each operation, matching the claim verbatim.
 SUGGESTED_FIX: none
 
-### [96/165] libraries/protocol/include/hive/protocol/version.hpp:15-77 — Major.HF.release in uint32
+### [96/166] libraries/protocol/include/hive/protocol/version.hpp:15-77 — Major.HF.release in uint32
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/version.hpp:15-77
 STATUS: confirmed
-REASON: The struct stores `uint32_t v_num` (line 34) with major in bits 31-24, hardfork in bits 23-16, and release in bits 15-0, exactly matching the claim that version is Major.HF.release packed in a uint32.
+REASON: The struct stores `uint32_t v_num` (line 34) packed as major (bits 24-31), hardfork/minor (bits 16-23), and release/rev (bits 0-15) per the masks at lines 30-32, matching the constructor signature `version(uint8_t m, uint8_t h, uint16_t r)` at line 18.
 SUGGESTED_FIX: none
 
-### [97/165] libraries/protocol/include/hive/protocol/version.hpp:79-102 — Masks release bits
+### [97/166] libraries/protocol/include/hive/protocol/version.hpp:79-102 — Masks release bits
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/version.hpp:79-102
 STATUS: confirmed
-REASON: The `hardfork_version` struct applies `& 0xFFFF0000` in its constructor, assignment operators, and all comparison operators, which masks out the lower 16 bits (the release component of the version number).
+REASON: The hardfork_version struct consistently applies the 0xFFFF0000 mask in its constructor, assignment, and comparison operators, which zeros out the lower 16 bits (release/patch component) and retains only the major/hardfork bits, directly supporting the "Masks release bits" claim.
 SUGGESTED_FIX: none
 
-### [98/165] libraries/protocol/include/hive/protocol/version.hpp:104-111 — HF version + activation time
+### [98/166] libraries/protocol/include/hive/protocol/version.hpp:104-111 — HF version + activation time
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/version.hpp:104-111
 STATUS: confirmed
-REASON: The source excerpt shows `hardfork_version_vote` at lines 104-111 containing exactly `hf_version` (hardfork version) and `hf_time` (activation time), directly supporting the claim of "HF version + activation time."
+REASON: The cited lines define `hardfork_version_vote` struct with exactly two fields — `hf_version` (hardfork_version) and `hf_time` (time_point_sec) — which directly supports the "HF version + activation time" claim.
 SUGGESTED_FIX: none
 
-### [99/165] libraries/protocol/include/hive/protocol/hardfork_block.hpp:3-30 — All 28 HF activation blocks
+### [99/166] libraries/protocol/include/hive/protocol/hardfork_block.hpp:3-30 — All 28 HF activation blocks
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/hardfork_block.hpp:3-30
 STATUS: confirmed
-REASON: Lines 3-30 define exactly 28 hardfork activation block macros (HF 0.1 through 1.28), matching the claim verbatim.
+REASON: Lines 3-30 contain exactly 28 HIVE_HARDFORK_*_BLOCK macros (HF 0_1 through 1_28), matching the claim verbatim.
 SUGGESTED_FIX: none
 
-### [100/165] libraries/protocol/hardfork.d/0-preamble.hf:16-19 — HIVE_NUM_HARDFORKS = 28
+### [100/166] libraries/protocol/hardfork.d/0-preamble.hf:16-19 — HIVE_NUM_HARDFORKS = 28
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/hardfork.d/0-preamble.hf:16-19
 STATUS: confirmed
-REASON: Both the alternate-chain and mainnet branches define HIVE_NUM_HARDFORKS as 28 at exactly the cited lines.
+REASON: Both the alternate-chain (line 16) and mainnet (line 19) branches define HIVE_NUM_HARDFORKS as 28, matching the claim verbatim.
 SUGGESTED_FIX: none
 
-### [101/165] libraries/protocol/include/hive/protocol/config.hpp:137-143 — Mainnet "beeab0de...", testnet, mirrornet
+### [101/166] libraries/protocol/include/hive/protocol/config.hpp:137-143 — Mainnet "beeab0de...", testnet, mirrornet
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/config.hpp:137-143
 STATUS: confirmed
-REASON: Line 142 shows mainnet chain ID prefix "beeab0de" and line 137 shows mirrornet chain ID "4200000000...", with testnet defined elsewhere via preprocessor branches, directly supporting the claim.
+REASON: Mainnet chain ID "beeab0de..." appears verbatim at line 142 and mirrornet chain ID is visible at lines 134-137, supporting the claim about distinct chain IDs across mainnet/testnet/mirrornet (testnet would be in the preceding #if branch not shown but implied by the #else structure).
 SUGGESTED_FIX: none
 
-### [102/165] libraries/protocol/include/hive/protocol/hbd_interest.hpp:8-23 — Balance-seconds / year * rate
+### [102/166] libraries/protocol/include/hive/protocol/hbd_interest.hpp:8-23 — Balance-seconds / year * rate
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/hbd_interest.hpp:8-23
 STATUS: confirmed
-REASON: Lines 16-18 compute exactly `hbd_seconds / HIVE_SECONDS_PER_YEAR * hbd_interest_rate / HIVE_100_PERCENT`, which is the claimed "balance-seconds / year * rate" formula (the HIVE_100_PERCENT divisor just normalizes the basis-point rate to a fraction).
+REASON: The source computes `hbd_seconds / HIVE_SECONDS_PER_YEAR * hbd_interest_rate` (then scales by HIVE_100_PERCENT), which is exactly balance-seconds / year * rate.
 SUGGESTED_FIX: none
 
-### [103/165] libraries/protocol/include/hive/protocol/hive_collateral.hpp:8-26 — estimate_hive_collateral()` formula (uses ratio + fee constants from `config.hpp`)
+### [103/166] libraries/protocol/include/hive/protocol/hive_collateral.hpp:8-26 — estimate_hive_collateral()` formula (uses ratio + fee constants from `config.hpp`)
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/hive_collateral.hpp:8-26
 STATUS: confirmed
-REASON: The source excerpt shows `estimate_hive_collateral()` at lines 8-26 using `HIVE_COLLATERALIZED_CONVERSION_FEE` and `HIVE_CONVERSION_COLLATERAL_RATIO` constants with `multiply_with_fee()`, directly supporting the claim that the formula uses ratio and fee constants from config.
+REASON: The source excerpt shows `estimate_hive_collateral()` defined at lines 8-26 using `HIVE_COLLATERALIZED_CONVERSION_FEE`, `HIVE_CONVERSION_COLLATERAL_RATIO`, and `HIVE_100_PERCENT` constants from config, matching the claim verbatim.
 SUGGESTED_FIX: none
 
-### [104/165] libraries/protocol/include/hive/protocol/testnet_blockchain_configuration.hpp:27-285 — All configurable defaults
+### [104/166] libraries/protocol/include/hive/protocol/testnet_blockchain_configuration.hpp:27-285 — All configurable defaults
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/testnet_blockchain_configuration.hpp:27-285
 STATUS: confirmed
-REASON: Lines 27-285 span the entire `configuration` class, which holds all configurable default values (voting windows, cashout, feed, savings, governance, proposals, RC, witness shutdown, initial supply, comment intervals, etc.) with their testnet defaults and setter/getter methods.
+REASON: Lines 27-285 contain the complete `configuration` class definition with all configurable default values (vote windows, cashout, feed, savings, governance, proposals, witness thresholds, initial supplies, etc.) and their getters/setters, supporting the claim verbatim.
 SUGGESTED_FIX: none
 
-### [105/165] libraries/protocol/include/hive/protocol/base.hpp:13-29 — Required authorities interface
+### [105/166] libraries/protocol/include/hive/protocol/base.hpp:13-29 — Required authorities interface
 Source: `01-protocol-foundation.md`
 
 CITATION: libraries/protocol/include/hive/protocol/base.hpp:13-29
 STATUS: confirmed
-REASON: The source excerpt at lines 13-29 shows `base_operation` defining the five `get_required_*` authority methods (authorities, active, posting, owner, witness_signatures) plus `is_virtual()` and `validate()`, and `virtual_operation` inheriting from it, which directly supports the "required authorities interface" claim.
+REASON: The excerpt shows base_operation defining the get_required_*_authorities methods (active, posting, owner, witness_signatures) plus the generic get_required_authorities, which directly constitutes the required authorities interface claimed.
 SUGGESTED_FIX: none
 
-### [106/165] libraries/protocol/include/hive/protocol/operations.hpp:15-125 — Complete operation list with IDs
+### [106/166] libraries/protocol/include/hive/protocol/operations.hpp:15-125 — Complete operation list with IDs
 Source: `02-operations-catalog.md`
 
 CITATION: libraries/protocol/include/hive/protocol/operations.hpp:15-125
 STATUS: confirmed
-REASON: The source excerpt at lines 15-125 contains the complete `operation` typedef listing all 50 regular operations (IDs 0-49) and 43 virtual operations (last_regular+1 through last_regular+43), exactly matching the KB claim of a complete operation list with IDs.
+REASON: The cited range contains the complete `fc::static_variant` operation typedef with all 50 regular operations (IDs 0-49) and 43 virtual operations (last_regular + 1 through last_regular + 43), each annotated with its ID as a comment.
 SUGGESTED_FIX: none
 
-### [107/165] libraries/protocol/include/hive/protocol/base.hpp:13-29 — Authority method signatures
+### [107/166] libraries/protocol/include/hive/protocol/base.hpp:13-29 — Authority method signatures
 Source: `02-operations-catalog.md`
 
 CITATION: libraries/protocol/include/hive/protocol/base.hpp:13-29
 STATUS: confirmed
-REASON: The source excerpt shows exactly the five authority method signatures (get_required_authorities, get_required_active_authorities, get_required_posting_authorities, get_required_owner_authorities, get_required_witness_signatures) plus is_virtual() and validate() on base_operation, and the virtual_operation subclass, matching the claim about authority method signatures at the cited lines.
+REASON: Lines 15-19 contain the five authority method signatures (get_required_authorities, get_required_active_authorities, get_required_posting_authorities, get_required_owner_authorities, get_required_witness_signatures) on base_operation, exactly matching the cited claim.
 SUGGESTED_FIX: none
 
-### [108/165] libraries/protocol/include/hive/protocol/types.hpp:151-161 — recurrent_transfer_pair_id, extensions
+### [108/166] libraries/protocol/include/hive/protocol/types.hpp:151-161 — recurrent_transfer_pair_id, extensions
 Source: `02-operations-catalog.md`
 
 CITATION: libraries/protocol/include/hive/protocol/types.hpp:151-161
 STATUS: confirmed
-REASON: The source excerpt exactly matches the claim — `recurrent_transfer_pair_id` struct (with `uint8_t pair_id`) and `recurrent_transfer_extensions_type` are defined at lines 151-161.
+REASON: The cited lines define `recurrent_transfer_pair_id` struct and the `recurrent_transfer_extensions_type` (flat_set of static_variant including `recurrent_transfer_pair_id`), directly supporting the claim about the pair_id and extensions.
 SUGGESTED_FIX: none
 
-### [109/165] libraries/chain/database.cpp:2183-2369 — _apply_block()` :2183-2369
+### [109/166] libraries/chain/database.cpp:2183-2369 — _apply_block()` :2183-2369
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/database.cpp:2183-2369
 STATUS: confirmed
-REASON: The source excerpt shows `_apply_block()` defined exactly at lines 2183–2369, matching the cited range and containing all the block-processing logic (merkle check, transaction application, global state updates, economic processing, hardfork handling) described in the findings.
+REASON: The function `database::_apply_block()` begins at line 2183 and ends at line 2369 as cited, matching the claim exactly.
 SUGGESTED_FIX: none
 
-### [110/165] libraries/chain/database.cpp:2757-2779 — `validate_block_header()` :2757-2779
+### [110/166] libraries/chain/database.cpp:2757-2779 — `validate_block_header()` :2757-2779
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/database.cpp:2757-2779
 STATUS: confirmed
-REASON: The source excerpt shows `validate_block_header()` at exactly lines 2757-2779 with the described logic (previous block linkage, timestamp ordering, witness signature check, schedule check), matching the claim.
+REASON: The function `database::validate_block_header()` is defined exactly at lines 2757-2779 as cited, performing header validation (previous hash, timestamp, witness signing key, and schedule slot checks).
 SUGGESTED_FIX: none
 
-### [111/165] libraries/chain/database.cpp:2644-2702 — _apply_transaction()` :2644-2702
+### [111/166] libraries/chain/database.cpp:2644-2702 — _apply_transaction()` :2644-2702
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/database.cpp:2644-2702
 STATUS: confirmed
-REASON: The provided source excerpt shows `_apply_transaction()` at exactly lines 2644-2702, matching the cited range and covering the claimed logic (tx status check, duplicate check, validation, operation application loop, RC finalization, and notifications).
+REASON: The source excerpt shows `database::_apply_transaction()` defined exactly at lines 2644-2702, matching the cited range verbatim.
 SUGGESTED_FIX: none
 
-### [112/165] libraries/chain/database.cpp:2521-2642 — `validate_transaction()` :2521-2642
+### [112/166] libraries/chain/database.cpp:2521-2642 — `validate_transaction()` :2521-2642
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/database.cpp:2521-2642
 STATUS: confirmed
-REASON: The source excerpt shows `validate_transaction()` defined at line 2521 and ending at line 2642, matching the cited range exactly with the expected expiration checking, TaPoS verification, operation validation, and authority verification logic.
+REASON: The function `database::validate_transaction()` begins at line 2521 and its closing brace is at line 2642, exactly as cited.
 SUGGESTED_FIX: none
 
-### [113/165] libraries/chain/database.cpp:2722-2746 — apply_operation()` :2722-2746
+### [113/166] libraries/chain/database.cpp:2722-2746 — apply_operation()` :2722-2746
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/database.cpp:2722-2746
 STATUS: confirmed
-REASON: The provided source excerpt shows `database_impl::apply_operation()` at exactly lines 2722-2746, matching the cited function and line range.
+REASON: The source excerpt at lines 2722-2746 shows the complete definition of `database_impl::apply_operation()`, exactly matching the citation.
 SUGGESTED_FIX: none
 
-### [114/165] libraries/chain/witness_schedule.cpp:152-396 — update_witness_schedule4()` :152-396
+### [114/166] libraries/chain/witness_schedule.cpp:152-396 — update_witness_schedule4()` :152-396
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/witness_schedule.cpp:152-396
 STATUS: confirmed
-REASON: The provided source excerpt shows `update_witness_schedule4()` beginning at line 152 with its signature and ending at line 396 with `} FC_CAPTURE_AND_RETHROW() }`, exactly matching the cited range.
+REASON: The function `update_witness_schedule4()` starts at line 152 and ends at line 396 with the closing `FC_CAPTURE_AND_RETHROW() }` as cited.
 SUGGESTED_FIX: none
 
-### [115/165] libraries/chain/witness_schedule.cpp:372-388 — shuffle :372-388
+### [115/166] libraries/chain/witness_schedule.cpp:372-388 — shuffle :372-388
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/witness_schedule.cpp:372-388
 STATUS: confirmed
-REASON: The provided source excerpt exactly matches the KB's description of an XORshift PRNG shuffle seeded with head block timestamp, including the constant 2685821657736338717ULL and the Fisher-Yates swap logic.
+REASON: Lines 372-388 contain exactly the witness shuffle logic (xorshift PRNG seeded from head_block_time, Fisher-Yates-style std::swap loop over current_shuffled_witnesses), matching the "shuffle" claim verbatim.
 SUGGESTED_FIX: none
 
-### [116/165] libraries/chain/database.cpp:904-910 — get_scheduled_witness()` :904-910
+### [116/166] libraries/chain/database.cpp:904-910 — get_scheduled_witness()` :904-910
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/database.cpp:904-910
 STATUS: confirmed
-REASON: The source excerpt shows `get_scheduled_witness()` at exactly lines 904-910 with the described logic of computing `current_aslot + slot_num` and indexing into `current_shuffled_witnesses`, matching the claim.
+REASON: The source at lines 904-910 defines `database::get_scheduled_witness( uint32_t slot_num )`, exactly matching the cited function and line range.
 SUGGESTED_FIX: none
 
-### [117/165] libraries/chain/database.cpp:937-943 — `get_slot_at_time()` :937-943
+### [117/166] libraries/chain/database.cpp:937-943 — `get_slot_at_time()` :937-943
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/database.cpp:937-943
 STATUS: confirmed
-REASON: The source excerpt shows `get_slot_at_time()` at exactly lines 937-943 with the described logic, matching the citation verbatim.
+REASON: Lines 937-943 contain the definition of `database::get_slot_at_time()`, exactly matching the claim.
 SUGGESTED_FIX: none
 
-### [118/165] libraries/chain/database_witness.cpp:284-306 — update_witness_missed_blocks()` :284-306
+### [118/166] libraries/chain/database_witness.cpp:284-306 — update_witness_missed_blocks()` :284-306
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/database_witness.cpp:284-306
 STATUS: confirmed
-REASON: The source excerpt at lines 284-306 exactly matches the cited function `update_witness_missed_blocks()`, showing the missed block iteration, `total_missed++` increment, HF0_14/HF0_20 shutdown logic, and `producer_missed_operation` virtual op.
+REASON: The source excerpt at lines 284-306 shows the `update_witness_missed_blocks()` function definition, matching the claim verbatim.
 SUGGESTED_FIX: none
 
-### [119/165] libraries/chain/database.cpp:2789-2841 — update_global_dynamic_data()` :2789-2841
+### [119/166] libraries/chain/database.cpp:2789-2841 — update_global_dynamic_data()` :2789-2841
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/database.cpp:2789-2841
 STATUS: confirmed
-REASON: The source excerpt shows `update_global_dynamic_data()` at lines 2789-2841 with the described logic for missed block tracking, participation bitmap updates, DGP field updates (head_block_number, head_block_id, time, current_aslot), and undo history check, matching the cited claim.
+REASON: The function `database::update_global_dynamic_data()` begins at line 2789 and ends at line 2841 exactly as cited, updating dynamic global properties including head block number, timestamp, missed blocks tracking, and recent_slots_filled.
 SUGGESTED_FIX: none
 
-### [120/165] libraries/chain/database.cpp:531-535 — `witness_participation_rate()` :531-535
+### [120/166] libraries/chain/database.cpp:531-535 — `witness_participation_rate()` :531-535
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/database.cpp:531-535
 STATUS: confirmed
-REASON: The source excerpt shows `witness_participation_rate()` at exactly lines 531-535 with the described popcount-based calculation, matching the claim verbatim.
+REASON: The source excerpt at lines 531-535 defines `database::witness_participation_rate()` exactly as cited, computing the rate from `dpo.recent_slots_filled`.
 SUGGESTED_FIX: none
 
-### [121/165] libraries/chain/fork_database.cpp:73-99 — _push_block()` :73-99
+### [121/166] libraries/chain/fork_database.cpp:73-99 — _push_block()` :73-99
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/fork_database.cpp:73-99
 STATUS: confirmed
-REASON: The `_push_block()` function spans exactly lines 73-99 as cited, with the expected logic: cache-range check, linkability check, index insertion, head update, and `_push_next` call.
+REASON: The source excerpt shows `fork_database::_push_block()` defined exactly at lines 73-99, matching the citation.
 SUGGESTED_FIX: none
 
-### [122/165] libraries/chain/fork_database.cpp:20-28 — `pop_block()` :20-28
+### [122/166] libraries/chain/fork_database.cpp:20-28 — `pop_block()` :20-28
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/fork_database.cpp:20-28
 STATUS: confirmed
-REASON: The source excerpt at lines 20-28 shows `pop_block()` exactly as described — asserting head exists, asserting prev exists, then setting `_head = prev`.
+REASON: Lines 20-28 contain the `fork_database::pop_block()` function definition as cited.
 SUGGESTED_FIX: none
 
-### [123/165] libraries/chain/fork_database.cpp:290-330 — `fetch_branch_from()` :290-330
+### [123/166] libraries/chain/fork_database.cpp:290-330 — `fetch_branch_from()` :290-330
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/fork_database.cpp:290-330
 STATUS: confirmed
-REASON: The source excerpt at lines 290-330 shows `fetch_branch_from()` implementing the exact 3-phase common-ancestor algorithm described in the KB claim (equalize heights, walk back to shared parent, optionally include the fork point).
+REASON: The cited lines contain the `fetch_branch_from()` function definition implementing branch traversal back to a common ancestor, matching the claim.
 SUGGESTED_FIX: none
 
-### [124/165] libraries/chain/sync_block_writer.cpp:162-264 — switch_forks()` :162-264
+### [124/166] libraries/chain/sync_block_writer.cpp:162-264 — switch_forks()` :162-264
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/sync_block_writer.cpp:162-264
 STATUS: confirmed
-REASON: The `switch_forks()` function spans exactly lines 162–264 as cited, with the expected logic of fetching branches, popping old-branch blocks, applying new-branch blocks, and reverting on failure.
+REASON: Lines 162-264 exactly bound the `switch_forks()` function definition, with line 162 starting the signature and line 264 closing the function body with the `// switch_forks` comment.
 SUGGESTED_FIX: none
 
-### [125/165] libraries/chain/database.cpp:2956-3064 — update_last_irreversible_block()` :2956-3064
+### [125/166] libraries/chain/database.cpp:2956-3064 — update_last_irreversible_block()` :2956-3064
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/database.cpp:2956-3064
 STATUS: confirmed
-REASON: The source excerpt shows `update_last_irreversible_block()` defined at exactly lines 2956–3064, matching the cited location and function name verbatim.
+REASON: The function `database::update_last_irreversible_block()` is defined exactly at lines 2956-3064 as cited, matching the claim verbatim.
 SUGGESTED_FIX: none
 
-### [126/165] libraries/chain/sync_block_writer.cpp:266-367 — find_new_last_irreversible_block()` :266-367
+### [126/166] libraries/chain/sync_block_writer.cpp:266-367 — find_new_last_irreversible_block()` :266-367
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/sync_block_writer.cpp:266-367
 STATUS: confirmed
-REASON: The source excerpt shows `find_new_last_irreversible_block()` defined exactly at lines 266–367 in `sync_block_writer.cpp`, matching the cited file, function name, and line range.
+REASON: The function `find_new_last_irreversible_block()` is defined exactly at lines 266-367 as cited, with the closing brace and comment marker on line 367.
 SUGGESTED_FIX: none
 
-### [127/165] libraries/chain/database.cpp:2899-2954 — process_fast_confirm_transaction()` :2899-2954
+### [127/166] libraries/chain/database.cpp:2899-2954 — process_fast_confirm_transaction()` :2899-2954
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/database.cpp:2899-2954
 STATUS: confirmed
-REASON: The provided source excerpt shows `process_fast_confirm_transaction()` spanning exactly lines 2899–2954, matching the cited location and function name verbatim.
+REASON: The function `database::process_fast_confirm_transaction()` is defined exactly at lines 2899-2954 as cited, matching the claim verbatim.
 SUGGESTED_FIX: none
 
-### [128/165] libraries/chain/database.cpp:3066-3097 — migrate_irreversible_state()` :3066-3097
+### [128/166] libraries/chain/database.cpp:3066-3097 — migrate_irreversible_state()` :3066-3097
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/database.cpp:3066-3097
 STATUS: confirmed
-REASON: The provided source excerpt shows `migrate_irreversible_state()` at exactly lines 3066-3097, matching the cited location and function signature verbatim.
+REASON: The source excerpt at lines 3066-3097 contains the `database::migrate_irreversible_state()` function definition exactly as cited.
 SUGGESTED_FIX: none
 
-### [129/165] libraries/chain/block_log.cpp:338-366 — append_raw()` :338-366
+### [129/166] libraries/chain/block_log.cpp:338-366 — append_raw()` :338-366
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/block_log.cpp:338-366
 STATUS: confirmed
-REASON: The source excerpt shows two `append_raw` overloads spanning exactly lines 338–366, matching the cited function and line range.
+REASON: Lines 338-366 contain both `append_raw()` overloads (the 3-arg delegating variant at 338-342 and the main implementation at 344-366), matching the citation exactly.
 SUGGESTED_FIX: none
 
-### [130/165] libraries/chain/block_log.cpp:491-515 — read_block_by_num()` :491-515
+### [130/166] libraries/chain/block_log.cpp:491-515 — read_block_by_num()` :491-515
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/block_log.cpp:491-515
 STATUS: confirmed
-REASON: The provided source excerpt shows `read_block_by_num()` defined exactly at lines 491-515 with the described logic intact.
+REASON: Lines 491-515 contain the `read_block_by_num()` method definition exactly as referenced in the claim.
 SUGGESTED_FIX: none
 
-### [131/165] libraries/chain/block_log_artifacts.cpp:46-69 — header :46-69
+### [131/166] libraries/chain/block_log_artifacts.cpp:46-69 — header :46-69
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/block_log_artifacts.cpp:46-69
 STATUS: confirmed
-REASON: The source excerpt at lines 46-69 matches the cited struct `artifact_file_header` definition exactly, with all fields and initialization logic intact.
+REASON: Lines 46-69 contain the `artifact_file_header` struct definition exactly as the claim references.
 SUGGESTED_FIX: none
 
-### [132/165] libraries/chain/block_log_artifacts.cpp:82-166 — chunk :82-166
+### [132/166] libraries/chain/block_log_artifacts.cpp:82-166 — chunk :82-166
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/block_log_artifacts.cpp:82-166
 STATUS: confirmed
-REASON: The struct `artifact_file_chunk` at lines 82-166 matches the claimed bit-field layout (48-bit offset, 8-bit dict, 1-bit custom_dict, 6-bit gap, 1-bit compressed) and `stripped_block_id[2]`; the KB simplification omits the union wrapper and methods but the data layout and line range are accurate.
+REASON: The cited range exactly spans the `artifact_file_chunk` struct definition; the documented bitfield layout (block_log_offset:48, dictionary_no:8, custom_dict_used:1, gap:6, is_compressed:1) and `stripped_block_id[2]` match the source, with the doc reasonably omitting the union wrapper and member functions.
 SUGGESTED_FIX: none
 
-### [133/165] libraries/plugins/witness/witness_plugin.cpp:369-380 — schedule_production_loop()` :369-380
+### [133/166] libraries/plugins/witness/witness_plugin.cpp:369-380 — schedule_production_loop()` :369-380
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/plugins/witness/witness_plugin.cpp:369-380
 STATUS: confirmed
-REASON: The source excerpt shows `schedule_production_loop()` defined at exactly lines 369-380 with the 200ms sleep loop, timer setup, and callback to `block_production_loop`, matching the cited function and line range.
+REASON: The source excerpt shows `witness_plugin_impl::schedule_production_loop()` defined exactly at lines 369-380, matching the citation verbatim.
 SUGGESTED_FIX: none
 
-### [134/165] libraries/plugins/witness/witness_plugin.cpp:382-467 — `block_production_loop()` :382-467
+### [134/166] libraries/plugins/witness/witness_plugin.cpp:382-467 — `block_production_loop()` :382-467
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/plugins/witness/witness_plugin.cpp:382-467
 STATUS: confirmed
-REASON: The source excerpt shows `block_production_loop()` defined at exactly lines 382–467, matching the cited range verbatim.
+REASON: The cited range 382-467 contains the complete `block_production_loop()` function definition for `witness_plugin_impl`, matching the claim exactly.
 SUGGESTED_FIX: none
 
-### [135/165] libraries/plugins/witness/block_producer.cpp:31-85 — _generate_block()` :31-85
+### [135/166] libraries/plugins/witness/block_producer.cpp:31-85 — _generate_block()` :31-85
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/plugins/witness/block_producer.cpp:31-85
 STATUS: confirmed
-REASON: The `_generate_block()` method definition spans exactly lines 31–85 in the provided excerpt, matching the citation precisely.
+REASON: The cited lines define the `_generate_block()` function with the expected signature and body covering slot validation, witness verification, transaction application, block assembly, and push.
 SUGGESTED_FIX: none
 
-### [136/165] libraries/plugins/witness/block_producer.cpp:111-216 — `apply_pending_transactions()` :111-216
+### [136/166] libraries/plugins/witness/block_producer.cpp:111-216 — `apply_pending_transactions()` :111-216
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/plugins/witness/block_producer.cpp:111-216
 STATUS: confirmed
-REASON: The source excerpt shows `apply_pending_transactions()` defined exactly at lines 111-216, matching the cited function name, file, and line range.
+REASON: The function `block_producer::apply_pending_transactions()` begins at line 111 and ends at line 216 in the cited file, matching the claim exactly.
 SUGGESTED_FIX: none
 
-### [137/165] libraries/chain/include/hive/chain/block_flow_control.hpp:135-146 — Phase enum :135-146
+### [137/166] libraries/chain/include/hive/chain/block_flow_control.hpp:135-146 — Phase enum :135-146
 Source: `06-consensus-mechanisms.md`
 
 CITATION: libraries/chain/include/hive/chain/block_flow_control.hpp:135-146
 STATUS: confirmed
-REASON: The provided source excerpt shows the `phase` enum at exactly lines 135-146 with all nine enumerators and comments matching the claim verbatim.
+REASON: The source at lines 135-146 contains the `phase` enum with all expected values (REQUEST, START, FORK_DB, FORK_APPLY, FORK_IGNORE, FORK_NORMAL, TXS_EXECUTED, APPLIED, END), matching the citation exactly.
 SUGGESTED_FIX: none
 
-### [138/165] libraries/chain/database.cpp:1704 — process_funds()` at line 1704
+### [138/166] libraries/chain/database.cpp:1704 — process_funds()` at line 1704
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/database.cpp:1704
 STATUS: confirmed
-REASON: The source excerpt shows `void database::process_funds()` defined at exactly line 1704, matching the claim verbatim.
+REASON: Line 1704 contains the function definition `void database::process_funds()` exactly as cited.
 SUGGESTED_FIX: none
 
-### [139/165] libraries/chain/util/reward.cpp:34 — evaluate_reward_curve()` at line 34
+### [139/166] libraries/chain/util/reward.cpp:34 — evaluate_reward_curve()` at line 34
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/util/reward.cpp:34
 STATUS: confirmed
-REASON: The source excerpt shows `evaluate_reward_curve()` defined at exactly line 34 with the expected signature.
+REASON: Line 34 contains the definition of `evaluate_reward_curve()` exactly as claimed.
 SUGGESTED_FIX: none
 
-### [140/165] libraries/chain/database_comment.cpp:379 — process_comment_cashout()` at line 379
+### [140/166] libraries/chain/database_comment.cpp:379 — process_comment_cashout()` at line 379
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/database_comment.cpp:379
 STATUS: confirmed
-REASON: The source excerpt shows `void database::process_comment_cashout()` defined at exactly line 379, matching the claim verbatim.
+REASON: Line 379 contains the function definition `void database::process_comment_cashout()`, which directly matches the cited claim.
 SUGGESTED_FIX: none
 
-### [141/165] libraries/chain/database_comment.cpp:129 — pay_curators()` at line 129
+### [141/166] libraries/chain/database_comment.cpp:129 — pay_curators()` at line 129
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/database_comment.cpp:129
 STATUS: confirmed
-REASON: The source excerpt shows `pay_curators()` defined at exactly line 129 of `libraries/chain/database_comment.cpp`, matching the claim verbatim.
+REASON: Line 129 contains the `pay_curators()` function definition exactly as claimed.
 SUGGESTED_FIX: none
 
-### [142/165] libraries/chain/database_comment.cpp:197 — cashout_comment_helper()` at line 197
+### [142/166] libraries/chain/database_comment.cpp:197 — cashout_comment_helper()` at line 197
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/database_comment.cpp:197
 STATUS: confirmed
-REASON: The source excerpt shows `cashout_comment_helper()` defined beginning at line 197, matching the claim verbatim.
+REASON: Line 197 is the function signature of `database::cashout_comment_helper(...)`, matching the claim verbatim.
 SUGGESTED_FIX: none
 
-### [143/165] libraries/chain/database.cpp:949 — create_hbd()` at line 949
+### [143/166] libraries/chain/database.cpp:949 — create_hbd()` at line 949
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/database.cpp:949
 STATUS: confirmed
-REASON: The source excerpt shows `create_hbd()` defined at line 949 of `libraries/chain/database.cpp`, matching the claim exactly.
+REASON: Line 949 is the function signature for `database::create_hbd()`, matching the claim verbatim.
 SUGGESTED_FIX: none
 
-### [144/165] libraries/chain/hive_evaluator_social.cpp:605 — hf20_vote_evaluator()` at line 605
+### [144/166] libraries/chain/hive_evaluator_social.cpp:605 — hf20_vote_evaluator()` at line 605
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/hive_evaluator_social.cpp:605
 STATUS: confirmed
-REASON: The source excerpt shows `void hf20_vote_evaluator(` beginning exactly at line 605, matching the claim verbatim.
+REASON: Line 605 contains the function definition `void hf20_vote_evaluator( const vote_operation... o, database... _db )`, directly matching the claim.
 SUGGESTED_FIX: none
 
-### [145/165] libraries/chain/database.cpp:3186 — adjust_balance(HBD)` accrual logic at line 3186
+### [145/166] libraries/chain/database.cpp:3186 — adjust_balance(HBD)` accrual logic at line 3186
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/database.cpp:3186
 STATUS: confirmed
-REASON: The source excerpt shows `void database::adjust_balance( const account_object& a, const HBD_asset& delta )` at exactly line 3186, confirming the HBD overload of `adjust_balance` begins there.
+REASON: Line 3186 is the function signature of `database::adjust_balance` taking an `HBD_asset` delta, which is the HBD-specific overload where accrual logic for HBD balances resides.
 SUGGESTED_FIX: none
 
-### [146/165] libraries/chain/database.cpp:3265 — adjust_savings_balance(HBD)` at line 3265
+### [146/166] libraries/chain/database.cpp:3265 — adjust_savings_balance(HBD)` at line 3265
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/database.cpp:3265
 STATUS: confirmed
-REASON: The source excerpt at line 3265 shows the function signature `void database::adjust_savings_balance( const account_object& a, const HBD_asset& delta )`, which directly confirms the claim that `adjust_savings_balance(HBD)` exists at that line.
+REASON: Line 3265 contains the function signature `database::adjust_savings_balance( const account_object&, const HBD_asset& delta )`, directly matching the claim.
 SUGGESTED_FIX: none
 
-### [147/165] libraries/protocol/include/hive/protocol/hbd_interest.hpp:9 — evaluate_hbd_interest()` at line 9
+### [147/166] libraries/protocol/include/hive/protocol/hbd_interest.hpp:9 — evaluate_hbd_interest()` at line 9
 Source: `07-economic-model.md`
 
 CITATION: libraries/protocol/include/hive/protocol/hbd_interest.hpp:9
 STATUS: confirmed
-REASON: Line 9 contains the declaration of `static uint128_t evaluate_hbd_interest(...)`, matching the claim verbatim.
+REASON: Line 9 contains the declaration of `evaluate_hbd_interest()` as claimed.
 SUGGESTED_FIX: none
 
-### [148/165] libraries/chain/database_conversion.cpp:34 — process_conversions()` at line 34
+### [148/166] libraries/chain/database_conversion.cpp:34 — process_conversions()` at line 34
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/database_conversion.cpp:34
 STATUS: confirmed
-REASON: The source excerpt shows `void database::process_conversions()` defined at exactly line 34, matching the claim verbatim.
+REASON: The source excerpt shows `void database::process_conversions()` defined at line 34, exactly matching the cited function and location.
 SUGGESTED_FIX: none
 
-### [149/165] libraries/chain/hive_evaluator_transfer.cpp:473 — collateralized_convert_evaluator::do_apply()` at line 473
+### [149/166] libraries/chain/hive_evaluator_transfer.cpp:473 — collateralized_convert_evaluator::do_apply()` at line 473
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/hive_evaluator_transfer.cpp:473
 STATUS: confirmed
-REASON: Line 473 contains the definition of `collateralized_convert_evaluator::do_apply()` exactly as claimed.
+REASON: Line 473 contains the function signature `void collateralized_convert_evaluator::do_apply(...)`, exactly matching the claim.
 SUGGESTED_FIX: none
 
-### [150/165] libraries/chain/util/dhf_processor.cpp:238 — make_payments()` at line 238
+### [150/166] libraries/chain/util/dhf_processor.cpp:238 — make_payments()` at line 238
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/util/dhf_processor.cpp:238
 STATUS: confirmed
-REASON: The source excerpt shows `void dhf_processor::make_payments(` beginning exactly at line 238, matching the claim verbatim.
+REASON: Line 238 contains the function definition `void dhf_processor::make_payments(...)`, directly supporting the claim that `make_payments()` is at line 238.
 SUGGESTED_FIX: none
 
-### [151/165] libraries/chain/util/dhf_processor.cpp:145 — calculate_maintenance_budget()` at line 145
+### [151/166] libraries/chain/util/dhf_processor.cpp:145 — calculate_maintenance_budget()` at line 145
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/util/dhf_processor.cpp:145
 STATUS: confirmed
-REASON: The source excerpt shows `calculate_maintenance_budget()` defined at exactly line 145, matching the claim verbatim.
+REASON: Line 145 contains the definition of `dhf_processor::calculate_maintenance_budget()`, matching the claim verbatim.
 SUGGESTED_FIX: none
 
-### [152/165] libraries/chain/util/dhf_processor.cpp:325 — convert_funds()` at line 325
+### [152/166] libraries/chain/util/dhf_processor.cpp:325 — convert_funds()` at line 325
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/util/dhf_processor.cpp:325
 STATUS: confirmed
-REASON: The source excerpt shows `void dhf_processor::convert_funds(` beginning exactly at line 325, matching the claim.
+REASON: Line 325 contains the `convert_funds` function definition as a member of `dhf_processor`, matching the claim verbatim.
 SUGGESTED_FIX: none
 
-### [153/165] libraries/chain/hive_evaluator_transfer.cpp:292 — transfer_to_vesting_evaluator::do_apply()` at line 292
+### [153/166] libraries/chain/hive_evaluator_transfer.cpp:292 — transfer_to_vesting_evaluator::do_apply()` at line 292
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/hive_evaluator_transfer.cpp:292
 STATUS: confirmed
-REASON: The source excerpt shows `transfer_to_vesting_evaluator::do_apply()` beginning at exactly line 292, matching the claim verbatim.
+REASON: Line 292 contains the function signature `void transfer_to_vesting_evaluator::do_apply(...)`, exactly matching the claim.
 SUGGESTED_FIX: none
 
-### [154/165] libraries/chain/hive_evaluator_transfer.cpp:327 — withdraw_vesting_evaluator::do_apply()` at line 327
+### [154/166] libraries/chain/hive_evaluator_transfer.cpp:327 — withdraw_vesting_evaluator::do_apply()` at line 327
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/hive_evaluator_transfer.cpp:327
 STATUS: confirmed
-REASON: The source excerpt at line 327 shows `withdraw_vesting_evaluator::do_apply()` exactly as cited, matching the claim verbatim.
+REASON: Line 327 contains the exact function definition `void withdraw_vesting_evaluator::do_apply( const withdraw_vesting_operation& o )` as claimed.
 SUGGESTED_FIX: none
 
-### [155/165] libraries/chain/database_vesting.cpp:111 — process_vesting_withdrawals()` at line 111
+### [155/166] libraries/chain/database_vesting.cpp:111 — process_vesting_withdrawals()` at line 111
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/database_vesting.cpp:111
 STATUS: confirmed
-REASON: The source excerpt shows `void database::process_vesting_withdrawals()` defined exactly at line 111, matching the claim verbatim.
+REASON: The cited line 111 contains exactly the function signature `void database::process_vesting_withdrawals()` as referenced in the claim.
 SUGGESTED_FIX: none
 
-### [156/165] libraries/chain/include/hive/chain/detail/state/global_property_object.hpp:87 — get_vesting_share_price()` at line 87
+### [156/166] libraries/chain/include/hive/chain/detail/state/global_property_object.hpp:87 — get_vesting_share_price()` at line 87
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/include/hive/chain/detail/state/global_property_object.hpp:87
 STATUS: confirmed
-REASON: The source excerpt shows `get_vesting_share_price()` defined at exactly line 87 with the described signature and fallback logic.
+REASON: Line 87 contains the declaration `VEST_price get_vesting_share_price() const`, exactly matching the claim.
 SUGGESTED_FIX: none
 
-### [157/165] libraries/chain/database.cpp:2399 — update_median_feed()` at line 2399
+### [157/166] libraries/chain/database.cpp:2399 — update_median_feed()` at line 2399
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/database.cpp:2399
 STATUS: confirmed
-REASON: The source excerpt shows `void database::update_median_feed()` defined at exactly line 2399, matching the claim verbatim.
+REASON: Line 2399 contains the function definition `void database::update_median_feed()` exactly as the claim states.
 SUGGESTED_FIX: none
 
-### [158/165] libraries/chain/database.cpp:2868 — update_virtual_supply()` at line 2868
+### [158/166] libraries/chain/database.cpp:2868 — update_virtual_supply()` at line 2868
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/database.cpp:2868
 STATUS: confirmed
-REASON: The source excerpt shows `void database::update_virtual_supply()` defined at exactly line 2868, matching the claim verbatim.
+REASON: The cited line is exactly the start of the `database::update_virtual_supply()` function definition, matching the claim verbatim.
 SUGGESTED_FIX: none
 
-### [159/165] libraries/chain/database.cpp:2843 — calculate_HBD_percent()` at line 2843
+### [159/166] libraries/chain/database.cpp:2843 — calculate_HBD_percent()` at line 2843
 Source: `07-economic-model.md`
 
 CITATION: libraries/chain/database.cpp:2843
 STATUS: confirmed
-REASON: The source excerpt shows `uint16_t database::calculate_HBD_percent()` beginning exactly at line 2843, matching the claim verbatim.
+REASON: Line 2843 contains the definition `uint16_t database::calculate_HBD_percent()`, exactly matching the claim.
 SUGGESTED_FIX: none
 
-### [160/165] libraries/chain/database_hardfork.cpp:336-416 — HF20 RC initialization
+### [160/166] libraries/chain/database_hardfork.cpp:336-416 — HF20 RC initialization
 Source: `08-resource-credits.md`
 
 CITATION: libraries/chain/database_hardfork.cpp:336-416
 STATUS: confirmed
-REASON: The source excerpt shows the complete HF20 RC initialization sequence at exactly the cited lines: loading resource parameters from JSON, creating rc_resource_param_object, setting pool params, creating usage buckets, creating rc_pool_object, creating rc_stats_objects, and initializing all accounts' RC mana to maximum.
+REASON: The excerpt spans the HIVE_HARDFORK_0_20 case (line 336) through its closing brace (line 416) and contains explicit "Initialize RC:" logic including rc_resource_param_object, rc_usage_bucket_object, rc_pool_object, rc_stats_object creation, and per-account rc_adjustment/manabar initialization.
 SUGGESTED_FIX: none
 
-### [161/165] libraries/chain/witness_schedule.cpp:264-333 — Hardfork voting mechanism
+### [161/166] libraries/protocol/include/hive/protocol/config.hpp:390-494 — RC-related constants
+Source: `08-resource-credits.md`
+
+CITATION: libraries/protocol/include/hive/protocol/config.hpp:390-494
+STATUS: confirmed
+REASON: The cited range contains RC-related constants including the Resource Dynamics framework (HIVE_RD_*, lines 393-403), account subsidy constants (lines 405-420), and the explicitly labeled "HIVE RC related constants" section (lines 479-494).
+SUGGESTED_FIX: none
+
+### [162/166] libraries/chain/witness_schedule.cpp:264-333 — Hardfork voting mechanism
 Source: `09-hardfork-history.md`
 
 CITATION: libraries/chain/witness_schedule.cpp:264-333
 STATUS: confirmed
-REASON: The cited lines directly implement the hardfork voting mechanism: tallying witness version votes (lines 266-282), determining majority version against `hardfork_required_witnesses` threshold (lines 306-317), and scheduling the next hardfork when vote threshold is met (lines 319-334), plus the special-case HF23 force (lines 289-301).
+REASON: The cited range clearly implements the hardfork voting mechanism — tallying witness running_version and (hardfork_version_vote, hardfork_time_vote) tuples across the scheduled witnesses and updating hardfork_property_object when hardfork_required_witnesses threshold is met.
 SUGGESTED_FIX: none
 
-### [162/165] libraries/chain/database.cpp:61-71 — next_hf_time()` for HF28
+### [163/166] libraries/chain/database.cpp:61-71 — next_hf_time()` for HF28
 Source: `09-hardfork-history.md`
 
 CITATION: libraries/chain/database.cpp:61-71
 STATUS: confirmed
-REASON: The source excerpt at lines 61-71 defines `next_hf_time()` with the comment "current next hardfork is HF28" and the mainnet timestamp 1763557200, exactly matching the claim.
+REASON: The function `next_hf_time()` is defined at line 61 with an explicit comment at line 63 stating "current 'next hardfork' is HF28", directly supporting the claim.
 SUGGESTED_FIX: none
 
-### [163/165] libraries/chain/database.cpp:1461-1540 — clear_account()` / `clear_accounts()` for HF23
+### [164/166] libraries/chain/database.cpp:1461-1540 — clear_account()` / `clear_accounts()` for HF23
 Source: `09-hardfork-history.md`
 
 CITATION: libraries/chain/database.cpp:1461-1540
 STATUS: confirmed
-REASON: The source excerpt shows `clear_accounts()` at line 1461 and `clear_account()` at line 1474, both implementing HF23 account clearing logic (with `hardfork_hive_operation` vop, treasury transfers, delegation removal), exactly as claimed.
+REASON: The cited lines contain the `clear_accounts()` function (1461-1472) and the start of `clear_account()` (1474-1540), directly supporting the claim about these functions being used for HF23.
 SUGGESTED_FIX: none
 
-### [164/165] libraries/chain/database.cpp:1422-1458 — restore_accounts()` for HF24
+### [165/166] libraries/chain/database.cpp:1422-1458 — restore_accounts()` for HF24
 Source: `09-hardfork-history.md`
 
 CITATION: libraries/chain/database.cpp:1422-1458
 STATUS: confirmed
-REASON: The source excerpt shows `restore_accounts()` at exactly lines 1422-1458, restoring HBD/HIVE balances from `h23_balances` (HF23 seizures) back from treasury to accounts — consistent with the HF24 restoration claim.
+REASON: The source excerpt at lines 1422-1458 shows the `database::restore_accounts()` function definition, which directly supports the claim about `restore_accounts()` for HF24.
 SUGGESTED_FIX: none
 
-### [165/165] libraries/chain/database_dhf.cpp:146 — remove_proposal_votes_for_accounts_without_voting_rights()` for HF28
+### [166/166] libraries/chain/database_dhf.cpp:146 — remove_proposal_votes_for_accounts_without_voting_rights()` for HF28
 Source: `09-hardfork-history.md`
 
 CITATION: libraries/chain/database_dhf.cpp:146
 STATUS: confirmed
-REASON: The source at line 146 shows the function `remove_proposal_votes_for_accounts_without_voting_rights()` defined exactly as claimed.
+REASON: Line 146 contains the exact function definition `void database::remove_proposal_votes_for_accounts_without_voting_rights()` matching the claim verbatim.
 SUGGESTED_FIX: none
 
 ## Summary
@@ -1331,6 +1339,6 @@ SUGGESTED_FIX: none
 | Status | Count |
 |--------|------:|
 | confirmed  | 165 |
-| drifted    | 0 |
+| drifted    | 1 |
 | broken     | 0 |
 | unparseable| 0 |

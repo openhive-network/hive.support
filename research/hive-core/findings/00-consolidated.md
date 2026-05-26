@@ -614,7 +614,7 @@ Part 04 says HBD interest is "hidden as side effect of adjust_balance(HBD)" whil
 | Price curve computation | `rc_curve.cpp` | 32-98 |
 | Pool dynamics (decay) | `rd.cpp` | 23-118 |
 | Resource parameters | `libraries/jsonball/data/resource_parameters.json` | — |
-| Manabar struct | `include/hive/chain/rc/manabar.hpp` | 42-141 |
+| Manabar struct + update utility | `include/hive/chain/util/manabar.hpp` | 32-141 |
 | RC state objects | `include/hive/chain/rc/rc_objects.hpp` | — |
 | RC API | `libraries/plugins/apis/rc_api/` | — |
 
