@@ -1,6 +1,6 @@
 # Hive State Objects Reference
 
-Source: hive-core at commit 44c3fd880. 39 type IDs (37 with definitions) in chainbase shared memory.
+Source: hive-core release 1.28.6. 39 type IDs (37 with definitions) in chainbase shared memory.
 
 ---
 

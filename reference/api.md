@@ -1,6 +1,6 @@
 # Hive API Reference
 
-Source: hive-core at commit 44c3fd880. 17 API plugins, ~175 methods. JSON-RPC 2.0.
+Source: hive-core release 1.28.6. 17 API plugins, ~175 methods. JSON-RPC 2.0.
 
 ---
 

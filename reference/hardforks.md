@@ -1,6 +1,6 @@
 # Hive Hardfork History Reference
 
-Source: hive-core at commit 44c3fd880. 28 hardforks: HF1-23 Steem-era, HF24-28 Hive-era.
+Source: hive-core release 1.28.6. 28 hardforks: HF1-23 Steem-era, HF24-28 Hive-era.
 
 Versioning: HF1-23 are version 0.1-0.23 (Steem major version 0). HF24-28 are version 1.24-1.28 (Hive major version 1). Version comparison treats major 0 and 1 as equivalent for backward compatibility.
 

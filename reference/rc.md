@@ -1,6 +1,6 @@
 # Hive Resource Credits (RC) Reference
 
-Source: hive-core at commit 44c3fd880. RC is non-consensus (enforced at mempool only, not during block processing).
+Source: hive-core release 1.28.6. RC is non-consensus (enforced at mempool only, not during block processing).
 
 ---
 

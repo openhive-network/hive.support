@@ -21,7 +21,7 @@ Need to look something up? Go to `reference/`:
 | Resource Credits: cost calculation, mana, delegation | `reference/rc.md` |
 | Hardfork history: what changed when | `reference/hardforks.md` |
 
-All data verified against hive-core commit `44c3fd880` (origin/develop).
+All data verified against hive-core release `1.28.6`.
 
 ## Key Facts
 
@@ -119,4 +119,4 @@ See `contrib/README.md` for the format. Contributions are reviewed and incorpora
 ## Source
 
 - **Repository:** [hive/hive](https://gitlab.syncad.com/hive/hive) on GitLab
-- **Version:** develop HEAD at commit `44c3fd880`
+- **Version:** release `1.28.6` (`10ac0ce94`)

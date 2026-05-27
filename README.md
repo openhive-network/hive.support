@@ -60,7 +60,7 @@ Claude Code will read `CLAUDE.md` automatically and navigate the knowledge base 
 
 ## Coverage
 
-**hive-core** (complete) — 10-part source-level analysis of hived, verified against commit `44c3fd880`.
+**hive-core** (complete) — 10-part source-level analysis of hived, verified against release `1.28.6`.
 
 Covers: operations, validation, evaluators, state objects, consensus, economics, RC, hardforks, and API.
 

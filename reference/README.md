@@ -1,6 +1,6 @@
 # Hive Blockchain Reference — Navigation Guide
 
-Source-code-verified reference for Hive blockchain (hived). All data from hive-core commit `44c3fd880` (origin/develop).
+Source-code-verified reference for Hive blockchain (hived). All data from hive-core release `1.28.6`.
 
 ## Quick Lookup
 

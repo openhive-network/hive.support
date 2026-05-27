@@ -1,6 +1,6 @@
 # Hive Economic Model Reference
 
-Source: hive-core at commit 44c3fd880. All formulas verified against source code.
+Source: hive-core release 1.28.6. All formulas verified against source code.
 
 ---
 

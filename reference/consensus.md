@@ -1,6 +1,6 @@
 # Hive Consensus Mechanisms Reference
 
-Source: hive-core at commit 44c3fd880.
+Source: hive-core release 1.28.6.
 
 ---
 
