@@ -1,7 +1,13 @@
 # Part 4: Chain Evaluators — Dispatch and Database Helpers
 
-Source-verified analysis of how evaluators are dispatched and what database helper
-methods they call to mutate chain state.
+Source-verified analysis of how operations are dispatched to evaluators, what database helper
+methods evaluators call to mutate chain state, and the end-of-block processors that complete
+deferred work. Covers the evaluator base-class interface and registry (§1.1–1.2), the dispatch
+flow including the RC differential-usage hook (§1.7) and the out-of-band `witness_block_approve`
+fast-confirm path (§1.8), every balance/vesting/market/governance helper (§2), three deep-dives
+that resolve prior open questions — delayed voting (§2.14), DHF proposal payout (§2.15), and the
+reward-curve catalog (§2.16) — and a per-evaluator reference for all 50 registered evaluators
+(§5). Verified against hive-core `10ac0ce94f` (release 1.28.6).
 
 ---
 
@@ -22,13 +28,34 @@ evaluator<OperationType>                     (abstract base)
 - `libraries/chain/include/hive/chain/evaluator_registry.hpp` — dispatch table
 - `libraries/chain/include/hive/chain/hive_evaluator.hpp` — registration function declarations
 
-The `HIVE_DEFINE_EVALUATOR(X)` macro generates a class `X_evaluator` with:
-- `typedef X_operation operation_type;`
-- Constructor taking `database& db`
-- Pure virtual `do_apply(const X_operation& o)` that subclasses implement
+**Base class interface** (`evaluator.hpp:10-19`): the abstract `evaluator<OperationType>`
+declares exactly three pure virtuals — there is no `validate()` here (protocol validation
+lives on the operation itself, see Part 03):
+- `virtual void apply(const OperationType& op) = 0;` — executes the operation.
+- `virtual int get_type() const = 0;` — returns the operation's variant tag.
+- `virtual std::string get_name(const OperationType& op) = 0;` — demangled type name (used by
+  the benchmark dumper).
 
-The `evaluator_impl::apply()` method casts the variant `operation` to the concrete
-operation type and calls `do_apply()`.
+**CRTP bridge** (`evaluator_impl<EvaluatorType, OperationType>`, `evaluator.hpp:21-53`):
+- Holds `database& _db` (protected) and exposes it via `database& db() { return _db; }`
+  (`evaluator.hpp:49`). **This is how every evaluator reaches chain state** — `_db` /`db()`
+  is the single handle for reads (`get_account`, `find_comment`, …), writes (`modify`,
+  `create`, `remove`), helpers (`adjust_balance`, `create_vesting`, …), virtual-op emission
+  (`push_virtual_operation`), and hardfork checks (`has_hardfork`).
+- `apply()` is `final override` (`evaluator.hpp:33-38`): it `static_cast`s `this` to the
+  concrete `EvaluatorType`, extracts the typed operation from the `operation` variant via
+  `o.template get<EvaluatorType::operation_type>()`, and calls `eval->do_apply(op)`. The
+  variant cast is type-safe because the registry only ever routes an operation to the slot
+  matching its tag.
+- `get_type()` returns `OperationType::tag<EvaluatorType::operation_type>::value`
+  (`evaluator.hpp:40`).
+
+The `HIVE_DEFINE_EVALUATOR(X)` macro (`evaluator.hpp:57-68`) generates `class X_evaluator :
+public evaluator_impl<X_evaluator>` with `typedef X_operation operation_type;`, a constructor
+forwarding `database&` to the base, and a **declaration** of `void do_apply(const X_operation&
+o);`. The body is written by hand in the corresponding `hive_evaluator_*.cpp`. A second macro,
+`HIVE_DEFINE_PLUGIN_EVALUATOR` (`evaluator.hpp:70-84`), additionally stores a `PLUGIN*` for
+plugin-defined operations (not used by the 50 consensus evaluators).
 
 ### 1.2 Registration
 
@@ -48,10 +75,20 @@ void database::initialize_evaluators()
 }
 ```
 
-The `evaluator_registry` holds a `vector<unique_ptr<evaluator<operation>>>` indexed
-by the operation's `which()` tag (its position in the `operation` variant).
-`register_evaluator<EvaluatorType>()` inserts at slot
-`operation::tag<EvaluatorType::operation_type>::value`.
+The `evaluator_registry` (`evaluator_registry.hpp:7-76`) holds a public
+`vector<unique_ptr<evaluator<operation>>> _op_evaluators` indexed by the operation's
+`which()` tag (its position in the `operation` variant). The constructor pre-sizes the vector
+to `operation::count()` empty slots (`evaluator_registry.hpp:11-16`), so unregistered
+operations leave a null `unique_ptr`. `register_evaluator<EvaluatorType>()` constructs the
+evaluator with `new EvaluatorType(_db, args...)` and `reset`s it into slot
+`operation::tag<EvaluatorType::operation_type>::value` (`evaluator_registry.hpp:18-22`).
+
+Two lookups exist (`evaluator_registry.hpp:64-72`): `get_evaluator(op)` dereferences the slot
+and **asserts** (`assert(...false)`) on a negative tag, out-of-range tag, or null slot — i.e.
+an unregistered operation in a block aborts the node. `is_evaluator(op)` is the non-asserting
+form (returns `nullptr` instead) used to test registration without crashing. The dispatcher
+in `apply_operation` always uses `get_evaluator` (a malformed operation should never reach it,
+having passed deserialization and validation).
 
 ### 1.3 Complete Evaluator Registration Map
 
@@ -175,6 +212,72 @@ Virtual operations follow the same signal path. They are pushed via:
 `custom_json_operation` has a secondary dispatch mechanism. When `custom_json_evaluator`
 runs, it looks up a `custom_operation_interpreter` by `id` field and delegates to it.
 Plugins register interpreters via `database::register_custom_operation_interpreter()`.
+
+### 1.7 Resource Credit Differential Usage (`handle_operation_discount`)
+
+Between `notify_pre_apply_operation` and the evaluator's `apply()`, the dispatcher calls
+`rc().handle_operation_discount<operation>(op)` — but **only after HF20**
+(`database.cpp:2737-2738`). This is the only RC hook that runs *inside* the evaluator path;
+the rest of RC accounting (mana regeneration, the actual charge) happens inside vesting
+helpers and in `rc().finalize_transaction()` after all ops apply.
+
+**What it does** (`rc/resource_count.cpp:134-164`): for a handful of operations whose true
+state cost can only be known by comparing pre- and post-operation state, it computes the
+*current* state-byte footprint and subtracts it from `tx_info.usage[resource_state_bytes]` as
+a negative initial value. When the post-apply RC accounting later adds the new footprint, the
+net charge is the **differential** (new − old), not the full new size. The classic case: an
+`account_update` that swaps one key for another allocates no net new state, so charging the
+full authority size would be punitive.
+
+Differential usage is computed by `count_differential_operation_visitor`
+(`rc/resource_count.cpp`); only five operations override the default (which returns `false` /
+no discount, `resource_count.cpp:131`):
+- `witness_update_operation` — current `url` length + base size (`resource_count.cpp:37-47`)
+- `account_update_operation` — dynamic size of each provided authority (owner/active/posting)
+  (`resource_count.cpp:49-67`); **metadata is deliberately excluded** because its persistence
+  depends on whether a metadata plugin is attached, which would make RC non-deterministic
+  across nodes (`resource_count.cpp:63-64`)
+- `account_update2_operation` — same as `account_update` (`resource_count.cpp:69-87`)
+- `recover_account_operation` — current owner-authority size (`resource_count.cpp:89-98`)
+- `delegate_rc_operation` — base size per *existing* direct RC delegation being modified
+  (`resource_count.cpp:100-128`)
+
+**Scoping** (`resource_count.cpp:149-158`): differential usage is **per-transaction** (reset
+in pre-apply-transaction), not per-block, but the hook fires in pre-apply-*operation* so that
+intra-transaction interactions are visible (e.g. an account created earlier in the same tx
+exists by the time a later `account_update` runs). It is acceptable for one operation's usage
+to go negative and effectively *subsidize* another op in the same transaction; a final safety
+check prevents the whole transaction's usage from going negative. RC remains non-consensus
+(mempool/production enforcement only) — see Part 08 — but the *accounting* still runs during
+replay to keep RC state deterministic.
+
+### 1.8 Out-of-Band Operation Handling (`witness_block_approve`)
+
+One consensus operation never flows through the evaluator dispatch at all:
+`witness_block_approve_operation`. Its evaluator's `do_apply` is an unconditional
+`HIVE_CHAIN_UNREACHABLE_CODE_ASSERT(false, "Operation excluded from blocks.")`
+(`hive_evaluator.cpp:623-628`) — the op may not appear in a block.
+
+Instead it travels as a stand-alone **fast-confirmation transaction** (HF26+,
+`HIVE_HARDFORK_1_26_FAST_CONFIRMATION`). `is_fast_confirm_transaction` recognizes a
+transaction with exactly one operation of this type (`database.cpp:540`), and the chain plugin
+routes it to `database::process_fast_confirm_transaction()` (`database.cpp:2899-2954`) rather
+than `apply_transaction`. That handler:
+1. Asserts HF26 and that the trx really is a fast-confirm (`database.cpp:2902-2907`).
+2. Validates the transaction with `skip_tapos_check` — the approving witness may be on a
+   different fork whose TaPoS references a block we don't have (`database.cpp:2911-2915`).
+3. Verifies the witness is on the current irreversibility schedule
+   (`get_witness_schedule_object_for_irreversibility`); ignores it otherwise
+   (`database.cpp:2920-2930`).
+4. Enforces monotonicity per witness via `_last_fast_approved_block_by_witness` — a newer
+   approval for an older/equal block number is dropped (`database.cpp:2932-2946`).
+5. Recomputes the last irreversible block (`update_last_irreversible_block`) and migrates
+   irreversible state (`database.cpp:2951-2953`).
+
+So `witness_block_approve` is the transport for **one-block irreversibility / fast confirms**:
+witnesses signal block approval out-of-band to advance LIB faster than the normal "2/3 of
+witnesses produced on top" rule. It modifies no per-account state and emits no virtual op; its
+only effect is on LIB calculation.
 
 ---
 
@@ -474,8 +577,13 @@ These are the methods evaluators call to mutate state. Organized by domain.
      updates `withdrawn`, resets schedule if complete.
   5. Updates `dynamic_global_property_object`: decreases `total_vesting_fund_hive`
      and `total_vesting_shares` for HIVE conversions.
-  6. Handles delayed voting (HF24+) or adjusts proxied witness votes.
-- **Virtual ops**: `fill_vesting_withdraw_operation` for each route and the remainder.
+  6. Adjusts governance weight. Pre-HF24: `adjust_proxied_witness_votes(-to_withdraw)` directly
+     (`database_vesting.cpp:294-297`). HF24+: cancels the withdrawer's *buffered* delayed votes
+     first and only removes the matured **leftover** from the proxy chain (`:284-292`, see §2.14
+     leftover rule); auto-vest recipients get their delayed votes increased.
+- **Virtual ops**: `fill_vesting_withdraw_operation` for each route and the remainder (emitted
+  even when the converted remainder is zero, because `from_account`'s VESTS still change — issue
+  #337, `database_vesting.cpp:242-243`).
 
 ### 2.9 Conversion Helpers (database_conversion.cpp)
 
@@ -591,6 +699,152 @@ The `database_delegation.cpp` file only contains index initialization for
   relative to `hbd_start_percent` and `hbd_stop_percent`.
 - **Modifies**: `dynamic_global_property_object.virtual_supply`, `.hbd_print_rate`.
 
+### 2.14 Delayed Voting (util/delayed_voting.cpp) — HF24+
+
+Since HF24, *new* VESTS do not immediately count toward governance vote weight. Power-up adds
+the VESTS to `vesting_shares` right away (so RC/feed/curation see them), but the governance
+influence is buffered for 30 days. This blocks a takeover where an attacker buys HIVE, powers
+up, and instantly swings witness/proposal votes. The mechanism is split between an evaluator
+that *records* delayed votes and an end-of-block processor that *matures* them.
+
+**State**: each `account_object` carries `delayed_votes` (a vector of `{time, val}` buckets)
+and `sum_delayed_votes` (their total). `get_governance_vote_power()` subtracts
+`sum_delayed_votes`, so buffered VESTS are invisible to governance until matured. The
+`by_delayed_voting` account index is keyed on the oldest bucket's time, letting the processor
+find mature accounts cheaply.
+
+#### `delayed_voting::add_delayed_value(account, head_time, val)` (`util/delayed_voting.cpp:7-13`)
+- Appends `val` to the account's newest bucket (one bucket per day) via
+  `delayed_voting_processor::add`. Capped at **30 buckets** because
+  `HIVE_DELAYED_VOTING_TOTAL_INTERVAL_SECONDS / HIVE_DELAYED_VOTING_INTERVAL_SECONDS = 30 days
+  / 1 day = 30` (`util/delayed_voting.cpp:101-109`; constants `config.hpp:182-183`).
+- Called by `transfer_to_vesting_evaluator` (`hive_evaluator_transfer.cpp:315-316`) after the
+  immediate `adjust_account_vesting_balance`.
+
+#### `delayed_voting::erase_delayed_value` / `add_votes` / `update_votes`
+- Used during **power-down** (`process_vesting_withdrawals`). As VESTS leave an account, any
+  *still-buffered* (not-yet-matured) delayed votes must be cancelled before reducing real
+  governance weight. `add_votes` accumulates per-account deltas across all withdraw routes
+  (positive for auto-vest recipients, negative for the withdrawer)
+  (`database_vesting.cpp:210-211, 252-253`); `update_votes` then applies them
+  (`util/delayed_voting.cpp:44-77`, called at `database_vesting.cpp:288`).
+- **Leftover rule** (`database_vesting.cpp:288-291`): a withdrawal first eats the withdrawer's
+  buffered delayed votes; only the portion exceeding `sum_delayed_votes` (already-matured
+  governance weight) is removed from the live proxy chain via `adjust_proxied_witness_votes`.
+
+#### `delayed_voting::run(head_time)` / `database::process_delayed_voting(note)`
+- `process_delayed_voting` runs at end-of-block (HF24+ guard, `database.cpp:1654-1661`) and
+  delegates to `delayed_voting::run` (`util/delayed_voting.cpp:79-120`).
+- Walks the `by_delayed_voting` index; for every account whose oldest bucket is older than
+  `HIVE_DELAYED_VOTING_TOTAL_INTERVAL_SECONDS` (30 days):
+  1. Emits `delayed_voting_operation(account, val)`.
+  2. Calls `adjust_proxied_witness_votes(account, +val)` — the buffered VESTS *now* count.
+  3. Erases the front (oldest) bucket via `delayed_voting_processor::erase_front`.
+- **Virtual ops**: `delayed_voting_operation` (one per matured bucket).
+
+#### `claim_reward_balance` interaction
+`claim_reward_balance_evaluator` updates `vesting_shares` inline (not via
+`adjust_account_vesting_balance`) and applies governance weight **immediately** —
+`adjust_proxied_witness_votes(acnt, op_reward_vests.amount)` with no `delayed_voting` buffering
+(`hive_evaluator_transfer.cpp:674`). Only `transfer_to_vesting` buffers; reward VESTS were
+already "earned" stake and are not treated as a takeover vector.
+
+### 2.15 DHF Proposal Processing (util/dhf_processor.cpp)
+
+The DHF (Decentralized Hive Fund / "treasury") *evaluators* only create, edit, vote on, and
+remove `proposal_object`s — they never move treasury funds. All payout, funding, and
+conversion happens here, driven by `database::process_proposals(note)` which (HF21+ guard,
+`database.cpp:1645-1652`) constructs a `dhf_processor` and calls `run`.
+
+#### `dhf_processor::run(note)` (`util/dhf_processor.cpp:298-304`)
+Four phases, in order: `remove_old_proposals` → `record_funding` → `convert_funds` →
+`make_payments`.
+
+#### `remove_old_proposals` (`util/dhf_processor.cpp:43-69, 225-236`)
+- Per-block physical cleanup of proposals previously flagged `removed` (by
+  `remove_proposal_evaluator`). Throttled by `db.get_remove_threshold()` (a `remove_guard`)
+  so a large purge is spread across blocks. Automatic removal of merely *expired* proposals is
+  deliberately disabled so APIs can still list them (`util/dhf_processor.cpp:57-63`).
+
+#### `record_funding` (`util/dhf_processor.cpp:306-323`)
+- Runs only in the maintenance period (`next_maintenance_time` reached, hourly on mainnet —
+  `HIVE_PROPOSAL_MAINTENANCE_PERIOD`, `config.hpp:172`).
+- Drains `dynamic_global_property_object.dhf_interval_ledger` (HBD accumulated by
+  `process_funds` from the proposal share of inflation), emitting
+  `dhf_funding_operation(treasury, funds)` and zeroing the ledger.
+
+#### `convert_funds` (`util/dhf_processor.cpp:325-360`) — HF24+
+- Runs only in the *daily* maintenance period (`next_daily_maintenance_time`,
+  `HIVE_DAILY_PROPOSAL_MAINTENANCE_PERIOD` = 1 day; HF24 guard at
+  `util/dhf_processor.cpp:36-38`).
+- Converts `HIVE_PROPOSAL_CONVERSION_RATE` (5 basis points = 0.05%, `config.hpp:469`) of the
+  treasury's *liquid HIVE* balance to HBD at the current median, adjusting supply both ways.
+  Skips if the result would be below `HIVE_MIN_PAYOUT_HBD`. The treasury is meant to hold HBD;
+  this drains any HIVE that lands there.
+- **Virtual ops**: `dhf_conversion_operation(treasury, hive_in, hbd_out)` — the **same vop
+  type** also emitted by `transfer_evaluator` when a user sends HIVE to the treasury (§5.1).
+
+#### `make_payments` (`util/dhf_processor.cpp:238-286`)
+- Runs only in the (hourly) maintenance period. Steps:
+  1. `find_proposals` (`:71-86`) — partitions proposals into *active* (`start_date ≤ now ≤
+     end_date`) and not-yet-active.
+  2. `calculate_votes` (`:88-124`) — for each active proposal, `total_votes` = Σ
+     `get_governance_vote_power()` over all its voters **excluding voters who set a proxy**
+     (`:99-104`).
+  3. `sort_by_votes` (`:126-136`) — descending by `total_votes`, ties broken by lower
+     `proposal_id`.
+  4. `calculate_maintenance_budget` (`:145-159`) — daily budget = treasury HBD balance /
+     `total_amount_divider` (**=100, i.e. 1% per day**, `dhf_processor.hpp:25`), pro-rated by
+     the seconds elapsed since `last_budget_time`.
+  5. `transfer_payments` (`:161-212`) — walks the sorted list paying each proposal its
+     `period_pay` (`daily_pay` pro-rated by elapsed seconds; HF25 simplified the rounding,
+     `:191-199`), decrementing the remaining budget, until the budget is exhausted or the first
+     proposal with `total_votes == 0` is reached (`:187-188`, which ends the loop). Each payment
+     emits `proposal_pay_operation` and moves HBD treasury→receiver via `adjust_balance`
+     (`:174-179`). This top-down-by-votes ordering is what makes the well-known **"return
+     proposal"** work as a spending threshold: it is an ordinary proposal whose receiver is the
+     treasury itself, so voters who back it (and rank it high) cause the budget to be consumed
+     by a pay-back-to-treasury entry, starving every lower-ranked proposal of remaining budget.
+     The threshold is *emergent* from vote rank + budget exhaustion, not a hard-coded special
+     case.
+  6. `update_settings` (`:214-223`) — sets `next_maintenance_time = now +
+     HIVE_PROPOSAL_MAINTENANCE_PERIOD` and `last_budget_time = now`.
+- **Virtual ops**: `proposal_pay_operation` (per funded proposal).
+
+### 2.16 Reward Curve Evaluation (util/reward.cpp)
+
+The vote evaluator (curation weight) and `process_comment_cashout` (author reward share) both
+run rshares through `util::evaluate_reward_curve(rshares, curve, var1)`
+(`util/reward.cpp:34-75`). The curve is **not fixed** — `author_reward_curve` and
+`curation_reward_curve` are stored on the `reward_fund_object` and switched at hardforks. Six
+curves exist (`protocol::curve_id`, `misc_utilities.hpp:13-21`); with `s` = `content_constant`
+(`var1`) and `R` = rshares:
+
+| `curve_id` | Formula | Notes |
+|------------|---------|-------|
+| `quadratic` | `(R+s)² − s²` | Steem-era superlinear curve |
+| `bounded_curation` | `(low64(R) << 64) / (2s + R)` | numerator is the low 64 bits of `R` shifted up 64 (`fc::to_uint128(low_bits(R),0)`, `reward.cpp:51`); for `R < 2⁶⁴` this is `≈ R·2⁶⁴/(2s+R)` — the legacy `W(R)=MAX_UINT64·R/(2S+R)` curve |
+| `linear` | `R` | current author **and** curation curve (HF25+) |
+| `square_root` | `√R` | `uint128_approx_sqrt` |
+| `convergent_linear` | `((R+s)² − s²) / (R + 4s)` | HF21 author curve |
+| `convergent_square_root` | `R / √(R + 2s)` | HF21 curation curve |
+
+**Curve timeline** (set in `database_hardfork.cpp`; defaults from
+`reward_fund_object.hpp:30-34`):
+- **HF17** (reward fund created, `database_hardfork.cpp:278`): defaults — author=`quadratic`,
+  curation=`bounded_curation`, `content_constant = HIVE_CONTENT_CONSTANT_HF0`, curation share 25%.
+- **HF19** (`database_hardfork.cpp:306-313`): author=`linear`, curation=`square_root`.
+- **HF21** (`database_hardfork.cpp:440-449`): author=`convergent_linear`,
+  curation=`convergent_square_root`, `content_constant = HIVE_CONTENT_CONSTANT_HF21`, curation
+  share 50%.
+- **HF25** (`database_hardfork.cpp:481-487`): author=`linear` **and** curation=`linear` — the
+  current mainnet configuration. Curation differentiation is now done by the time-phase
+  multiplier in the vote evaluator (§5.3), not the curve shape.
+
+`adjust_rshares2` paths (`database_comment.cpp:328,662`) call `evaluate_reward_curve` with the
+default `quadratic`/`HIVE_CONTENT_CONSTANT_HF0` to maintain the legacy `total_reward_shares2`
+invariant (pre-HF17 accounting kept alive for compatibility).
+
 ---
 
 ## 3. End-of-Block Processing Order
@@ -664,6 +918,10 @@ process_hardforks()                       // hardfork activation
 | `process_decline_voting_rights` | `proxy_cleared_operation`, `declined_voting_rights_operation` |
 | `update_median_feed` | `system_warning_operation` (price correction) |
 | `perform_vesting_share_split` | `vesting_shares_split_operation` |
+| `delayed_voting::run` (process_delayed_voting) | `delayed_voting_operation` |
+| `dhf_processor::make_payments` (process_proposals) | `proposal_pay_operation` |
+| `dhf_processor::record_funding` (process_proposals) | `dhf_funding_operation` |
+| `dhf_processor::convert_funds` (process_proposals) | `dhf_conversion_operation` (daily treasury HIVE→HBD, HF24+) |
 
 ---
 
@@ -700,8 +958,14 @@ hardfork-conditional behavior, and key business logic.
 - **Removes**: —
 - **Virtual Ops**: `transfer_to_vesting_completed_operation` (always)
 - **Chain-State Checks**: Cannot vest to treasury (HF21+)
-- **Business Logic**: Converts HIVE to VESTS (Hive Power). Post-HF24, governance power is delayed 30 days to prevent takeover attacks.
-- **Hardfork Notes**: HF21 (treasury restriction), HF24 (delayed voting)
+- **Business Logic**: Converts HIVE to VESTS (Hive Power). HF24+ splits the effect: VESTS are
+  added to `vesting_shares` immediately (`adjust_account_vesting_balance`, RC/curation see them
+  at once), but governance weight is buffered for 30 days via `delayed_voting::add_delayed_value`
+  (`hive_evaluator_transfer.cpp:311-317`; full mechanism in §2.14). Pre-HF24 used
+  `create_vesting` with no delay. The `transfer_to_vesting_completed_operation` vop is emitted
+  **unconditionally** because the VESTS balance changed now, independent of the deferred
+  governance activation (`:323-324`).
+- **Hardfork Notes**: HF21 (treasury restriction), HF24 (delayed voting — see §2.14)
 
 ---
 
@@ -1195,7 +1459,23 @@ hardfork-conditional behavior, and key business logic.
   - HF20+ downvotes: `voting_mana + downvote_mana > used_mana`
 - **Business Logic — Vote Power (Pre-HF20)**: Mana regeneration over `HIVE_VOTING_MANA_REGENERATION_SECONDS`. `used_power = current_power * |weight| * 86400 / (100% * vote_power_reserve_rate * regen_seconds)`. `rshares = effective_vesting_shares * used_power / 100%`.
 - **Business Logic — Mana (HF20+)**: Three mana eras: (1) HF28+: `used_mana = effective_vesting_shares * |weight| * 86400 / 100%` (stake-based, not current-mana-based). (2) Pre-HF28 downvotes: mana scaled by downvote_pool_percent. (3) Pre-HF28 upvotes: `used_mana = voting_mana * |weight| * 86400 / 100%`. Dust threshold subtracted directly: `rshares = used_mana - HIVE_VOTE_DUST_THRESHOLD`.
-- **Business Logic — Curation Weight**: Pre-HF17: `W(R) = MAX_UINT64 * R / (2S + R)`. HF17+: configurable reward curve via `evaluate_reward_curve()`. Reverse auction discount: early voting gives reduced curation weight. HF25+: three voting phases — early (full weight), mid (÷2), late (÷8). HF26+: vote edits receive curation rewards (previously: `vote_weight = 0` on edits).
+- **Business Logic — Curation Weight**: The incremental curation weight of a vote is
+  `vote_weight = W(comment.vote_rshares_after) − W(comment.vote_rshares_before)` where `W` =
+  `evaluate_reward_curve(rshares, curation_reward_curve, content_constant)` (HF20+ path
+  `hive_evaluator_social.cpp:787-789`; see §2.16 for the curve formulas and timeline). Pre-HF17
+  the curve was hard-coded `W(R) = MAX_UINT64 * R / (2S + R)`; HF17+ reads it from the reward
+  fund. A **time-of-vote multiplier** then scales `vote_weight` (`:797-826`), and the two
+  regimes are mutually exclusive, selected by whether `dgpo.reverse_auction_seconds` is zero:
+  - **Pre-HF25 reverse auction** (`reverse_auction_seconds > 0`): votes cast within the window
+    are linearly discounted — `vote_weight * min(seconds, reverse_auction_seconds) /
+    reverse_auction_seconds` (`:798-809`). Voting at t=0 yields ~0 curation; the forgone
+    weight returns to the author.
+  - **HF25+ three phases** (`reverse_auction_seconds` zeroed; uses `early_voting_seconds` /
+    `mid_voting_seconds`, `:810-822`): early window = full weight; mid window
+    (`early ≤ t < early+mid`) = `÷2`; late window (`t ≥ early+mid`) = `÷8` (the `÷2`/`÷8`
+    "phase factors" are hard-coded at `:813-814`).
+  - **HF26+ vote edits**: edits now recompute and receive curation weight; before HF26 an edit
+    set `vote_weight = 0` (no curation for changed votes).
 - **Hardfork Notes**: HF1 (scaling), HF6 (duplicate vote check), HF7 (lockout), HF13 (dust threshold), HF14 (dust rounding), HF17 (lockout 12h, reward fund curve, cashout unification), HF19 (sqrt curve override), HF20 (mana system, downvote pool, lockout attenuation), HF22 (uint128 downvote fix), HF25 (early/mid/late phases), HF26 (vote edit curation), HF28 (stake-based vote)
 
 ---
@@ -1341,8 +1621,11 @@ hardfork-conditional behavior, and key business logic.
 
 #### witness_block_approve_evaluator
 - **Source**: `hive_evaluator.cpp:623-628`
-- **PERMANENTLY DISABLED**: Always asserts `false` — "Operation excluded from blocks."
-- **Business Logic**: Handled in `database::process_fast_confirm_transaction`, never reaches evaluator.
+- **PERMANENTLY DISABLED**: Always asserts `false` (`HIVE_CHAIN_UNREACHABLE_CODE_ASSERT`) —
+  "Operation excluded from blocks."
+- **Business Logic**: Travels as a stand-alone HF26+ *fast-confirmation transaction*, handled by
+  `database::process_fast_confirm_transaction` (LIB acceleration), never reaching evaluator
+  dispatch. Full flow in §1.8.
 
 ---
 
@@ -1503,6 +1786,16 @@ hardfork-conditional behavior, and key business logic.
 
 13. **custom_json exception handling differs by mode**: during block production/validation, interpreter exceptions propagate (transaction rejected). During replay, exceptions are swallowed to avoid chain divergence from non-deterministic interpreter bugs.
 
+14. **RC differential usage runs inside the dispatch path** (HF20+, `database.cpp:2737-2738`): `handle_operation_discount` charges only the *delta* in persistent state for five operations (`witness_update`, `account_update`, `account_update2`, `recover_account`, `delegate_rc`), so swapping one key for another costs nearly nothing. It is per-transaction and a negative usage from one op can subsidize another op in the same tx. Account metadata is deliberately excluded to keep RC deterministic across nodes with/without a metadata plugin.
+
+15. **Delayed voting decouples VESTS from governance for 30 days** (HF24+): `transfer_to_vesting` adds VESTS immediately but buffers governance weight in up to 30 daily `delayed_votes` buckets; `get_governance_vote_power()` subtracts `sum_delayed_votes`. `process_delayed_voting` matures buckets ≥30 days old via `adjust_proxied_witness_votes` and emits `delayed_voting_operation`. Power-down cancels buffered votes first and only removes the matured *leftover* from the live vote chain. Reward-VESTS claims are **not** buffered.
+
+16. **DHF payout machinery lives entirely outside the evaluators** (`util/dhf_processor.cpp`, via `process_proposals`): hourly `make_payments` sorts active proposals by summed `get_governance_vote_power()` (proxied voters excluded) and pays a **1%-of-treasury-per-day** budget (`total_amount_divider = 100`) top-down until exhausted. The first proposal with zero votes stops the loop — this is the mechanism by which the "return proposal" #0 acts as a spending threshold. Payout = `proposal_pay_operation`; inflation intake = `dhf_funding_operation`; daily treasury HIVE→HBD = `dhf_conversion_operation` (HF24+).
+
+17. **Reward curves are reward-fund state, switched at hardforks**: `evaluate_reward_curve` implements six curves; the active author/curation curves moved `quadratic`/`bounded_curation` (HF17) → `linear`/`square_root` (HF19) → `convergent_linear`/`convergent_square_root` (HF21) → `linear`/`linear` (HF25, current). Since HF25 curation differentiation is purely the time-phase multiplier (early/÷2/÷8), not curve shape.
+
+18. **`witness_block_approve` is the fast-confirm transport** (HF26+): its evaluator is an unreachable-code assert; the op only ever travels as a single-operation fast-confirmation transaction processed by `process_fast_confirm_transaction`, which advances LIB out-of-band (TaPoS check skipped, per-witness monotonic, schedule-gated). It changes no account state.
+
 ---
 
 ## 9. Discrepancies and Potential Issues
@@ -1517,19 +1810,40 @@ hardfork-conditional behavior, and key business logic.
 
 5. **Escrow `pending_escrow_transfers` counter**: The counter is modified in multiple evaluators (transfer, approve, release) and maintenance code (expire_escrow_ratification). Any bug in counter management could lead to permanent lockout (counter stuck above 0 preventing account clearing).
 
+6. **`dhf_conversion_operation` is dual-sourced**: the *same* virtual op type (ID 74) is emitted both by `transfer_evaluator` when a user sends HIVE to the treasury (HF24+, immediate, `hive_evaluator_transfer.cpp:280`) and by `dhf_processor::convert_funds` for the scheduled daily treasury HIVE→HBD sweep (`util/dhf_processor.cpp:358`). Consumers parsing virtual ops cannot assume a single cause for this op — the `account` is always the treasury in the scheduled case but the originating account's transfer in the user case (both target the treasury).
+
+7. **Time-phase factors are hard-coded magic numbers**: the HF25+ curation phase divisors `÷2` (mid) and `÷8` (late) are literal constants inside the vote evaluator (`hive_evaluator_social.cpp:813-814`, commented "chosen empirically"), not config constants — they cannot be tuned without a code change + hardfork. The phase *durations* (`early_voting_seconds`, `mid_voting_seconds`) are DGPO fields, but the penalties are fixed.
+
 ---
 
 ## 10. Open Questions
 
-1. How does the RC (Resource Credit) system interact with evaluator execution? `rc().handle_operation_discount()` is called before each evaluator — what discounts apply?
+The five open questions from the prior revision are now **resolved** in this document:
 
-2. The `delayed_voting` mechanism (HF24+): how exactly are the delayed governance votes processed? What happens during the 30-day window?
+1. ~~RC interaction / `handle_operation_discount`~~ → **§1.7** (differential state-byte usage for
+   five ops; HF20+; per-transaction; metadata excluded).
+2. ~~`delayed_voting` mechanism (HF24+)~~ → **§2.14** (30 daily buckets, immediate VESTS /
+   deferred governance, `process_delayed_voting` maturation, power-down leftover rule).
+3. ~~`evaluate_reward_curve()`~~ → **§2.16** (six curve formulas + HF17/19/21/25 timeline).
+4. ~~`process_proposals()` DHF payout~~ → **§2.15** (`dhf_processor` four phases, 1%/day budget,
+   vote-sorted top-down payout, return-proposal threshold).
+5. ~~`process_fast_confirm_transaction()` / `witness_block_approve`~~ → **§1.8** (HF26+
+   fast-confirm transport, out-of-band LIB advance).
 
-3. What is the exact `evaluate_reward_curve()` implementation? The vote evaluator uses it but the curve type is configurable per reward fund.
+Remaining questions are properly the scope of **other research parts** (zoom candidates if a
+dedicated deep-dive is wanted):
 
-4. How does `process_proposals()` (DHF payout) work? The evaluators only create/modify/remove proposals and votes — the actual payment to proposal recipients is in the end-of-block processing.
-
-5. How does `process_fast_confirm_transaction()` handle the `witness_block_approve_operation` that bypasses the evaluator?
+1. The exact LIB algorithm that `update_last_irreversible_block` runs (witness participation
+   counting, fast-confirm vs normal-production interplay, fork switching). → **Part 06
+   (consensus)**.
+2. `process_funds` per-block inflation split math (content/vesting/DHF/witness shares, the HF16
+   inflation-decay curve). → **Part 07 (economics)**; only its *helper effects* are catalogued
+   here.
+3. RC cost/price curve and mana regeneration (`rc/rc_curve.cpp`, `rc_utility.cpp`) beyond the
+   differential-usage hook. → **Part 08 (resource credits)**.
+4. The full `cashout_comment_helper` payout arithmetic — beneficiary rounding, treasury
+   beneficiary HBD path, curation remainder forwarding, `HIVE_MIN_PAYOUT_HBD` dust handling.
+   Catalogued at the helper level here; a **zoom on comment cashout** would formalize the math.
 
 ---
 
@@ -1554,3 +1868,10 @@ hardfork-conditional behavior, and key business logic.
 | `libraries/chain/database_conversion.cpp` | Conversion processing helpers |
 | `libraries/chain/database_delegation.cpp` | Delegation index initialization |
 | `libraries/chain/database_dhf.cpp` | Recurrent transfer processing, governance helpers |
+| `libraries/chain/database_hardfork.cpp` | Reward-curve assignments per hardfork, reward fund creation |
+| `libraries/chain/util/delayed_voting.cpp` | Delayed governance vote buffering and maturation (§2.14) |
+| `libraries/chain/util/dhf_processor.cpp` | DHF proposal payout, funding, treasury conversion (§2.15) |
+| `libraries/chain/util/reward.cpp` | `evaluate_reward_curve` — six reward curve formulas (§2.16) |
+| `libraries/chain/rc/resource_count.cpp` | RC differential usage visitor (`handle_operation_discount`, §1.7) |
+| `libraries/chain/include/hive/chain/rc/rc_utility.hpp` | RC utility / discount declarations |
+| `libraries/protocol/include/hive/protocol/misc_utilities.hpp` | `curve_id` enum |

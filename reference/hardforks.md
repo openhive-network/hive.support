@@ -1,10 +1,10 @@
 # Hive Hardfork History Reference
 
-Source: hive-core release 1.28.6. 28 hardforks: HF1-23 Steem-era, HF24-28 Hive-era.
+Source: hive-core release 1.28.6. 28 hardforks: HF1-22 pre-fork (inherited from Steem), HF23 Hive genesis (chain-split), HF24-28 Hive-native.
 
-Versioning: HF1-23 are version 0.1-0.23 (Steem major version 0). HF24-28 are version 1.24-1.28 (Hive major version 1). Version comparison treats major 0 and 1 as equivalent for backward compatibility.
+Versioning: HF1-23 use major version 0 (0.1-0.23). HF24-28 use major version 1 (1.24-1.28). The version bump came at HF24 but the chain split happened at HF23. Version comparison treats major 0 and 1 as equivalent for backward compatibility.
 
-Activation: HF1-4 activated by time only. HF5+ require 17/21 witness supermajority vote plus time. Exception: HF23 was force-activated without witness majority (the Steem-to-Hive fork).
+Activation: HF1-4 activated by time only. HF5+ require 17/21 witness supermajority vote plus time. Exception: HF23 was force-activated without witness majority — this is the fork that created Hive.
 
 | HF | Block | Date | Key Changes |
 |----|-------|------|-------------|
