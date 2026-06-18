@@ -85,7 +85,7 @@ new_mana = min(current_mana + regen_amount, max_mana)
 
 - **Full regen**: 0 to max in exactly 5 days (432,000 seconds)
 - **Lazy evaluation**: mana is only recalculated when needed
-- **Mana can go negative**: use_mana allows saturating subtraction
+- **Mana floors at 0**: `use_mana` default `min_mana` is `std::numeric_limits<uint64_t>::min()` = 0; accounts force-charged in a block end at 0, never negative
 - **No cap on catch-up**: inactive accounts get full regen on first use regardless of how long they were idle
 
 ---

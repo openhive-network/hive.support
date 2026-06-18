@@ -976,7 +976,8 @@ Reads of pruned blocks fail with an explicit message: "Block ${num} has been pru
 | Writer thread & queues | `chain_plugin.cpp` | loop :439-737, queues :180-209, visitor :289-413, entry points :1969-2158 |
 | Fast confirm routing | `chain_plugin.cpp` | `push_transaction()` :950-1006 (incl. fork-switch lambda :963-1000) |
 | push_block pipeline | `chain_plugin.cpp` | `push_block()` :1039-1097, `_push_block()` :1099-1119, checkpoint flags :1046-1062 |
-| Replay | `chain_plugin.cpp` | `reindex_internal()` :1222-1290; `irreversible_block_writer.cpp` :1-23 |
+| Replay — reindex | `chain_plugin.cpp` | `reindex_internal()` :1222-1290 |
+| Replay — IRB writer | `irreversible_block_writer.cpp` | `store_block()` no-op :19-21 |
 | Flow control | `block_flow_control.hpp` | phases :135-146; subclasses :206-305 |
 | Flow control impl | `block_flow_control.cpp` | transitions :46-89, promise points :209-267, sync stats gate :274-284 |
 | Block application | `database.cpp` | `_apply_block()` :2183-2369, `apply_block_extended()` :2123-2142, `validate_block_header()` :2757-2779 |
@@ -987,7 +988,8 @@ Reads of pruned blocks fail with an explicit message: "Block ${num} has been pru
 | Slot mapping | `database.cpp` | `get_scheduled_witness()` :904-910, `get_slot_time()` :912-935, `get_slot_at_time()` :937-943 |
 | Missed blocks / witness stats | `database_witness.cpp` | `update_witness_missed_blocks()` :284-306, `update_signing_witness()` :175-185 |
 | Participation | `database.cpp` | `update_global_dynamic_data()` :2789-2841, `witness_participation_rate()` :531-535 |
-| Undo history cap | `database.cpp` | :2833-2840; `config.hpp:369` |
+| Undo history cap — enforcement | `database.cpp` | :2833-2840 |
+| Undo history cap — constant | `config.hpp` | 369 |
 | Fork DB | `fork_database.cpp` | `_push_block()` :73-99, `pop_block()` :20-28, `set_max_size()` :146-175, witness map :255, `fetch_branch_from()` :290-330 |
 | Fork decision & switch | `sync_block_writer.cpp` | `push_block()` :67-160, `switch_forks()` :162-264, `store_block()` :24-60 |
 | LIB calculation | `database.cpp` | `update_last_irreversible_block()` :2956-3064 |
@@ -1003,7 +1005,8 @@ Reads of pruned blocks fail with an explicit message: "Block ${num} has been pru
 | Split routine | `split_block_log.cpp` | `split_block_log()` :11-113 |
 | Block log core | `block_log.cpp` | naming :44-72, `append_raw()` :338-366, `read_block_by_num()` :491-515 |
 | Block log artifacts | `block_log_artifacts.cpp` | header :46-69, chunk :82-166 |
-| Storage constants | `block_log.hpp` :11-15, `block_storage_interface.hpp` :9 | 1M blocks/part (400 testnet), batch 10k (400), max 9999 parts |
+| Storage constants — block log | `block_log.hpp` | 11-15 |
+| Storage constants — interface | `block_storage_interface.hpp` | 9 |
 | Global properties | `global_property_object.hpp` | Full struct definition |
 
 ---

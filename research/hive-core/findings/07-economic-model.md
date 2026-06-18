@@ -843,7 +843,8 @@ From `_apply_block()` (`database.cpp:2325-2356`), the per-block economic pipelin
 | Price feed + haircut | `database.cpp` | `update_median_feed()` 2399-2514 (cap 2461-2509) |
 | HBD % / print rate | `database.cpp` | `calculate_HBD_percent()` 2843-2866; `update_virtual_supply()` 2868-2889 |
 | Block order | `database.cpp` | `_apply_block` economic sequence 2325-2356 |
-| Legacy compound math | `protocol/compound.hpp` + `config.hpp:305-317` | `calc_percent_reward<>()` |
+| Legacy compound template | `protocol/compound.hpp` | `calc_percent_reward<>()` |
+| Compound constants | `config.hpp` | 305-317 |
 | Reward fund object | `detail/state/reward_fund_object.hpp` | defaults 30-34 |
 | HF parameter changes | `database_hardfork.cpp` | HF12 240-243; HF16 251-258; HF17 260-295; HF19 299-334; HF20 336-346; HF21 418-450; HF23 454-470; HF25 481-495; HF26 496-509; treasury rename 529-544 |
 

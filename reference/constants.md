@@ -245,4 +245,4 @@ Source: `testnet_blockchain_configuration.hpp`. Key constants that differ from m
 | `HIVE_MIN_ACCOUNT_CREATION_FEE` | 1 (0.001 HIVE) | 0 | |
 | `HIVE_GLOBAL_REMOVE_THRESHOLD` | 200 | 100 | |
 | Symbol names | HIVE/HBD | TESTS/TBD | |
-| Chain ID | sha256("beeab0de...") | sha256("testnet") | |
+| Chain ID | `beeab0de00...00` (literal hex) | `sha256("testnet")` | Mainnet id is the literal value via the `fc::sha256` hex ctor (`config.hpp:142`), **not** a hash; testnet is a real `sha256::hash("testnet")` (`config.hpp:69`) |

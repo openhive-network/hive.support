@@ -164,7 +164,7 @@ The economic model involves tightly coupled mechanisms:
 
 **Block/transaction structure**: Block IDs from RIPEMD-160 of header digest. TaPoS (Transaction as Proof of Stake) references recent blocks for chain-following. Merkle root from transaction IDs.
 
-**Chain ID**: `beeab0de00000000000000000000000000000000000000000000000000000000` (SHA-256).
+**Chain ID**: `beeab0de00000000000000000000000000000000000000000000000000000000` (an `fc::sha256` built from this literal hex via the constructor - not a hash of anything; `config.hpp:142`).
 
 **Version compatibility hack**: Major versions 0 and 1 treated as equivalent for the HF24 transition (`version.hpp:50-61`).
 
@@ -670,3 +670,24 @@ Part 04 says HBD interest is "hidden as side effect of adjust_balance(HBD)" whil
 | Notable findings | 8 (reclassified from "critical" after verification) |
 | Recommendations | 10 |
 | Recommendations | 11 |
+
+<!-- zoom-addition: 2026-06-11T10:12:55+02:00 -->
+- Part 11 (validate-evaluate-gaps): see `findings/11-validate-evaluate-gaps.md`
+
+<!-- zoom-addition: 2026-06-11T11:46:33+02:00 -->
+- Part 12 (recurrent-transfers): see `findings/12-recurrent-transfers.md`
+
+<!-- zoom-addition: 2026-06-11T12:56:00+02:00 -->
+- Part 13 (external-storage): see `findings/13-external-storage.md`
+
+<!-- zoom-addition: 2026-06-11T15:49:41+02:00 -->
+- Part 14 (delayed-voting): see `findings/14-delayed-voting.md`
+
+<!-- zoom-addition: 2026-06-12T16:27:15+02:00 -->
+- Part 15 (rc-consensus): see `findings/15-rc-consensus.md`
+
+<!-- zoom-addition: 2026-06-13T02:32:28+02:00 -->
+- Part 16 (escrow-recover-gaps): see `findings/16-escrow-recover-gaps.md`
+
+<!-- zoom-addition: 2026-06-13T17:13:51+02:00 -->
+- Part 17 (witness-subsidy): see `findings/17-witness-subsidy.md`

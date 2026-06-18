@@ -361,7 +361,7 @@ void regenerate_mana(const manabar_params& params, uint32_t now) {
 - **Early-out clamp has a side-effect**: If `current_mana > max_mana` (e.g. because `max_mana` just dropped due to delegation change), the early-out **reduces** `current_mana` to `max_mana`. This is the "apparent mana loss" after a max reduction that's not a true regeneration.
 - **`skip_cap_regen = true` for RC** (`rc_utility.cpp:347`, `:361`, `:503`): skips `dt = min(dt, regen_time)`. In practice, post-cap the result is identical — `signed_sat_add` saturates at int64_max and then the final `min(new, max_mana)` clamps it. The skip is essentially a micro-optimization avoiding a comparison + branch.
 - **Voting mana uses `skip_cap_regen = false`** — the default. See `manabar.hpp:109-138`.
-- **Mana can go negative via `use_mana`**: `use_mana` uses `signed_sat_sub`. Optional `min_mana` floor (default `uint64_t::min()` = 0 treated as signed) can clamp to any value. RC normally calls with no floor, allowing negative mana after over-consumption. `has_mana(needed)` returns true iff `mana_needed ≤ 0 || current_mana ≥ mana_needed`.
+- **Mana floors at 0**: `use_mana` (`manabar.hpp:87-95`) uses `signed_sat_sub` then clamps to `min_mana` (default `std::numeric_limits<uint64_t>::min()` = 0). No RC call site passes an explicit `min_mana`. An account force-charged in a block (permissive path) ends at exactly 0, never negative. `has_mana(needed)` returns true iff `mana_needed <= 0 || current_mana >= mana_needed`.
 
 ### Maximum RC Calculation
 
@@ -559,15 +559,19 @@ for (int i = 0; i < HIVE_RC_NUM_RESOURCE_TYPES; ++i) {
 resource_weights[resource_new_accounts] = sum_of_resource_weights;  // always 100%
 ```
 
-Then the regen share of each resource is `weight[i] / sum_of_weights`. Because `weight[new_accounts] = sum_of_others`, the effective division is:
-- new_accounts: `sum / (2 × sum) = 50%`
-- Everything else: `own_weight / (2 × sum) = usage_share / 2`
+Each pool's regen share is then computed per-pool in `rc_utility.cpp:306`:
 
-So **50% of global RC regen is always allocated to new_accounts, the other 50% is split among other resources proportional to their popularity in the last 24h.**
+```cpp
+pool_regen_share = ( rc_regen * pool_obj.get_weight(i) ) / pool_obj.get_weight_divisor();
+```
 
-This is intentional design per comment at `rc_objects.hpp:40-42`: "resource_new_accounts is treated as luxury item — its share is always 100% and it is excluded from share calculation of other resources." The symmetry `weight_ka = sum_others` (not `weight_ka = sum_others × k`) creates exactly the 50/50 split.
+with `get_weight(i) = resource_weights[i]` and `get_weight_divisor() = sum_of_resource_weights` (`rc_objects.hpp:106,108`). The key detail: `sum_of_resource_weights` **excludes** `resource_new_accounts` - it is `continue`d at `rc_objects.hpp:86` and never added to the sum; line 94 only assigns the array element. Therefore:
+- **new_accounts**: `weight / divisor = sum_of_others / sum_of_others = 100%` of `rc_regen`.
+- **Every other resource `i`**: `resource_weights[i] / sum_of_others` - its popularity share; these other shares sum to 100% among themselves.
 
-**Consequence**: Subsidized account creation is persistently expensive — the effective per-resource price scales inversely with the share. With 50% of regen going to new_accounts, if only a few accounts are being created (low usage_in_window), the pool stays near equilibrium, but the **pool_regen_share** is still half of the global regen. This keeps pressure on subsidized creation even when paid creation is cheap.
+So **`resource_new_accounts` regenerates at the full `rc_regen` rate (100%), additively** - it does not compete with the other resources for one 100% budget. The other resources separately split a full `rc_regen` by last-24h popularity. This matches the source comment at `rc_objects.hpp:40-42`: "resource_new_accounts is treated as luxury item - its share is always [100%] and it is excluded from share calculation of other resources." The assignment `weight[new_accounts] = sum_of_others`, together with the divisor also being `sum_of_others`, is exactly what yields 100% - there is no `2 x sum` divisor.
+
+**Consequence**: `compute_cost` scales roughly linearly with the regen reference it is handed (`num = rc_regen * coeff_a >> shift; num *= resource_count`, `rc_utility.cpp:265-272`). Since new_accounts' `pool_regen_share` is the **full** `rc_regen` rather than half, the RC cost of a (paid) account-creation claim is about **2x** what a 50% share would imply (`rc_utility.cpp:309` passes `pool_regen_share` as that reference). Subsidized account creation is therefore held persistently expensive, independent of how many accounts are currently being created.
 
 ### Usage Buckets (24h Sliding Window)
 
