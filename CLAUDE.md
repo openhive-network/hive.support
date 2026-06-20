@@ -110,9 +110,24 @@ See `contrib/README.md` for the format. Contributions are reviewed and incorpora
 | 09 | Hardfork History |
 | 10 | API Layer — Endpoints and Data Access |
 
+### wax (Complete)
+7-part source-level analysis of the wax client library, completed 2026-06-20.
+Anchored to wax `2.0.2` (`c9c4918a`, npm `latest`), TypeScript-first. Documents wax's
+own surface (build/sign/broadcast/API) and cross-references the hive-core KB for
+protocol semantics rather than re-deriving them.
+
+| Part | Focus |
+|------|-------|
+| 01 | Architecture & entry points (WASM/Cython; WaxBaseApi -> HiveChainApi) |
+| 02 | Operations surface (proto oneof; 90 ops = 47 broadcastable + 43 virtual) |
+| 03 | Transaction lifecycle (TaPoS, expiration, serialize, sign, broadcast) |
+| 04 | Assets & formatters (NaiAsset, economics helpers, waxify) |
+| 05 | Signing & signers (provider abstraction; beekeeper/keychain/metamask/peakvault) |
+| 06 | Chain/API client (JSON-RPC + REST callers, extend/extendRest, broadcast) |
+| 07 | Complex operations (complex_operations/ + hive_apps_operations/) |
+
 ### Not Yet Covered
 - HAF (Hive Application Framework) — SQL layer between hived and apps
-- Wax — Client library (TypeScript/Python)
 - Hivemind — Social API layer
 - P2P Protocol — Network layer details
 
