@@ -21,7 +21,13 @@ Need to look something up? Go to `reference/`:
 | Resource Credits: cost calculation, mana, delegation | `reference/rc.md` |
 | Hardfork history: what changed when | `reference/hardforks.md` |
 
-All data verified against hive-core release `1.28.6`.
+The table above is the **protocol** layer (hive-core release `1.28.6`).
+
+**Using the wax client library** (build / sign / broadcast / API)? Start at
+`reference/wax/README.md` (anchored to wax `2.0.2`): entry points & API
+(`reference/wax/api.md`), operations & builders (`reference/wax/operations.md`),
+transaction lifecycle (`reference/wax/transactions.md`), assets & `waxify`
+(`reference/wax/assets.md`), signing & signers (`reference/wax/signing.md`).
 
 ## Key Facts
 
