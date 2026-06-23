@@ -29,6 +29,12 @@ The table above is the **protocol** layer (hive-core release `1.28.6`).
 transaction lifecycle (`reference/wax/transactions.md`), assets & `waxify`
 (`reference/wax/assets.md`), signing & signers (`reference/wax/signing.md`).
 
+**Using HAF** (the SQL indexing layer / building a HAF app)? Start at
+`reference/haf/README.md` (anchored to HAF `1.28.6`): architecture & indexing
+(`reference/haf/internals.md`), schema & data model (`reference/haf/schema.md`), building an
+app (`reference/haf/apps.md`), forks & reversibility (`reference/haf/forks.md`), filtering
+(`reference/haf/filtering.md`).
+
 ## Key Facts
 
 - 3-second blocks, 21 witnesses, DPoS consensus
@@ -132,8 +138,22 @@ protocol semantics rather than re-deriving them.
 | 06 | Chain/API client (JSON-RPC + REST callers, extend/extendRest, broadcast) |
 | 07 | Complex operations (complex_operations/ + hive_apps_operations/) |
 
+### HAF (Complete)
+7-part source-level analysis of the Hive Application Framework, completed 2026-06-24.
+Anchored to HAF `1.28.6` (`222c848355`), whose protocol layer is the hive-core KB's exact
+`1.28.6` (`10ac0ce94`). Documents HAF's own surface (SQL indexing + the app framework).
+
+| Part | Focus |
+|------|-------|
+| 01 | Architecture & dataflow (sql_serializer plugin -> Postgres -> fork manager; sync modes) |
+| 02 | Fork-manager schema (hive/hafd schemas, context registry, irreversible/reversible tables) |
+| 03 | App development (context lifecycle, the consume loop, the stages state machine) |
+| 04 | Data model (table columns, the per-context views, impacted accounts/balances) |
+| 05 | Forks & reversibility (shadow-table undo log, back_from_fork rewind) |
+| 06 | Indexing internals (cache, per-type processor threads, dumpers, WAL, index management) |
+| 07 | Filtering (index a subset by account / operation / body) |
+
 ### Not Yet Covered
-- HAF (Hive Application Framework) — SQL layer between hived and apps
 - Hivemind — Social API layer
 - P2P Protocol — Network layer details
 
