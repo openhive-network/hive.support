@@ -1,8 +1,8 @@
 # Findings: delayed-voting
 
 Deep-dive into the HF24 delayed (governance) voting subsystem of hive-core, verified
-against worktree `10ac0ce94f7591b6ad80db1a23d046c9d57b6559`
-(`workspace/hive-core/10ac0ce94f`). Entry files `util/delayed_voting.{hpp,cpp}` were the
+against worktree `1584099c3054a97f02abfb4788b23f02eea98728`
+(`workspace/hive-core/1584099c30`). Entry files `util/delayed_voting.{hpp,cpp}` were the
 correct entry points; the full picture additionally requires
 `util/delayed_voting_processor.hpp` (the collection algebra),
 `database_vesting_helpers.hpp` (`create_vesting2` — the keystone that decides which
@@ -147,7 +147,7 @@ power immediately via `create_vesting2`.
   processing, and that same condition makes `process_delayed_voting` pop the oldest
   bucket at the end of the very same block. So after every block, size ≤ 30 holds.
 - **Where**: `delayed_voting_processor.hpp:65-72`, `delayed_voting.cpp:87-117`,
-  ordering `database.cpp:2300` (transactions) vs `database.cpp:2348` (maturation)
+  ordering `database.cpp:2303` (transactions) vs `database.cpp:2351` (maturation)
 - **Impact**: Iteration/memory bounds hold per-block, but mid-block observers (custom
   plugins reading state between transactions) can see 31 entries.
 
@@ -301,7 +301,7 @@ Note `update_votes` *assigns* (`res = …`) rather than accumulates; this is sou
 because the set can contain at most one negative entry (the executor — route targets are
 distinct accounts with positive values, and a self-route shares the executor's entry).
 
-## Per-Block Processing Order (`database.cpp:2333-2351`)
+## Per-Block Processing Order (`database.cpp:2336-2354`)
 
 ```
 clear_null_account_balance();        // 2333 — zeroes null's buckets outright (1219-1224)
@@ -350,15 +350,15 @@ VESTS-creation paths vs. the delay:
 ## Invariants
 
 1. **Per-account cache coherence**: `sum_delayed_votes == Σ buckets[i].val` — asserted in
-   `validate_invariants` (`database.cpp:3458-3461`).
+   `validate_invariants` (`database.cpp:3461-3464`).
 2. **Bound**: `sum_delayed_votes ≤ vesting_shares` — asserted both in
    `get_direct_governance_vote_power` (`account_object.hpp:304-307`) and in
-   `validate_invariants` (`database.cpp:3462`). Holds because only vested amounts create
+   `validate_invariants` (`database.cpp:3465`). Holds because only vested amounts create
    buckets and every vesting decrease cancels buckets first.
 3. **Global conservation**: `gpo.total_vesting_shares == total_vsf_votes +
    total_delayed_votes`, where `total_vsf_votes` is the recomputed per-account governance
    power (proxied accounts counted via their top-level proxy slot)
-   (`database.cpp:3441-3484`). I.e., every VEST is either active governance weight or
+   (`database.cpp:3444-3487`). I.e., every VEST is either active governance weight or
    sitting in someone's buckets.
 4. **Bucket times strictly increase, adjacent gaps ≥ 1 day** — by construction in
    `processor::add` (`delayed_voting_processor.hpp:61-72`).
@@ -441,7 +441,7 @@ the condition, and `:289` asserts the optional result is engaged).
 ## Test Coverage (`tests/unit/tests/delayed_voting_tests.cpp`)
 
 Two fixtures (`delayed_voting_proposal_tests`, `delayed_voting_tests` on
-`delayed_vote_database_fixture`), 27 cases: processor-level algebra
+`delayed_vote_database_fixture`), 24 cases: processor-level algebra
 (`delayed_voting_processor_01..03` — merge windows, erase-from-back, error paths,
 `:1781-2024`), evaluator/maturation scenarios (`delayed_voting_01/04/05/06`,
 `delayed_voting_basic_01..06`, `delayed_voting_many_vesting_01`), proxy interaction
@@ -486,7 +486,7 @@ voting rights (`decline_voting_rights_01..04`), and integration (`small_common_t
 | condenser positional flag | `libraries/plugins/apis/condenser_api/condenser_api.cpp` | 363-377, 405-418 | get_accounts / lookup_account_names |
 | HF24 time anchors | `libraries/protocol/hardfork.d/1_24.hf` | 22, 27 | planned vs actual activation |
 | HF23/HF24 account actions | `libraries/chain/database_hardfork.cpp` | 451-480 | clear (HF23) / restore (HF24) |
-| unit tests | `tests/unit/tests/delayed_voting_tests.cpp` | 85-2397+ | 27 cases incl. processor algebra |
+| unit tests | `tests/unit/tests/delayed_voting_tests.cpp` | 85-2397+ | 24 cases incl. processor algebra |
 
 ## Cross-references to existing parts
 

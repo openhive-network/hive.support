@@ -58,7 +58,7 @@ The Hive blockchain is a Delegated Proof of Stake system producing blocks every 
 
 **Category**: Intentional design, explicitly documented in source.
 
-**What it is**: No per-transaction undo during block processing. If any transaction fails, the entire block is rejected. `database.cpp:2292-2302` — explicit comment: "We do not need to push the undo state for each transaction because they either all apply and are valid or the entire block fails to apply."
+**What it is**: No per-transaction undo during block processing. If any transaction fails, the entire block is rejected. `database.cpp:2295-2305` — explicit comment: "We do not need to push the undo state for each transaction because they either all apply and are valid or the entire block fails to apply."
 
 **Why this is correct**: Blocks are pre-validated by the producing witness. Pending transactions DO get per-transaction undo (`_pending_tx_session` at database.cpp:626). During block replay, atomicity is correct because blocks were valid when produced. A malicious witness can't exploit this — a block with an invalid transaction is simply rejected by the network.
 
@@ -76,7 +76,7 @@ The Hive blockchain is a Delegated Proof of Stake system producing blocks every 
 
 **Category**: Deliberate economic policy change, not a code defect.
 
-**What it is**: `config.hpp:343-344` sets `hbd_start_percent = hbd_stop_percent = 2000 (20%)`, eliminating the gradual throttling band. `database.cpp:2881-2886` — when `start == stop`, the middle branch (gradual scaling) is unreachable, creating binary 100%->0% switching.
+**What it is**: `config.hpp:343-344` sets `hbd_start_percent = hbd_stop_percent = 2000 (20%)`, eliminating the gradual throttling band. `database.cpp:2884-2889` — when `start == stop`, the middle branch (gradual scaling) is unreachable, creating binary 100%->0% switching.
 
 **History**: Pre-HF14: no throttling. HF14-HF19: gradual 2%->5% band. HF20-HF25: gradual 9%->10% band. HF26+: cliff at 20%. Each step was a governance decision. These constants are hardcoded, not witness-adjustable — they require a hardfork to change.
 
@@ -92,7 +92,7 @@ The Hive blockchain is a Delegated Proof of Stake system producing blocks every 
 2. **New fork now shorter, common ancestor not irreversible** -> revert to old fork. Correct.
 3. **New fork shorter, but blocks became irreversible** -> cannot revert. Correct.
 
-**Why case 3 is not a bug**: If LIB advanced past the common ancestor during the fork switch (via `update_last_irreversible_block()` called in `_apply_block()` at `database.cpp:2321`), the undo data for those blocks has been discarded and the block log is written. Reverting is physically impossible. The exception propagates, which is the only correct behavior. For LIB to advance, 16/21 witnesses must have confirmed blocks on the new fork — an extremely unlikely scenario to then have a later block fail.
+**Why case 3 is not a bug**: If LIB advanced past the common ancestor during the fork switch (via `update_last_irreversible_block()` called in `_apply_block()` at `database.cpp:2324`), the undo data for those blocks has been discarded and the block log is written. Reverting is physically impossible. The exception propagates, which is the only correct behavior. For LIB to advance, 16/21 witnesses must have confirmed blocks on the new fork — an extremely unlikely scenario to then have a later block fail.
 
 **Possible improvement**: Better logging when recovery is skipped (currently silent at the decision point). Not a correctness issue.
 
@@ -416,7 +416,7 @@ Investigated GitLab issues, MRs, branches, and commit history — no active work
 Dual-trigger: block number AND time. `hardfork_block.hpp:30` sets `HIVE_HARDFORK_1_28_BLOCK = 100000000`. `hardfork.d/1_28.hf` sets time via `next_hf_time()` -> mainnet `1763557200` (2025-11-19 13:00 UTC). Overridable via `HIVE_HF28_TIME` env var. `process_hardforks()` in `database_hardfork.cpp:114-144` requires BOTH conditions (time reached AND block number reached naturally through consensus). Neither condition alone triggers activation.
 
 **7. Fork DB capacity and undo stack interaction?** — RESOLVED
-Fork DB has `max_size = 1024` blocks (`fork_database.hpp:207`). Blocks older than `head - 1024` are rejected (`fork_database.cpp:77-79`). Oldest block in fork DB = last irreversible block (`fork_database.cpp:440-441`). When blocks fall off the fork DB, their undo data is committed — they become irreversible. This enforces a hard **1024-block reorg limit** (~51 minutes at 3s blocks).
+Fork DB has `max_size = 1024` blocks (`fork_database.hpp:207`). Blocks older than `head - 1024` are rejected (`fork_database.cpp:84-87`). Oldest block in fork DB = last irreversible block (`fork_database.cpp:448-449`). When blocks fall off the fork DB, their undo data is committed — they become irreversible. This enforces a hard **1024-block reorg limit** (~51 minutes at 3s blocks).
 
 **8. Fast-confirm P2P propagation?** — RESOLVED
 Fast confirms are regular P2P transactions (not a separate message type). Witness plugin calls `p2p_plugin.broadcast_transaction()` (`witness_plugin.cpp:290`). Peers receive via standard gossip, then `chain_plugin.push_transaction()` routes them to `process_fast_confirm_transaction()` — a separate code path from normal transactions. Fast confirms are **never included in blocks** — the evaluator asserts this (`hive_evaluator.cpp:623-628`). They update a per-witness tracking map (`_last_fast_approved_block_by_witness`), which feeds into `update_last_irreversible_block()`. When 67%+ of witnesses approve a block, it becomes irreversible.
@@ -494,7 +494,7 @@ No evidence in source code of planned-but-unshipped features beyond what's alrea
 
 ### 3. End-of-Block Processing Descriptions
 
-Parts 04, 06, and 07 all describe the end-of-block sequence. Part 06 provides the most granular code-level walkthrough. Part 04 has a 30-step summary. Part 07 focuses on economic steps. All three are consistent in ordering but differ in granularity. **Resolution**: Part 06's description at `database.cpp:2183-2369` is authoritative.
+Parts 04, 06, and 07 all describe the end-of-block sequence. Part 06 provides the most granular code-level walkthrough. Part 04 has a 30-step summary. Part 07 focuses on economic steps. All three are consistent in ordering but differ in granularity. **Resolution**: Part 06's description at `database.cpp:2186-2372` is authoritative.
 
 ### 4. HBD Interest Description
 
@@ -538,17 +538,17 @@ Part 04 says HBD interest is "hidden as side effect of adjust_balance(HBD)" whil
 
 | Component | File | Key Lines |
 |-----------|------|-----------|
-| Block application (`_apply_block`) | `database.cpp` | 2183-2369 |
-| Block header validation | `database.cpp` | 2757-2779 |
-| Transaction application | `database.cpp` | 2644-2702 |
-| Operation dispatch | `database.cpp` | 2722-2746 |
-| Balance/supply helpers | `database.cpp` | 3206+ |
-| LIB calculation | `database.cpp` | 2956-3064 |
-| Fast confirm processing | `database.cpp` | 2899-2954 |
-| Irreversibility migration | `database.cpp` | 3066-3097 |
-| Participation tracking | `database.cpp` | 2789-2841 |
-| Median feed update | `database.cpp` | 2399+ |
-| HBD print rate / virtual supply | `database.cpp` | 2843-2868 |
+| Block application (`_apply_block`) | `database.cpp` | 2186-2372 |
+| Block header validation | `database.cpp` | 2760-2782 |
+| Transaction application | `database.cpp` | 2647-2705 |
+| Operation dispatch | `database.cpp` | 2725-2749 |
+| Balance/supply helpers | `database.cpp` | 3209+ |
+| LIB calculation | `database.cpp` | 2959-3067 |
+| Fast confirm processing | `database.cpp` | 2902-2957 |
+| Irreversibility migration | `database.cpp` | 3069-3100 |
+| Participation tracking | `database.cpp` | 2792-2844 |
+| Median feed update | `database.cpp` | 2402+ |
+| HBD print rate / virtual supply | `database.cpp` | 2846-2871 |
 | Inflation distribution | `database.cpp` | 1704 |
 | HBD creation helper | `database.cpp` | 949+ |
 | next_hf_time() | `database.cpp` | 61-71 |
@@ -569,7 +569,7 @@ Part 04 says HBD interest is "hidden as side effect of adjust_balance(HBD)" whil
 | Hardfork application | `database_hardfork.cpp` | — |
 | Witness scheduling | `witness_schedule.cpp` | 152-396 |
 | Witness missed blocks | `database_witness.cpp` | 284-306 |
-| Fork database | `fork_database.cpp` | 20-330 |
+| Fork database | `fork_database.cpp` | 20-338 |
 | Fork switching | `sync_block_writer.cpp` | 162-367 |
 | Block log read/write | `block_log.cpp` | 338-515 |
 | Block log artifacts | `block_log_artifacts.cpp` | 46-166 |

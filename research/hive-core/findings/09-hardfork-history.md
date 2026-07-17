@@ -12,6 +12,8 @@ Two facts are central to understanding this part, and resolve most of the origin
 
 The most consequential hardforks: **HF23** (the Steem→Hive fork) cleared Steemit/Tron-affiliated accounts and is the only hardfork **force-activated without a witness majority**; **HF20** introduced the Resource Credits system (largest feature addition and biggest one-time migration); **HF24** established Hive's identity (chain ID, treasury rename, account restoration); **HF28** is the most recent hardfork defined in the code.
 
+**Software version vs. hardfork (1.28.7).** The mainnet `HIVE_BLOCKCHAIN_VERSION` is a *software* release identifier, distinct from the consensus hardfork version. It moved 1.28.6 -> 1.28.7 (`config.hpp:140`, mainnet branch; the testnet and mirrornet branches stay 1.28.6 at `:66`/`:135`) with **no new hardfork**: 1.28.7 is a network-robustness maintenance release (fork-tolerance + RocksDB info-LOG bounding). The latest consensus hardfork remains HF28. Because activation is time+vote gated and `libraries/chain` never consults the software version, bumping it cannot by itself activate a hardfork.
+
 ## Hardfork System Architecture
 
 ### How Hardforks Are Defined
@@ -161,7 +163,7 @@ else if( major_v() == 1 && _val == 0 ) val &= 0x01FFFFFF; // branch B
 - **Branch A** (`this` major 0, operand major 1): `val &= 0x00FFFFFF` clears the operand's major byte to `0x00`. Both sides are now major-0 → `version(0,N) == version(1,N)` is **true**.
 - **Branch B** (`this` major 1, operand major 0): `val &= 0x01FFFFFF`. The operand's major byte is already `0x00`, and `0x00 & 0x01 == 0x00`, so the mask is **inert** — the operand stays major-0 while `this` stays major-1. Hence `version(1,N) == version(0,N)` is **false**, and a major-1 version always compares **strictly greater** than the same-numbered major-0 version. (To make them equal, branch B would have needed `val |= 0x01000000`, not `&=`.)
 
-**Consumer**: the only consensus path that can see a cross-major comparison is the per-block assertion `witness.running_version >= current_hardfork_version` at `database.cpp:2283-2290` (active after HF5). There `this` is the witness's reported `running_version`:
+**Consumer**: the only consensus path that can see a cross-major comparison is the per-block assertion `witness.running_version >= current_hardfork_version` at `database.cpp:2286-2293` (active after HF5). There `this` is the witness's reported `running_version`:
 - A witness reporting a major-0 `running_version` against a post-HF24 major-1 `current_hardfork_version` hits branch A → the major byte is neutralized and the comparison is decided on the hardfork number alone (the intended "don't reject during cutover" behavior).
 - The symmetric case (major-1 running version vs a still-major-0 current version) hits branch B → `1.x` compares strictly greater than `0.y` → the `>=` assertion passes anyway.
 
@@ -361,7 +363,7 @@ Why `ACTUAL_TIME` is needed for HF24 (and was for HF20): transaction signature-v
 
 ## Hardfork-Conditional Code Map
 
-> Line numbers below are at pinned commit `10ac0ce94f`. Note the two alias styles: `__NNN` (numbered, HF1–22) and `_FEATURE_NAME` (named, HF24–28).
+> Line numbers below are at pinned commit `1584099c30`. Note the two alias styles: `__NNN` (numbered, HF1–22) and `_FEATURE_NAME` (named, HF24–28).
 
 | Feature/Rule | Added/Changed At | Code Location |
 |--------------|-----------------|---------------|
@@ -404,7 +406,7 @@ Why `ACTUAL_TIME` is needed for HF24 (and was for HF20): transaction signature-v
 | Downvote mana proportional calc | HF22 (`__3485`) | `hive_evaluator_social.cpp:665` |
 | Steemit accounts cleared | HF23 | `database_hardfork.cpp:456` |
 | HF23 forced (no witness vote) | HF23 | `witness_schedule.cpp:289` |
-| Per-block running_version assert | HF5 (`__54`) | `database.cpp:2287` |
+| Per-block running_version assert | HF5 (`__54`) | `database.cpp:2290` |
 | Chain ID set to Hive | HF24 | `database_hardfork.cpp:477` |
 | Accounts restored from HF23 | HF24 | `database_hardfork.cpp:473` |
 | Treasury renamed (hive.fund) | HF24 (`_TREASURY_RENAME`) | `database_hardfork.cpp:529` |
@@ -428,9 +430,9 @@ Why `ACTUAL_TIME` is needed for HF24 (and was for HF20): transaction signature-v
 | Cancel power down fix | HF28 (`_FIX_CANCEL_POWER_DOWN`) | `hive_evaluator_transfer.cpp:349` |
 | Stable vote (max mana) | HF28 (`_STABLE_VOTE`) | `hive_evaluator_social.cpp:659` |
 | Global witness props timing | HF28 (`_GLOBAL_WITNESS_PROPS`) | `witness_schedule.cpp:147,428` |
-| Extended tx expiration | HF28 (`_EXPIRATION_TIME`) | `database.cpp:2533` |
-| Strict/mixed authorities | HF28 (`_ALLOW_STRICT_AND_MIXED_AUTHORITIES`) | `database.cpp:2609` |
-| Redundant signatures | HF28 (`_ALLOW_REDUNDANT_SIGNATURES`) | `database.cpp:2610` |
+| Extended tx expiration | HF28 (`_EXPIRATION_TIME`) | `database.cpp:2536` |
+| Strict/mixed authorities | HF28 (`_ALLOW_STRICT_AND_MIXED_AUTHORITIES`) | `database.cpp:2612` |
+| Redundant signatures | HF28 (`_ALLOW_REDUNDANT_SIGNATURES`) | `database.cpp:2613` |
 | DHF HBD excluded from inflation | HF28 (`_NO_DHF_HBD_IN_INFLATION`) | `database.cpp:1724` |
 | Proposal vote/remove validation | HF28 (2 flags) | `dhf_evaluator.cpp:177` |
 
@@ -498,7 +500,7 @@ This pair is the heart of the Steem→Hive transition, and the `h23_balances` li
 
 7. **Three hardforks carry an `ACTUAL_TIME`, for two different reasons.** HF19's drives the curation-curve cutoff (`HIVE_HF_19_SQRT_PRE_CALC`, used at `hive_evaluator_social.cpp:522`); HF24's drives the signature-validation epoch (`full_transaction.cpp:479`); HF20's is defined but unused. `ACTUAL_TIME` is needed wherever behavior is selected by wall-clock timestamp before `has_hardfork()` state is available.
 
-8. **The major-0/1 version equivalence is non-commutative.** Branch A (`version.hpp:58-59`) correctly neutralizes a major-1 operand when compared against a major-0 `this`; branch B (`:60-61`) uses `&= 0x01FFFFFF`, which is inert against an already-major-0 operand, so `version(1,N) == version(0,N)` is false while `version(0,N) == version(1,N)` is true. The lone consensus consumer (`database.cpp:2287`) is unaffected: both comparison directions resolve to "do not reject" at the HF24 cutover.
+8. **The major-0/1 version equivalence is non-commutative.** Branch A (`version.hpp:58-59`) correctly neutralizes a major-1 operand when compared against a major-0 `this`; branch B (`:60-61`) uses `&= 0x01FFFFFF`, which is inert against an already-major-0 operand, so `version(1,N) == version(0,N)` is false while `version(0,N) == version(1,N)` is true. The lone consensus consumer (`database.cpp:2290`) is unaffected: both comparison directions resolve to "do not reject" at the HF24 cutover.
 
 9. **Two distinct sub-feature alias conventions.** Pre-fork hardforks (HF1-22) use numbered `__NNN` (GitHub issue) aliases; Hive-native hardforks (HF24+) use named `_FEATURE_NAME` flags. HF27 (`_FIX_TIMESHARE_WITNESS_SCHEDULING`) and the ten HF28 flags are named — a grep that only matches `__` will under-count modern hardforks.
 
@@ -549,7 +551,7 @@ Mining was deprecated at HF13 (`pow`) and disabled at HF17 (`pow2`), removing th
 | `libraries/chain/database.cpp:61-80` | `next_hf_time()` (HF28 time + env override) |
 | `libraries/chain/database.cpp:1422-1459` | `restore_accounts()` (HF24) |
 | `libraries/chain/database.cpp:1461-1643` | `clear_accounts()` / `clear_account()` (HF23) |
-| `libraries/chain/database.cpp:2283-2290` | Per-block `running_version >= current_hardfork_version` assert |
+| `libraries/chain/database.cpp:2286-2293` | Per-block `running_version >= current_hardfork_version` assert |
 | `libraries/chain/full_transaction.cpp:469-483` | Signature-validation epoch keyed on `HIVE_HARDFORK_1_24_ACTUAL_TIME` |
 | `programs/blockchain_converter/converter.cpp:283-312, 589-602` | Block-height-based `has_hardfork()` for offline conversion |
 | `libraries/chain/database_dhf.cpp` | `remove_proposal_votes_for_accounts_without_voting_rights()` (HF28) |
@@ -600,7 +602,7 @@ For HF1–27, the block below is the actual mainnet block at which the hardfork 
 
 4. **HF23 TAPOS reset is commented out.** The block-summary reset (`database_hardfork.cpp:458-468`) is disabled because it was "ineffective" and "breaks live 5M mirrornet." So the Steem→Hive fork did not clear TAPOS; replay separation relied on the HF24 chain-ID change.
 
-5. **Version comparison is non-commutative across the major-0/1 boundary.** `version.hpp:60-61`'s `val &= 0x01FFFFFF` is inert (it cannot set a major bit via AND), so the equivalence only fully works when the major-0 operand is on the left. `version(0,N) == version(1,N)` is true but `version(1,N) == version(0,N)` is false. The lone consensus consumer (`database.cpp:2287`, witness `running_version` check) is unaffected because both directions resolve to "do not reject" at the HF24 cutover; the quirk is latent, not an observed fault. (Out of scope for this part: a full audit of every `version` comparison across plugins/p2p to confirm none depends on the broken branch — a candidate for a dedicated zoom.)
+5. **Version comparison is non-commutative across the major-0/1 boundary.** `version.hpp:60-61`'s `val &= 0x01FFFFFF` is inert (it cannot set a major bit via AND), so the equivalence only fully works when the major-0 operand is on the left. `version(0,N) == version(1,N)` is true but `version(1,N) == version(0,N)` is false. The lone consensus consumer (`database.cpp:2290`, witness `running_version` check) is unaffected because both directions resolve to "do not reject" at the HF24 cutover; the quirk is latent, not an observed fault. (Out of scope for this part: a full audit of every `version` comparison across plugins/p2p to confirm none depends on the broken branch — a candidate for a dedicated zoom.)
 
 6. **HF20 defines an unused `ACTUAL_TIME`.** `HIVE_HARDFORK_0_20_ACTUAL_TIME` (`0_20.hf:25-28`) has no `.cpp`/`.hpp` consumer; the pre-1.24 signature behavior it once keyed is now bundled in `pre_hf_1_24_rules`. Harmless but vestigial.
 

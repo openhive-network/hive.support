@@ -4,7 +4,7 @@
 
 The Hive blockchain node (hived) exposes its functionality through a modular plugin system built on the **AppBase** framework. API plugins register methods with a central **JSON-RPC 2.0** router, accessible via HTTP, HTTPS, WebSocket, and Unix socket transports.
 
-**Key numbers verified from source (commit `10ac0ce94f`):**
+**Key numbers verified from source (commit `1584099c30`):**
 - **18 API plugins** in `libraries/plugins/apis/` register JSON-RPC methods (excluding `test_api`, a test-only plugin), **plus the `jsonrpc` introspection API** built into the `json_rpc` plugin → **19 method namespaces**.
 - **198 registered `(api, method)` endpoints** total: 196 declared via `DECLARE_API` across the 18 plugins + 2 from `jsonrpc`. (condenser_api duplicates much functionality semantically, but every method is a distinct registered endpoint string.)
 - **7+ non-API infrastructure plugins** (chain, p2p, witness, market_history, reputation, transaction_status, state_snapshot, …) plus testnet-only tooling (colony, queen).

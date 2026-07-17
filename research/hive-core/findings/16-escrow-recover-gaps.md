@@ -1,7 +1,7 @@
 # Findings: escrow-recover-gaps
 
-> Source pinned at hive-core `10ac0ce94f7591b6ad80db1a23d046c9d57b6559` (release-adjacent to
-> 1.28.6). Every `file:line` below is from that worktree. Where a fact could not be verified from
+> Source pinned at hive-core `1584099c3054a97f02abfb4788b23f02eea98728` (release-adjacent to
+> 1.28.7). Every `file:line` below is from that worktree. Where a fact could not be verified from
 > the area's files it is called out explicitly.
 
 ## Summary
@@ -177,7 +177,7 @@ Indices (`escrow_object_multiindex.hpp`):
   `database_market.cpp:62`).
 - At the exact tick `head_block_time == ratification_deadline`, an `escrow_approve` transaction in
   that block is processed during `apply_transaction` (allowed, `>=`) **before** the per-block
-  `expire_escrow_ratification()` runs at end-of-block (`database.cpp:2344-2345` calls
+  `expire_escrow_ratification()` runs at end-of-block (`database.cpp:2347-2348` calls
   `account_recovery_processing()` then `expire_escrow_ratification()` after all transactions). So a
   same-tick approval wins the race and the now-approved escrow is skipped by the expiry pass.
 - Dispute requires `head_block_time < escrow_expiration` (strict, `:184`) → dispute window is
@@ -274,7 +274,7 @@ Three branches:
   (`:611-614`).
 
 ### Per-block cleanup: `account_recovery_processing()` then `expire_escrow_ratification()`
-`database.cpp:1962-2006`, invoked from `_apply_block` at `database.cpp:2344-2345` (recovery first,
+`database.cpp:1962-2006`, invoked from `_apply_block` at `database.cpp:2347-2348` (recovery first,
 then escrow). Three loops:
 1. Remove `account_recovery_request` rows past `expiration` (`by_expiration`).
 2. Remove `owner_authority_history` rows where `last_valid_time + 30d < head_block_time`

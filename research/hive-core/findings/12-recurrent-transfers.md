@@ -1,7 +1,7 @@
 # Findings: recurrent-transfers
 
-> Zoom deep-dive. Source pinned at hive-core `10ac0ce94f7591b6ad80db1a23d046c9d57b6559`
-> (release `1.28.6`). Every `file:line` below refers to that worktree. Where a claim
+> Zoom deep-dive. Source pinned at hive-core `1584099c3054a97f02abfb4788b23f02eea98728`
+> (release `1.28.7`). Every `file:line` below refers to that worktree. Where a claim
 > depends on git history, the commit hash and its ancestry relative to the pinned SHA
 > are stated explicitly.
 
@@ -234,7 +234,7 @@ and only moves `trigger_date` if `recurrence` changed.
 ## Block processing state machine
 
 `database::process_recurrent_transfers()` — `database_dhf.cpp:37-144`, called from
-`apply_block` (`database.cpp:2351`) after most other periodic processes.
+`apply_block` (`database.cpp:2354`) after most other periodic processes.
 
 ```
 if !has_hardfork(HF25): return
@@ -272,7 +272,7 @@ in the `by_trigger_date` ordering.
 
 At the pinned SHA the **only** runtime hardfork condition in the entire flow is HF25. The
 following version-gated branches existed earlier and were removed as post-HF28 cleanup. All
-three commits below were confirmed ancestors of `10ac0ce94f` via `git merge-base --is-ancestor`.
+three commits below were confirmed ancestors of `1584099c30` via `git merge-base --is-ancestor`.
 
 | Behavior | History | At this SHA |
 |----------|---------|-------------|
@@ -450,7 +450,7 @@ STATUS: COMPLETE
 OUTPUT_FILES:
 - research/hive-core/findings/12-recurrent-transfers.md
 KEY_FINDINGS:
-- Only HF25 is an active gate at 1.28.6: the HF28 pair_id guard and a pre-HF28 "faulty" end-date check were both removed as replay-safe cleanup (commit b155eb62e, an ancestor); HF29 single-execution relaxation is NOT present (verified non-ancestor).
+- Only HF25 is an active gate at 1.28.7: the HF28 pair_id guard and a pre-HF28 "faulty" end-date check were both removed as replay-safe cleanup (commit b155eb62e, an ancestor); HF29 single-execution relaxation is NOT present (verified non-ancestor).
 - Scheduling is grid-anchored, not drifting — update_next_trigger_date() does `trigger_date += recurrence` from the prior value, so per-block-cap deferrals never shift the schedule (empirically asserted by operation_tests.cpp:9876-9975).
 - validate() enforces executions>=2 (and recurrence>=24) on EVERY path including delete (amount==0); failed fires consume a remaining_execution and are never retried; consecutive_failures resets only on a funded fire, not on user update.
 - RC state cost scales with lifetime = recurrence × executions (charged only when amount>0); the dgpo "limit" fields are informational mirrors never read by consensus.

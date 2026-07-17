@@ -1,6 +1,6 @@
 # Hive API Reference
 
-Source: hive-core release 1.28.6. 17 API plugins, ~175 methods. JSON-RPC 2.0.
+Source: hive-core release 1.28.7. 18 API plugins registering methods + the built-in `jsonrpc` introspection API (19 method namespaces); 198 registered endpoints. JSON-RPC 2.0.
 
 ---
 
@@ -36,7 +36,7 @@ JSON-RPC error codes: -32700 (parse), -32600 (invalid request), -32601 (method n
 | Plugin | Methods | Purpose | Default Enabled? |
 |--------|---------|---------|-----------------|
 | database_api | 51 | Direct chain state access (find/list pattern) | Yes |
-| condenser_api | 57 | Legacy API for Steem-era clients (delegates to other APIs) | Yes |
+| condenser_api | 62 | Legacy API for Steem-era clients (delegates to other APIs) | Yes |
 | block_api | 3 | Block retrieval | Yes |
 | account_history_api | 4 | Account operation history, virtual ops enumeration | Yes (needs rocksdb plugin) |
 | account_by_key_api | 1 | Reverse lookup: public key to accounts | Yes (needs account_by_key plugin) |
@@ -52,7 +52,7 @@ JSON-RPC error codes: -32700 (parse), -32600 (invalid request), -32601 (method n
 | app_status_api | 1 | Application health status | Yes |
 | witness_api | 3 | Fast-confirm control (witness nodes only) | Witness nodes only |
 | network_node_api | 4 | P2P peer management | Explicit enable |
-| debug_node_api | 11 | Testing/debugging (NOT for production) | Never in production |
+| debug_node_api | 12 | Testing/debugging (NOT for production) | Never in production |
 | jsonrpc | 2 | Introspection: list methods, get signatures | Always (built-in) |
 
 ---
@@ -144,7 +144,7 @@ Proposal status filter: `all`, `inactive`, `active`, `expired`, `votable`.
 
 ---
 
-## condenser_api (57 methods)
+## condenser_api (62 methods)
 
 Legacy API for Steem-era clients. All methods take positional args (`vector<variant>`). Returns use legacy asset format ("1.000 HIVE" strings). Delegates to database_api, block_api, account_history_api, and others internally.
 
@@ -351,7 +351,7 @@ Methods: `get_version`, `get_witness_schedule`, `get_current_median_history_pric
 ### network_node_api (4 methods)
 - `get_info`, `add_node`, `set_allowed_peers`, `get_connected_peers` -- P2P peer management
 
-### debug_node_api (11 methods, testing only)
+### debug_node_api (12 methods, testing only)
 - `debug_generate_blocks`, `debug_generate_blocks_until`, `debug_get_head_block`, `debug_get_witness_schedule`, `debug_get_future_witness_schedule`, `debug_get_hardfork_property_object`, `debug_set_hardfork`, `debug_has_hardfork`, `debug_get_json_schema`, `debug_throw_exception`, `debug_set_vest_price`, `debug_fail_transaction`
 
 ### jsonrpc (2 methods, built-in)

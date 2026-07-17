@@ -97,7 +97,7 @@ Notably, `volatile_comment_object` (type value `21 << 8` = 5376) is a *consensus
 ## State Objects Reference
 
 Conventions used below:
-- "Lifecycle" lists verified create/modify/remove sites (`file:line` at pinned commit `10ac0ce94`).
+- "Lifecycle" lists verified create/modify/remove sites (`file:line` at pinned commit `1584099c3`).
 - All `*_multiindex.hpp` files live in `libraries/chain/include/hive/chain/detail/state/` unless noted; object headers in the same directory.
 - The chainbase `object<>` base template is `object<TypeNumber, Derived, HasDynamicAlloc = std::false_type, EnableNoUndo = std::false_type>` (`chainbase.hpp:171-193`). `HasDynamicAlloc = true` marks objects whose members need an allocator (shared_string / t_vector) and enables dynamic-allocation benchmarking; `EnableNoUndo = true` enables `remove_no_undo()` destruction outside the undo stack (used only by `comment_object` for archive migration — safe because comments are immutable and the 7-day cashout window guarantees no pending undo entry references them; the chainbase comment explicitly contrasts this with `volatile_comment_object`, which must NOT use it).
 
@@ -810,7 +810,7 @@ Expiring delegation — delegation was removed/reduced, VESTS returning to deleg
 | `by_expiration` | `(expiration, id)` |
 | `by_account_expiration` | `(delegator, expiration, id)` |
 
-**Lifecycle:** created on delegation decrease/removal (`hive_evaluator_transfer.cpp:856`); removed when VESTS return in `clear_expired_delegations` (`database.cpp:3110`).
+**Lifecycle:** created on delegation decrease/removal (`hive_evaluator_transfer.cpp:856`); removed when VESTS return in `clear_expired_delegations` (`database.cpp:3113`).
 
 ---
 
@@ -1064,7 +1064,7 @@ Tracks recent transactions for duplicate detection. Removed after expiration.
 | `by_trx_id` | `trx_id` (unique) |
 | `by_expiration` | `(expiration, id)` |
 
-**Lifecycle:** created for every applied transaction (`database.cpp:2678`); removed by `clear_expired_transactions` (`database.cpp:3100`) once `expiration` passes. Maximum lifetime is bounded by `HIVE_MAX_TIME_UNTIL_EXPIRATION` (1 hour).
+**Lifecycle:** created for every applied transaction (`database.cpp:2681`); removed by `clear_expired_transactions` (`database.cpp:3103`) once `expiration` passes. Maximum lifetime is bounded by `HIVE_MAX_TIME_UNTIL_EXPIRATION` (1 hour).
 
 ---
 
@@ -1156,12 +1156,12 @@ History (from git archaeology of the inherited Steem history):
 
 `comments_handler` (`external_storage/comments_handler.hpp:15-34`) abstracts what happens to a comment after payout:
 - `on_cashout(block_num, comment, comment_cashout)` — called by consensus when a comment is paid (`database_comment.cpp:479` in `process_comment_cashout`, and `database_comment.cpp:118` in HF19's `remove_old_cashouts`)
-- `on_irreversible_block(block_num)` — called from LIB processing (`database.cpp:3084`)
+- `on_irreversible_block(block_num)` — called from LIB processing (`database.cpp:3087`)
 - `get_comment(author_id, permlink, required)` — unified lookup used by all consensus comment accessors (`database.cpp:403-450`); returns the `comment` wrapper (`external_storage/comment.hpp`) which either points into SHM or owns a heap-reconstructed `comment_object`
 
 ### The three implementations (chain plugin option `comment-archive`)
 
-Selection: `chain_plugin.cpp:796-815`; option declared at `chain_plugin.cpp:1511` — *"Type of comment archive to use: NONE means comments won't be archived, MEMORY keeps archived comments in memory, ROCKSDB stores them in RocksDB. Default: ROCKSDB"*. Default enum value confirmed at `chain_plugin.cpp:174` (`comment_archive_choice = comment_archive_type::ROCKSDB`). Changing the option requires a replay (`memory_comment_archive.cpp` open(): "did you change comment-archive config option? if so, you need to replay").
+Selection: `chain_plugin.cpp:796-815`; option declared at `chain_plugin.cpp:1515` — *"Type of comment archive to use: NONE means comments won't be archived, MEMORY keeps archived comments in memory, ROCKSDB stores them in RocksDB. Default: ROCKSDB"*. Default enum value confirmed at `chain_plugin.cpp:174` (`comment_archive_choice = comment_archive_type::ROCKSDB`). Changing the option requires a replay (`memory_comment_archive.cpp` open(): "did you change comment-archive config option? if so, you need to replay").
 
 1. **NONE → `placeholder_comment_archive`** (`placeholder_comment_archive.cpp`): pre-1.28 behavior. `on_cashout` only counts stats; paid comments stay in the chainbase `comment_index` forever; lookup goes straight to the index.
 
@@ -1185,7 +1185,7 @@ Indices: `by_id`, `by_block` `(block_number, id)`, `by_permlink` (unique hash). 
 
 ### Consequences
 
-- On a default-configured 1.28.6 node, the chainbase `comment_index` holds only comments inside (or within ~10k cashouts past) their 7-day payout window; the bulk of historical comments (hundreds of millions) live in RocksDB on disk, dramatically reducing `shared_memory.bin` size.
+- On a default-configured 1.28.7 node, the chainbase `comment_index` holds only comments inside (or within ~10k cashouts past) their 7-day payout window; the bulk of historical comments (hundreds of millions) live in RocksDB on disk, dramatically reducing `shared_memory.bin` size.
 - Consensus still depends on archived comments (e.g. replying to an old post must find the parent and detect permlink reuse), which is why `get_comment` transparently consults the archive and why changing archive modes requires replay.
 - The archived record retains only `{comment_id, parent_comment, depth}` + hash key — consistent with the in-memory `comment_object`; the permlink string itself is still unrecoverable from core state after cashout (only its hash).
 
@@ -1485,7 +1485,7 @@ The "(plus one internal)" refers to the multi-index container's internal header 
 | RC objects | `rc/rc_objects.hpp` | same file (indices inline) |
 | `account_metadata_object` | `plugins/metadata/.../metadata_objects.hpp` | same file |
 | Comment archive | `external_storage/comments_handler.hpp`, `comment_rocksdb_objects.hpp`, `rocksdb_comment_archive.hpp`, `memory_comment_archive.hpp`, `placeholder_comment_archive.hpp` | `volatile_comment_index` inline |
-| Archive selection | `libraries/plugins/chain/chain_plugin.cpp:170-174, 796-815, 1511` | — |
+| Archive selection | `libraries/plugins/chain/chain_plugin.cpp:170-174, 796-815, 1515` | — |
 | Object id / pool allocator | `chainbase/util/object_id.hpp`, `chainbase/pool_allocator.hpp` | — |
 | Index registration | `initialize_core_indexes_NN` in `database_*.cpp` (e.g. `database_comment.cpp:45`) | — |
 | HF cleanups | `database_hardfork.cpp:240-242` (HF12), `:278` (HF17), `:333` (HF19), `:375-401` (HF20), `:503-508` (HF26) | — |

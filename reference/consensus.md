@@ -1,6 +1,6 @@
 # Hive Consensus Mechanisms Reference
 
-Source: hive-core release 1.28.6.
+Source: hive-core release 1.28.7.
 
 ---
 
@@ -87,6 +87,7 @@ The fork database is an in-memory structure tracking competing chain tips, with 
 
 **Key behaviors:**
 - Unlinked (orphan) blocks are stored separately until their parent arrives
+- A block below the fork-cache window (too old) is rejected as *unlinkable*, not invalid (since 1.28.7) — the peer keeps its connection and the block is reconciled through normal sync, instead of being disconnected as if it had relayed a bad block
 - Fork switch errors on a shorter old fork are fatal (cannot safely revert)
 - LIB advancement can force a fork switch if 75% of witnesses approve blocks on a non-main fork
 

@@ -2,7 +2,7 @@
 
 ## Summary
 
-The Hive blockchain protocol defines **50 regular (broadcastable) operations** (IDs 0–49) and **43 virtual operations** (IDs 50–92, i.e. `last_regular+1` … `last_regular+43`). Operations are encoded as an `fc::static_variant` where the index position is the numeric operation ID; positional stability is consensus-critical. The protocol also defines a custom-operation framework (`custom_operation`, `custom_json_operation`, `custom_binary_operation`) for higher-level protocols to embed structured data. All structs verified directly from `libraries/protocol/` at commit `10ac0ce94f`.
+The Hive blockchain protocol defines **50 regular (broadcastable) operations** (IDs 0–49) and **43 virtual operations** (IDs 50–92, i.e. `last_regular+1` … `last_regular+43`). Operations are encoded as an `fc::static_variant` where the index position is the numeric operation ID; positional stability is consensus-critical. The protocol also defines a custom-operation framework (`custom_operation`, `custom_json_operation`, `custom_binary_operation`) for higher-level protocols to embed structured data. All structs verified directly from `libraries/protocol/` at commit `1584099c30`.
 
 Three facts that span the protocol *and* chain layers are worth stating up front, because the protocol-layer structs alone are misleading without them:
 

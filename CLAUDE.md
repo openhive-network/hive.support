@@ -21,7 +21,7 @@ Need to look something up? Go to `reference/`:
 | Resource Credits: cost calculation, mana, delegation | `reference/rc.md` |
 | Hardfork history: what changed when | `reference/hardforks.md` |
 
-The table above is the **protocol** layer (hive-core release `1.28.6`).
+The table above is the **protocol** layer (hive-core release `1.28.7`).
 
 **Using the wax client library** (build / sign / broadcast / API)? Start at
 `reference/wax/README.md` (anchored to wax `2.0.2`): entry points & API
@@ -140,8 +140,9 @@ protocol semantics rather than re-deriving them.
 
 ### HAF (Complete)
 7-part source-level analysis of the Hive Application Framework, completed 2026-06-24.
-Anchored to HAF `1.28.6` (`222c848355`), whose protocol layer is the hive-core KB's exact
-`1.28.6` (`10ac0ce94`). Documents HAF's own surface (SQL indexing + the app framework).
+Anchored to HAF `1.28.6` (`222c848355`), whose embedded protocol layer is hive-core `1.28.6`
+(`10ac0ce94`) — the hive-core KB's prior anchor, now advanced to `1.28.7` (a maintenance release
+that leaves HAF's embedded protocol unchanged). Documents HAF's own surface (SQL indexing + the app framework).
 
 | Part | Focus |
 |------|-------|
@@ -160,4 +161,4 @@ Anchored to HAF `1.28.6` (`222c848355`), whose protocol layer is the hive-core K
 ## Source
 
 - **Repository:** [hive/hive](https://gitlab.syncad.com/hive/hive) on GitLab
-- **Version:** release `1.28.6` (`10ac0ce94`)
+- **Version:** release `1.28.7` (`1584099c3`)

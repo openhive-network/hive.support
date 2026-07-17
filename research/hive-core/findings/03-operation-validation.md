@@ -14,7 +14,7 @@ Hive protocol-level validation is implemented in `validate()` methods on each op
 - The two-argument `validate( notify )` variant also calls the `notify` callback before and after each operation — used by apply-layer observers; the checks are identical.
 - Transaction expiration: max `HIVE_MAX_TIME_UNTIL_EXPIRATION` = 3600 seconds (1 hour) — enforced at chain level, **not** in validate().
 - Max transaction size: `HIVE_MAX_TRANSACTION_SIZE` = 65,536 bytes (64KB) — enforced at serialization/chain level, not validate().
-- HF28 posting/active mixing rule: enforced during **signature verification** (`transaction_util.cpp:59-73`), not validate(). Pre-HF28 a transaction with posting-required operations cannot also have operations requiring active/owner/witness or `other` authorities. Guarded by `HIVE_HARDFORK_1_28_ALLOW_STRICT_AND_MIXED_AUTHORITIES` (`database.cpp:2609`).
+- HF28 posting/active mixing rule: enforced during **signature verification** (`transaction_util.cpp:59-73`), not validate(). Pre-HF28 a transaction with posting-required operations cannot also have operations requiring active/owner/witness or `other` authorities. Guarded by `HIVE_HARDFORK_1_28_ALLOW_STRICT_AND_MIXED_AUTHORITIES` (`database.cpp:2612`).
 
 ### Base Class Contract
 **File:** `base.hpp:13-29`
@@ -114,7 +114,7 @@ The inline comment in the source explains why: "the old is_valid() test is slowe
 - `validate_auth_size(a)`: `a.account_auths.size() + a.key_auths.size() <= HIVE_MAX_AUTHORITY_MEMBERSHIP` (40; 41 in converter builds via `#ifdef HIVE_CONVERTER_BUILD`).
 - `authority::validate()`: Each account name in `account_auths` must satisfy `is_valid_account_name()`. Keys are not further validated here (the public_key_type deserializer would have already rejected malformed keys).
 - `authority::validate()` does **not**: check weight_threshold > 0, check `is_impossible()`, validate recursion depth, or check the sum of weights against `weight_threshold`. Most of those are instead enforced in signature verification.
-- Signature verification (`verify_authority` → `sign_state::check_authority_impl` in `sign_state.hpp:167-293`) enforces `HIVE_MAX_SIG_CHECK_DEPTH` (2 levels of account-auth recursion) and `HIVE_MAX_SIG_CHECK_ACCOUNTS` (125 distinct accounts visited). Both are passed in by the chain layer (`database.cpp:2609-2623`) and are gated on HF20 — prior to HF20 the chain passed 0 (disabled) for both. These limits are therefore **never** touched by `validate()`.
+- Signature verification (`verify_authority` → `sign_state::check_authority_impl` in `sign_state.hpp:167-293`) enforces `HIVE_MAX_SIG_CHECK_DEPTH` (2 levels of account-auth recursion) and `HIVE_MAX_SIG_CHECK_ACCOUNTS` (125 distinct accounts visited). Both are passed in by the chain layer (`database.cpp:2612-2626`) and are gated on HF20 — prior to HF20 the chain passed 0 (disabled) for both. These limits are therefore **never** touched by `validate()`.
 
 ### Percent Validation
 **File:** `validation.hpp:87-93`
@@ -424,7 +424,7 @@ Wrapped in `#ifndef HIVE_CONVERTER_BUILD` — the blockchain_converter tool skip
 
 **SMT-in-limit-order reality check:** Protocol `validate()` allows SMT NAI paired with HIVE. However:
 1. `price::validate()` does **not** call `asset_symbol_type::validate()`, so a malformed NAI (bad Damm digits, wrong control bit, invalid precision) passes protocol validation as long as it is in the smt_nai_space (asset_num ≠ HIVE/HBD/VESTS asset_num).
-2. At evaluator dispatch time, `_db.adjust_balance( o.owner, -o.amount_to_sell )` (`hive_evaluator_transfer.cpp:541`) invokes `database::adjust_balance(const asset&)` which asserts `asset_num ∈ {HIVE_ASSET_NUM_HIVE, HIVE_ASSET_NUM_HBD}` (`database.cpp:3146-3152`): `FC_ASSERT( delta.symbol.asset_num == HIVE_ASSET_NUM_HBD && "liquid", "invalid symbol" )`. Any SMT NAI symbol therefore fails unconditionally at evaluator time.
+2. At evaluator dispatch time, `_db.adjust_balance( o.owner, -o.amount_to_sell )` (`hive_evaluator_transfer.cpp:541`) invokes `database::adjust_balance(const asset&)` which asserts `asset_num ∈ {HIVE_ASSET_NUM_HIVE, HIVE_ASSET_NUM_HBD}` (`database.cpp:3149-3155`): `FC_ASSERT( delta.symbol.asset_num == HIVE_ASSET_NUM_HBD && "liquid", "invalid symbol" )`. Any SMT NAI symbol therefore fails unconditionally at evaluator time.
 
 The evaluator also carries an inline `FC_TODO( "Limit to HIVE/HBD after next hardfork (HF29)" )` comment (`hive_evaluator_transfer.cpp:526`) acknowledging the planned tightening. Conclusion: SMT limit orders are protocol-allowed but chain-disabled since there are no SMT balances to debit.
 
@@ -709,9 +709,9 @@ All 43 virtual operations (IDs 50–92) inherit `virtual_operation::validate()` 
 | Comment depth ≤ 0xffff (hard) / 255 (soft when producing) | no | evaluator HF17+ | `hive_evaluator_social.cpp:185-189` |
 | `recurrent_transfer` open count ≤ 255 per account | no | evaluator HF25+ | `hive_evaluator_transfer.cpp:923` |
 | `recurrent_transfer` end-date ≤ 730 days | no | evaluator HF25+ | `hive_evaluator_transfer.cpp:927` |
-| SMT NAI asset integrity in limit orders | partial (space only) | `database::adjust_balance` rejects non-HIVE/HBD | `database.cpp:3146-3152` |
+| SMT NAI asset integrity in limit orders | partial (space only) | `database::adjust_balance` rejects non-HIVE/HBD | `database.cpp:3149-3155` |
 | Account existence (from, to, creator, etc.) | no | evaluator (via `get_account`) | many |
-| Balance sufficiency | no | evaluator / `adjust_balance` | `database.cpp:3155-3212` |
+| Balance sufficiency | no | evaluator / `adjust_balance` | `database.cpp:3158-3215` |
 
 ---
 
@@ -790,7 +790,7 @@ All 43 virtual operations (IDs 50–92) inherit `virtual_operation::validate()` 
 | HF17 | Comments | Hard depth limit 0xffff (soft limit 255 when producing) |
 | HF19 | Comments | Delete forbidden if comment has positive votes |
 | HF20 | account_update | `validate_auth_size` added at evaluator (`hive_evaluator_account.cpp:293-301`) |
-| HF20 | Authority | `HIVE_MAX_SIG_CHECK_ACCOUNTS` cap activated in `verify_authority` (`database.cpp:2618-2619`) |
+| HF20 | Authority | `HIVE_MAX_SIG_CHECK_ACCOUNTS` cap activated in `verify_authority` (`database.cpp:2621-2622`) |
 | HF20 | Account creation | Exact fee requirement enforced (was minimum) |
 | HF20 | Vesting withdrawal | Negative VESTS withdrawal blocked |
 | HF20 | Delegation | Minimum delegation and update amounts introduced |
@@ -843,7 +843,7 @@ All 43 virtual operations (IDs 50–92) inherit `virtual_operation::validate()` 
 
 14. **Comment depth is purely evaluator-enforced:** `HIVE_SOFT_MAX_COMMENT_DEPTH` (255) is enforced only during in-control block production. Historical deep chains replay unchanged. Hard limit since HF17 is 0xffff; pre-HF17 it was 6.
 
-15. **SMT NAI orders are allowed by validate() but rejected by evaluator:** `limit_order_create/2::validate()` accepts SMT NAI ↔ HIVE pairs, but `database::adjust_balance` (`database.cpp:3146-3152`) asserts `asset_num` ∈ {HIVE, HBD}, so the evaluator unconditionally rejects any SMT-involving order. There is an `FC_TODO` noting the intent to tighten validate() in HF29. `asset_symbol_type::validate()` (which performs the Damm checksum) is not called from `price::validate()`, so a malformed NAI also passes `validate()` — though this has no practical effect because the evaluator rejects all NAIs anyway.
+15. **SMT NAI orders are allowed by validate() but rejected by evaluator:** `limit_order_create/2::validate()` accepts SMT NAI ↔ HIVE pairs, but `database::adjust_balance` (`database.cpp:3149-3155`) asserts `asset_num` ∈ {HIVE, HBD}, so the evaluator unconditionally rejects any SMT-involving order. There is an `FC_TODO` noting the intent to tighten validate() in HF29. `asset_symbol_type::validate()` (which performs the Damm checksum) is not called from `price::validate()`, so a malformed NAI also passes `validate()` — though this has no practical effect because the evaluator rejects all NAIs anyway.
 
 16. **String-size idiom inconsistency is observable, not just cosmetic:** Because witness URL uses `<= MAX` while memo/title/permlink use `< MAX` or `<= MAX - 1`, URL (effective 2048) and memo (effective 2047) accept different byte counts despite both constants being 2048. Applications that serialize strings at the boundary might see asymmetric acceptance.
 

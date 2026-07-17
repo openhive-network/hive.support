@@ -1,6 +1,6 @@
 # Hive Operations Reference
 
-Source: hive-core release 1.28.6. 50 regular operations (IDs 0-49) + 43 virtual operations (IDs 50-92).
+Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual operations (IDs 50-92).
 
 ---
 

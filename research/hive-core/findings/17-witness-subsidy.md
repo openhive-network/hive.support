@@ -1,6 +1,6 @@
 # Findings: witness-subsidy
 
-> Source: hive-core, pinned SHA `10ac0ce94f7591b6ad80db1a23d046c9d57b6559` (release `1.28.6`).
+> Source: hive-core, pinned SHA `1584099c3054a97f02abfb4788b23f02eea98728` (release `1.28.7`).
 > Entry files: `libraries/chain/rc/rc_utility.cpp`, `libraries/chain/database_witness.cpp`.
 > Every `file:line` below is from the worktree at that SHA.
 

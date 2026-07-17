@@ -1,6 +1,6 @@
 # Hive State Objects Reference
 
-Source: hive-core release 1.28.6. 39 type IDs (37 core-defined + 1 plugin-defined + 1 dead). State lives in chainbase shared memory, with one exception: paid-out comments are archived to RocksDB by default (`comment-archive = ROCKSDB` chain option, new in 1.28) — the chainbase comment index only holds comments in or near their 7-day payout window.
+Source: hive-core release 1.28.7. 39 type IDs (37 core-defined + 1 plugin-defined + 1 dead). State lives in chainbase shared memory, with one exception: paid-out comments are archived to RocksDB by default (`comment-archive = ROCKSDB` chain option, new in 1.28) — the chainbase comment index only holds comments in or near their 7-day payout window.
 
 ---
 

@@ -2,7 +2,7 @@
 
 ## Summary
 
-This document captures the complete protocol foundation of the Hive blockchain as defined in the C++ source code under `libraries/protocol/`, with chain-layer extensions (`libraries/chain/`) where the protocol layer delegates behavior (block IDs, signature validation rules, genesis state). Hive operates on a 3-second block interval with 21 witnesses, using three native assets (HIVE, HBD, VESTS) encoded via a Numeric Asset Identifier (NAI) system. The protocol layer defines ~190 consensus constants covering timing, economics, authority, and resource limits, all verified directly from `config.hpp` and related headers at release 1.28.6 (`10ac0ce94`).
+This document captures the complete protocol foundation of the Hive blockchain as defined in the C++ source code under `libraries/protocol/`, with chain-layer extensions (`libraries/chain/`) where the protocol layer delegates behavior (block IDs, signature validation rules, genesis state). Hive operates on a 3-second block interval with 21 witnesses, using three native assets (HIVE, HBD, VESTS) encoded via a Numeric Asset Identifier (NAI) system. The protocol layer defines ~190 consensus constants covering timing, economics, authority, and resource limits, all verified directly from `config.hpp` and related headers at release 1.28.7 (`1584099c3`).
 
 ## Key Discoveries
 
@@ -58,7 +58,7 @@ This document captures the complete protocol foundation of the Hive blockchain a
 
 ### 11. `hf_21_stall_block` Replays a Real HF21 Overflow Bug; "iceberg" is the Blockchain Converter Plugin
 - **What**: At HF21 the downvote manabar was introduced. Its original `max_mana` computation, `effective_vests * downvote_pool_percent / HIVE_100_PERCENT`, was done in plain `int64_t` and **overflowed for very large vesting balances — and that overflow made it into the mainnet chain**. `update_manabar()` therefore keeps the buggy arithmetic for blocks ≤ `HIVE_HF_21_STALL_BLOCK = 35,922,615` (mainnet constant; 829 blocks ≈ 41 minutes after HF21 activation at 35,921,786) and logs "NOTIFYALERT! max mana overflow made it in to the chain" if it triggers; after that block the corrected `uint128_t` math applies. Testnet and iceberg-enabled converter builds always use the fixed math (`#if defined(IS_TEST_NET) || defined(HIVE_CONVERTER_ICEBERG_PLUGIN_ENABLED)`). "iceberg" is the `iceberg_generate` plugin of `programs/blockchain_converter/` — it fabricates a valid chain from only a *range* of mainnet blocks (e.g. last 5M), creating missing accounts/comments on the fly; chains generated that way never contain the historic overflow, so the testnet-side knob (`configuration_data.hf_21_stall_block`, settable via the `alternate-chain-spec` JSON) can be removed once mirrornet block logs come from iceberg.
-- **Where**: `manabar.hpp:120-135`, `hardfork.d/0_21.hf:18-22`, `testnet_blockchain_configuration.hpp:284`, `chain_plugin.cpp:1756-1757`, `programs/blockchain_converter/README.md:308-324`
+- **Where**: `manabar.hpp:120-135`, `hardfork.d/0_21.hf:18-22`, `testnet_blockchain_configuration.hpp:284`, `chain_plugin.cpp:1760-1761`, `programs/blockchain_converter/README.md:308-324`
 - **Impact**: A consensus-relevant replay quirk: any reimplementation of mana regeneration must reproduce the int64 overflow for mainnet blocks 35,921,786–35,922,615 or it will fork on replay.
 
 ### 12. HF9 Hardcodes 151 Compromised Accounts and a Recovery Key
@@ -72,8 +72,8 @@ This document captures the complete protocol foundation of the Hive blockchain a
 - **Impact**: Documentation hazard only — but anyone citing genesis time from the comments gets the wrong date. Steem/Hive mainnet genesis: 2016-03-24T16:00:00Z; mining (PoW acceptance) began one hour later.
 
 ### 14. Authority Verification: Posting Isolation, Role Upgrade, and the HF28 "Strict and Mixed" Switch
-- **What**: The full verification algorithm lives in protocol `verify_authority_impl()`. Pre-HF28 behavior (`allow_strict_and_mixed_authorities = false`): (a) a transaction with any posting-required operation **may not** also require active/owner/witness/other authorities (`transaction_util.cpp:59-74`); (b) **role upgrade** — a posting requirement is satisfied by posting *or* active *or* owner authority (`transaction_util.cpp:101-104`), an active requirement by active *or* owner (`transaction_util.cpp:146-158`); (c) signatures not consumed by verification cause rejection via `tx_irrelevant_sig` ("Unnecessary signature(s) detected", `transaction_util.cpp:184-188, 250-252`). After HF28 both flags flip (`database.cpp:2609-2610`): mixing posting with active/owner in one transaction becomes legal, role checks become **strict** (an owner key no longer auto-satisfies active/posting requirements), and redundant signatures are tolerated. Also: `HIVE_MAX_AUTHORITY_MEMBERSHIP` (40) and `HIVE_MAX_SIG_CHECK_ACCOUNTS` (125) are passed as 0 (unlimited) for blocks before HF20 (`database.cpp:2618-2619`).
-- **Where**: `transaction_util.cpp:18-192`, `database.cpp:2595-2623`, `sign_state.hpp:167+` (weight accumulation/recursion)
+- **What**: The full verification algorithm lives in protocol `verify_authority_impl()`. Pre-HF28 behavior (`allow_strict_and_mixed_authorities = false`): (a) a transaction with any posting-required operation **may not** also require active/owner/witness/other authorities (`transaction_util.cpp:59-74`); (b) **role upgrade** — a posting requirement is satisfied by posting *or* active *or* owner authority (`transaction_util.cpp:101-104`), an active requirement by active *or* owner (`transaction_util.cpp:146-158`); (c) signatures not consumed by verification cause rejection via `tx_irrelevant_sig` ("Unnecessary signature(s) detected", `transaction_util.cpp:184-188, 250-252`). After HF28 both flags flip (`database.cpp:2612-2613`): mixing posting with active/owner in one transaction becomes legal, role checks become **strict** (an owner key no longer auto-satisfies active/posting requirements), and redundant signatures are tolerated. Also: `HIVE_MAX_AUTHORITY_MEMBERSHIP` (40) and `HIVE_MAX_SIG_CHECK_ACCOUNTS` (125) are passed as 0 (unlimited) for blocks before HF20 (`database.cpp:2621-2622`).
+- **Where**: `transaction_util.cpp:18-192`, `database.cpp:2598-2626`, `sign_state.hpp:167+` (weight accumulation/recursion)
 - **Impact**: Critical for wallet/signing implementations: today an owner key signs anything, but post-HF28 a transaction must carry signatures for the exact roles required, and posting+active mixing becomes possible.
 
 ### 15. Transactions Validate Against Their Actual Wire Bytes; Either Serialization is Accepted
@@ -106,7 +106,7 @@ All constants from `config.hpp` and related headers, organized by domain. Values
 | `HIVE_NUM_INIT_MINERS` | 1 | `config.hpp:220` |
 | `HIVE_INIT_SUPPLY` / `HIVE_HBD_INIT_SUPPLY` | 0 / 0 | Mainnet starts empty; supply mined (`config.hpp:49-50`) |
 | HF9 compromised-accounts key | `STM7sw22H...` | `config.hpp:18`, applied at HF9 to 151 accounts |
-| `HIVE_BLOCKCHAIN_VERSION` | 1.28.6 | `config.hpp:140` |
+| `HIVE_BLOCKCHAIN_VERSION` | 1.28.7 | `config.hpp:140` |
 | `HIVE_NUM_HARDFORKS` | 28 | `hardfork.d/0-preamble.hf:16-19` |
 
 ### Timing Constants
@@ -279,9 +279,9 @@ These governed early-Steem economics; retained for replay correctness.
 | `HIVE_MAX_ACCOUNT_NAME_LENGTH` | 16 | Characters |
 | `HIVE_MIN_ACCOUNT_CREATION_FEE` | 1 | 0.001 HIVE (mainnet); 0 on testnet |
 | `HIVE_MAX_ACCOUNT_CREATION_FEE` | 1,000,000,000 | 1,000,000 HIVE |
-| `HIVE_MAX_AUTHORITY_MEMBERSHIP` | 40 | Max keys+accounts in an authority; **41 on mirrornet converter builds** ("40 + second auth", `config.hpp:374-378`); enforced only post-HF20 (`database.cpp:2618`) |
+| `HIVE_MAX_AUTHORITY_MEMBERSHIP` | 40 | Max keys+accounts in an authority; **41 on mirrornet converter builds** ("40 + second auth", `config.hpp:374-378`); enforced only post-HF20 (`database.cpp:2621`) |
 | `HIVE_MAX_SIG_CHECK_DEPTH` | 2 | Max authority recursion depth |
-| `HIVE_MAX_SIG_CHECK_ACCOUNTS` | 125 | Max accounts checked during sig verification; enforced post-HF20 (`database.cpp:2619`) |
+| `HIVE_MAX_SIG_CHECK_ACCOUNTS` | 125 | Max accounts checked during sig verification; enforced post-HF20 (`database.cpp:2622`) |
 | `HIVE_MAX_PROXY_RECURSION_DEPTH` | 4 | Max witness vote proxy chain |
 | `HIVE_CREATE_ACCOUNT_WITH_HIVE_MODIFIER` | 30 | Multiplier for creation-with-HIVE fee |
 | `HIVE_CREATE_ACCOUNT_DELEGATION_RATIO` | 5 | Delegation-to-fee ratio |
@@ -587,9 +587,9 @@ Semantics (pre-HF28, i.e., current mainnet):
 - **Witness requirement**: satisfied iff the transaction is signed with the witness's current signing key (`transaction_util.cpp:168-182`).
 - **No redundant signatures**: leftover signatures not needed by any requirement throw `tx_irrelevant_sig` (`transaction_util.cpp:184-188`).
 
-At HF28 (`database.cpp:2609-2610`): `HIVE_HARDFORK_1_28_ALLOW_STRICT_AND_MIXED_AUTHORITIES` removes the posting-isolation rule **and** the role-upgrade paths (strict per-role matching), and `HIVE_HARDFORK_1_28_ALLOW_REDUNDANT_SIGNATURES` stops rejecting unused signatures.
+At HF28 (`database.cpp:2612-2613`): `HIVE_HARDFORK_1_28_ALLOW_STRICT_AND_MIXED_AUTHORITIES` removes the posting-isolation rule **and** the role-upgrade paths (strict per-role matching), and `HIVE_HARDFORK_1_28_ALLOW_REDUNDANT_SIGNATURES` stops rejecting unused signatures.
 
-Limits passed by the chain: `HIVE_MAX_SIG_CHECK_DEPTH = 2`, and — only for blocks after HF20 — `HIVE_MAX_AUTHORITY_MEMBERSHIP = 40` and `HIVE_MAX_SIG_CHECK_ACCOUNTS = 125` (passed as 0/unlimited pre-HF20, `database.cpp:2617-2619`).
+Limits passed by the chain: `HIVE_MAX_SIG_CHECK_DEPTH = 2`, and — only for blocks after HF20 — `HIVE_MAX_AUTHORITY_MEMBERSHIP = 40` and `HIVE_MAX_SIG_CHECK_ACCOUNTS = 125` (passed as 0/unlimited pre-HF20, `database.cpp:2620-2622`).
 
 ### Multi-sig
 
@@ -756,7 +756,7 @@ Triple encoding: `major.hardfork.release` packed in `uint32_t`:
 - Bits [16-23]: hardfork version (minor)
 - Bits [0-15]: release version
 
-Current: `version(1, 28, 6)` -> `0x011C0006`. Major versions 0 and 1 compare equal (`version.hpp:48-75`, see Discovery 5).
+Current: `version(1, 28, 7)` -> `0x011C0007`. Major versions 0 and 1 compare equal (`version.hpp:48-75`, see Discovery 5).
 
 ### Hardfork Version
 
@@ -964,7 +964,7 @@ All sub-questions answered in the Transaction Structure section above (fields, T
 | Authority struct | `authority.hpp` | 7-55 | Threshold + key/account maps |
 | Account name validation | `authority.cpp` | 58-122 | RFC 1035 with Hive rules |
 | Authority verification | `transaction_util.cpp` | 18-192 | Posting isolation, role upgrade, HF28 flags |
-| Chain verify_authority call | `database.cpp` | 2595-2623 | HF28 flags, HF20 limits |
+| Chain verify_authority call | `database.cpp` | 2598-2626 | HF28 flags, HF20 limits |
 | sign_state recursion | `sign_state.hpp` | 167+ | Weight accumulation, depth/membership limits |
 | Password key derivation | `transaction_util.cpp` | 379-408 | sha256(account+role+password) |
 | Signing key collector | `transaction_util.cpp` | 410-553 | Wallet-side authority walk |
@@ -1001,7 +1001,7 @@ All sub-questions answered in the Transaction Structure section above (fields, T
 | Genesis vesting price | `chain/.../detail/state/global_property_object.hpp` | 87-92 | `VEST_price(1000000,1000)` on empty pools |
 | HF1 vesting split | `database_hardfork.cpp` / `database_comment.cpp` | 189-191 / 612-667 | ×1,000,000 across all VESTS state |
 | Testnet overrides | `testnet_blockchain_configuration.hpp` | 27-285 | All configurable defaults |
-| Alternate chain spec loader | `chain_plugin.cpp` | ~1700-1760 | JSON overrides incl. `hf_21_stall_block` |
+| Alternate chain spec loader | `chain_plugin.cpp` | ~1704-1764 | JSON overrides incl. `hf_21_stall_block` |
 | RC cost parameters (pointer) | `libraries/chain/rc/` | — | `resource_count.cpp`, `resource_sizes.*`, `rc_curve.cpp`, `rc_objects.hpp` (Part 08) |
 | Witness scheduling (pointer) | `libraries/chain/witness_schedule.cpp` | — | Virtual-time algorithm (Part 06) |
 

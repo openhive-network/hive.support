@@ -19,13 +19,13 @@ state-dependent or version-dependent rule into the evaluator and explains the do
 ### 1. `validate()` is conditionally skipped; evaluators are not
 - **What**: `database::apply_operation` dispatches to the evaluator unconditionally —
   `_evaluator_registry.get_evaluator( op ).apply( op )` with no skip flag
-  (`database.cpp:2740`). By contrast `validate()` is invoked inside
-  `database::validate_transaction` only when `!(skip & skip_validate)` (`database.cpp:2571`).
-- **Where**: `database.cpp:2740` (evaluator), `database.cpp:2571` (validate gate),
-  `chain_plugin.cpp:1239` and `chain_plugin.cpp:1058` (where `skip_validate` is set).
-- **Impact**: During default replay (`chain_plugin.cpp:1225-1240`, "no need to validate
+  (`database.cpp:2743`). By contrast `validate()` is invoked inside
+  `database::validate_transaction` only when `!(skip & skip_validate)` (`database.cpp:2574`).
+- **Where**: `database.cpp:2743` (evaluator), `database.cpp:2574` (validate gate),
+  `chain_plugin.cpp:1243` and `chain_plugin.cpp:1059` (where `skip_validate` is set).
+- **Impact**: During default replay (`chain_plugin.cpp:1229-1244`, "no need to validate
   operations") and while syncing blocks at/before the last checkpoint
-  (`chain_plugin.cpp:1046-1061`), `validate()` does not run at all. Only `do_apply()` runs.
+  (`chain_plugin.cpp:1047-1062`), `validate()` does not run at all. Only `do_apply()` runs.
   The evaluator — not `validate()` — defines what is actually accepted into chain state on
   those paths.
 
@@ -84,11 +84,11 @@ state-dependent or version-dependent rule into the evaluator and explains the do
   by `precompute_validation()` (`full_transaction.cpp:186-213`) which may run in parallel worker
   threads as an optimization.
 - The chain layer calls it from `database::validate_transaction`
-  (`database.cpp:2521`, gate at `database.cpp:2571`), reached two ways:
+  (`database.cpp:2524`, gate at `database.cpp:2574`), reached two ways:
   1. `_apply_transaction` → `validate_transaction(full_transaction, skip)` with
-     `skip = get_node_skip_flags()` (`database.cpp:2670`).
+     `skip = get_node_skip_flags()` (`database.cpp:2673`).
   2. Fast-confirm path → `validate_transaction(full_transaction, skip_tapos_check)`
-     (`database.cpp:2915`).
+     (`database.cpp:2918`).
 
 ### `skip_validate` — where validation is turned OFF
 `skip_validate` is documented as "used prior to checkpoint, skips validate() call on transaction"
@@ -96,21 +96,21 @@ state-dependent or version-dependent rule into the evaluator and explains the do
 
 | Context | Location | Rationale (from code) |
 |---------|----------|----------------------|
-| **Default replay** | `chain_plugin.cpp:1239` | "no need to validate operations" (unless `--validate-during-replay`, `chain_plugin.cpp:1228`) |
-| **Checkpoint sync** | `chain_plugin.cpp:1058` | Blocks `block_num <= checkpoints.rbegin()->first` skip validate/sig/authority/invariants; normal validation resumes after the last checkpoint (`chain_plugin.cpp:1063-1068`) |
+| **Default replay** | `chain_plugin.cpp:1243` | "no need to validate operations" (unless `--validate-during-replay`, `chain_plugin.cpp:1232`) |
+| **Checkpoint sync** | `chain_plugin.cpp:1059` | Blocks `block_num <= checkpoints.rbegin()->first` skip validate/sig/authority/invariants; normal validation resumes after the last checkpoint (`chain_plugin.cpp:1064-1069`) |
 | **Re-push of pending txs** | `db_with.hpp:176` | "operations once validated cannot become invalid" — these txs were validated when first received |
 
-The gate at `database.cpp:2571` carries the comment *"issue #505 explains why this skip_flag is
+The gate at `database.cpp:2574` carries the comment *"issue #505 explains why this skip_flag is
 disabled"* — i.e. in normal live block application `skip_validate` is intentionally **not** set,
 so `validate()` does run for live blocks past the last checkpoint and for newly submitted
 transactions. Checkpoints are loaded from config into `chain_plugin_impl::checkpoints`
-(`chain_plugin.cpp:1652`); this document makes **no claim** about which checkpoints are configured
+(`chain_plugin.cpp:1656`); this document makes **no claim** about which checkpoints are configured
 on any running node.
 
 ### Evaluator invocation path (stateful, chain layer) — always runs
-- `database_impl::apply_operation` (`database.cpp:2722-2746`): emits pre-apply notification,
-  applies the RC discount hook post-HF20 (`database.cpp:2737-2738`), then calls
-  `_evaluator_registry.get_evaluator( op ).apply( op )` (`database.cpp:2740`), then the post-apply
+- `database_impl::apply_operation` (`database.cpp:2725-2749`): emits pre-apply notification,
+  applies the RC discount hook post-HF20 (`database.cpp:2740-2741`), then calls
+  `_evaluator_registry.get_evaluator( op ).apply( op )` (`database.cpp:2743`), then the post-apply
   notification. **No skip flag gates the evaluator call.**
 - `apply()` (`evaluator.hpp:33-38`) downcasts and calls `do_apply()` on the typed operation.
 
@@ -315,8 +315,8 @@ not contradict the consolidated security posture in the project audit memory.
 ## Open Questions
 
 1. **Are checkpoints configured in shipped node defaults?** The skip-on-checkpoint path
-   (`chain_plugin.cpp:1046`) only matters if `checkpoints` is non-empty. The source loads them from
-   config (`chain_plugin.cpp:1652`) but the default set, if any, was not traced here. A future zoom
+   (`chain_plugin.cpp:1047`) only matters if `checkpoints` is non-empty. The source loads them from
+   config (`chain_plugin.cpp:1656`) but the default set, if any, was not traced here. A future zoom
    on the chain plugin / node configuration could establish whether mainnet ships hardcoded
    checkpoints (and thus how large the "validate-skipped" historical range is in practice). This
    document deliberately makes no claim about live node state.
@@ -341,7 +341,7 @@ STATUS: COMPLETE
 OUTPUT_FILES:
 - research/hive-core/findings/11-validate-evaluate-gaps.md
 KEY_FINDINGS:
-- validate() (stateless, protocol layer) is SKIPPED on default replay (chain_plugin.cpp:1239) and checkpoint sync (chain_plugin.cpp:1058), while the evaluator do_apply() always runs (database.cpp:2740, no skip flag) — making the evaluator the sole consensus authority for historical blocks; validate() is a non-consensus first-line filter.
+- validate() (stateless, protocol layer) is SKIPPED on default replay (chain_plugin.cpp:1243) and checkpoint sync (chain_plugin.cpp:1059), while the evaluator do_apply() always runs (database.cpp:2743, no skip flag) — making the evaluator the sole consensus authority for historical blocks; validate() is a non-consensus first-line filter.
 - validate() is also hardfork-agnostic (no has_hardfork access), so every state-dependent OR version-dependent rule is structurally forced into the evaluator; a third "softfork" tier exists via is_in_control() (false on replay) vs is_processing_block() (true on replay).
 - Catalogued ~20 concrete validate↔evaluate divergences (feed_publish price ordering, withdraw_vesting missing sign check, witness_update non-canon symbol, custom/custom_json missing byte caps, recurrent_transfer amount==0 semantics, permlink charset, etc.) plus a code-acknowledged latent bug: request_account_recovery change-path bypasses validate_auth_size (HF29 fix pending, hive_evaluator_account.cpp:518-551).
 CROSS_REFS:

@@ -2,7 +2,7 @@
 
 ## Summary
 
-The Hive economic model is a complex system of interrelated mechanisms governing inflation, reward distribution, asset conversion, interest, and governance funding. All economic activity is driven by a per-block inflation schedule that creates new HIVE, which is then split among content creators, curators, witnesses (block producers), vesting holders, and the Decentralized Hive Fund (DHF/treasury). This document captures the **exact code behavior** verified from the C++ source at release 1.28.6 (`10ac0ce94`).
+The Hive economic model is a complex system of interrelated mechanisms governing inflation, reward distribution, asset conversion, interest, and governance funding. All economic activity is driven by a per-block inflation schedule that creates new HIVE, which is then split among content creators, curators, witnesses (block producers), vesting holders, and the Decentralized Hive Fund (DHF/treasury). This document captures the **exact code behavior** verified from the C++ source at release 1.28.7 (`1584099c3`).
 
 Key characteristics:
 - Inflation starts at 9.78% and decreases 0.01% every 250,000 blocks until it reaches the 0.95% floor at block 220,750,000 (~year 2037); inflation never fully stops
@@ -341,10 +341,10 @@ hbd     = to_hbd * median_price                   // HIVE burned, HBD minted (ad
 
 **If the median price feed is null** (never published — only true before block ~933,600 historically), the entire amount is paid as HIVE (`database.cpp:984-988`).
 
-The `hbd_print_rate` is recomputed in `update_virtual_supply()` (`database.cpp:2868-2889`):
+The `hbd_print_rate` is recomputed in `update_virtual_supply()` (`database.cpp:2871-2892`):
 - If HBD% ≥ `hbd_stop_percent`: print_rate = 0 (no HBD printed)
 - If HBD% ≤ `hbd_start_percent`: print_rate = 100%
-- Between: `print_rate = (stop - percent_hbd) * 100% / (stop - start)` (`database.cpp:2886`)
+- Between: `print_rate = (stop - percent_hbd) * 100% / (stop - start)` (`database.cpp:2889`)
 
 | Era | Start % | Stop % | Source |
 |-----|---------|--------|--------|
@@ -397,13 +397,13 @@ if (hbd_seconds != 0 && do_evaluation) {
 
 | Balance | Code | Active when |
 |---------|------|-------------|
-| Liquid HBD (`hbd_balance`) | `adjust_balance(HBD)` `database.cpp:3206-3233` | **pre-HF25 only** (`has_hardfork(HIVE_HARDFORK_1_25) == false`, line 3209) |
-| Savings HBD (`savings_hbd_balance`) | `adjust_savings_balance(HBD)` `database.cpp:3265-3297` | always |
-| Savings HIVE | `adjust_savings_balance(HIVE)` `database.cpp:3256-3263` | **never earns interest** (no accrual logic) |
+| Liquid HBD (`hbd_balance`) | `adjust_balance(HBD)` `database.cpp:3209-3236` | **pre-HF25 only** (`has_hardfork(HIVE_HARDFORK_1_25) == false`, line 3209) |
+| Savings HBD (`savings_hbd_balance`) | `adjust_savings_balance(HBD)` `database.cpp:3268-3300` | always |
+| Savings HIVE | `adjust_savings_balance(HIVE)` `database.cpp:3259-3266` | **never earns interest** (no accrual logic) |
 
-Payment condition: `(now - last_interest_payment) > HIVE_HBD_INTEREST_COMPOUND_INTERVAL_SEC` (strictly greater; 30 days, `config.hpp:363`). On payment: balance += interest, `hbd_seconds = 0`, `last_interest_payment = now`, `current_hbd_supply += interest`, `virtual_supply += interest * median_price`, and an `interest_operation` vop is emitted with a boolean flag distinguishing liquid (`true`) vs savings (`false`) payout (`database.cpp:3225`, `3285`).
+Payment condition: `(now - last_interest_payment) > HIVE_HBD_INTEREST_COMPOUND_INTERVAL_SEC` (strictly greater; 30 days, `config.hpp:363`). On payment: balance += interest, `hbd_seconds = 0`, `last_interest_payment = now`, `current_hbd_supply += interest`, `virtual_supply += interest * median_price`, and an `interest_operation` vop is emitted with a boolean flag distinguishing liquid (`true`) vs savings (`false`) payout (`database.cpp:3228`, `3285`).
 
-**Truncation/dust hazard**: `hbd_seconds` is divided by `HIVE_SECONDS_PER_YEAR` (31,536,000) *before* the rate is applied, and the accumulator is zeroed **even when the computed interest truncates to 0** (`database.cpp:3217-3222` — the reset is unconditional inside `if (hbd_seconds > 0 && update_balance)`; the vop is suppressed only when interest == 0). At 10% APR, a 30-day period needs ≥ ~0.122 HBD for interest ≥ 1 satoshi (0.001 HBD); smaller savings balances repeatedly lose their accrued dollar-seconds whenever touched after 30+ days.
+**Truncation/dust hazard**: `hbd_seconds` is divided by `HIVE_SECONDS_PER_YEAR` (31,536,000) *before* the rate is applied, and the accumulator is zeroed **even when the computed interest truncates to 0** (`database.cpp:3220-3225` — the reset is unconditional inside `if (hbd_seconds > 0 && update_balance)`; the vop is suppressed only when interest == 0). At 10% APR, a 30-day period needs ≥ ~0.122 HBD for interest ≥ 1 satoshi (0.001 HBD); smaller savings balances repeatedly lose their accrued dollar-seconds whenever touched after 30+ days.
 
 ### Interest Rate
 
@@ -541,7 +541,7 @@ From `dhf_processor::make_payments()` (`dhf_processor.cpp:238-286`), every `HIVE
    - Payments are **direct liquid HBD transfers** from treasury to receiver with a `proposal_pay_operation` vop (lines 170-180) — no claiming involved
 6. `update_settings()` advances `next_maintenance_time = head_time + 3600` and `last_budget_time = head_time` (`dhf_processor.cpp:214-223`)
 
-`process_proposals()` runs late in `_apply_block` with the comment "new HBD converted here does not count towards limit" (`database.cpp:2348`) — treasury conversions in the same block don't inflate that hour's budget.
+`process_proposals()` runs late in `_apply_block` with the comment "new HBD converted here does not count towards limit" (`database.cpp:2351`) — treasury conversions in the same block don't inflate that hour's budget.
 
 ### Proposal Lifecycle Constraints
 
@@ -585,7 +585,7 @@ return VEST_price(total_vesting_shares, total_vesting_fund_hive);
 ```
 The VESTS-per-HIVE ratio only decreases over time (15% of inflation enters `total_vesting_fund_hive` each block without minting VESTS), so each VEST appreciates in HIVE terms.
 
-**Delayed voting** (HF24+, `hive_evaluator_transfer.cpp:311-317`): newly vested shares are recorded via `delayed_voting::add_delayed_value()` and excluded from governance power for `HIVE_DELAYED_VOTING_TOTAL_INTERVAL_SECONDS` = **30 days** (`config.hpp:182`). Mechanics (`util/delayed_voting_processor.hpp:35`, `:65`; `util/delayed_voting.cpp:88-105`): per-account bucket list with `HIVE_DELAYED_VOTING_INTERVAL_SECONDS` = 1-day granularity (`config.hpp:183`), max 30 entries; `process_delayed_voting()` (called per block, `database.cpp:2349`) matures buckets older than 30 days into witness/proposal voting power. The code comment explains the rationale: instant voting after power-up would let attackers buy stake and immediately take over governance (`hive_evaluator_transfer.cpp:305-310`). **This is unrelated to the 3-day HBD savings withdrawal delay** — delayed voting only suppresses governance weight; the vests themselves are usable (and can even be powered down) immediately.
+**Delayed voting** (HF24+, `hive_evaluator_transfer.cpp:311-317`): newly vested shares are recorded via `delayed_voting::add_delayed_value()` and excluded from governance power for `HIVE_DELAYED_VOTING_TOTAL_INTERVAL_SECONDS` = **30 days** (`config.hpp:182`). Mechanics (`util/delayed_voting_processor.hpp:35`, `:65`; `util/delayed_voting.cpp:88-105`): per-account bucket list with `HIVE_DELAYED_VOTING_INTERVAL_SECONDS` = 1-day granularity (`config.hpp:183`), max 30 entries; `process_delayed_voting()` (called per block, `database.cpp:2352`) matures buckets older than 30 days into witness/proposal voting power. The code comment explains the rationale: instant voting after power-up would let attackers buy stake and immediately take over governance (`hive_evaluator_transfer.cpp:305-310`). **This is unrelated to the 3-day HBD savings withdrawal delay** — delayed voting only suppresses governance weight; the vests themselves are usable (and can even be powered down) immediately.
 
 Vesting to the treasury is forbidden (HF21+, line 297-298). A `transfer_to_vesting_completed_operation` vop reports the VESTS created (line 324).
 
@@ -635,31 +635,31 @@ reward_vesting_price = (total_vesting_shares + pending_rewarded_vesting_shares) 
 
 ### Feed Collection
 
-Updated every `HIVE_FEED_INTERVAL_BLOCKS` (1200 blocks = 1 hour, `config.hpp:189`; gate at `database.cpp:2402`), from `update_median_feed()` at `database.cpp:2399-2514`:
+Updated every `HIVE_FEED_INTERVAL_BLOCKS` (1200 blocks = 1 hour, `config.hpp:189`; gate at `database.cpp:2405`), from `update_median_feed()` at `database.cpp:2402-2517`:
 
-1. Collect `hbd_exchange_rate` from the **currently scheduled (shuffled) witnesses** of this round — not from all witnesses (`database.cpp:2407-2424`)
-2. Discard null feeds and feeds older than `HIVE_MAX_FEED_AGE_SECONDS` (7 days). **Pre-HF19 the age check was inverted/broken**: the condition `last_update < now + max_age` is always true, so stale feeds were never filtered; `HIVE_HARDFORK_0_19__822` fixed it to `now < last_update + max_age` (`database.cpp:2411-2423`)
+1. Collect `hbd_exchange_rate` from the **currently scheduled (shuffled) witnesses** of this round — not from all witnesses (`database.cpp:2410-2427`)
+2. Discard null feeds and feeds older than `HIVE_MAX_FEED_AGE_SECONDS` (7 days). **Pre-HF19 the age check was inverted/broken**: the condition `last_update < now + max_age` is always true, so stale feeds were never filtered; `HIVE_HARDFORK_0_19__822` fixed it to `now < last_update + max_age` (`database.cpp:2414-2426`)
 3. Require at least `HIVE_MIN_FEEDS = HIVE_MAX_WITNESSES/3 = 7` valid feeds, otherwise no update this hour (comment: "protects the network from conversions before price has been established", `config.hpp:193`)
-4. Take the **upper median** (`feeds[size/2]` after sort, `database.cpp:2428-2429`) and push it into `price_history`
+4. Take the **upper median** (`feeds[size/2]` after sort, `database.cpp:2431-2432`) and push it into `price_history`
 
-A long code comment (`database.cpp:2430-2437`) documents that feeds must be sorted as raw `price` (pre-HF20 some witnesses published non-normalized HIVE-base prices, and symbol-first comparison made sorting order differ in exactly 21 historical cases between blocks 13,335,600–13,362,000), but storing history normalized as `HBD_price` was verified safe — final medians match either way.
+A long code comment (`database.cpp:2433-2440`) documents that feeds must be sorted as raw `price` (pre-HF20 some witnesses published non-normalized HIVE-base prices, and symbol-first comparison made sorting order differ in exactly 21 historical cases between blocks 13,335,600–13,362,000), but storing history normalized as `HBD_price` was verified safe — final medians match either way.
 
 ### Feed History
 
-The `feed_history_object` maintains (`database.cpp:2448-2455`):
+The `feed_history_object` maintains (`database.cpp:2451-2458`):
 - `price_history` — deque of hourly medians-of-witness-feeds
   - Window: `HIVE_FEED_HISTORY_WINDOW = 84` entries = 3.5 days (`config.hpp:191`); pre-HF16: 168 entries = 7 days (trimmed at HF16, `database_hardfork.cpp:253-257`)
 - `current_median_history` — median of the window (the "official" price; may be artificially raised by the hard cap). Used by: regular conversions, DHF conversions/funding, `create_hbd`, virtual supply, `calculate_HBD_percent`
 - `market_median_history` — same median **without** hard-cap correction. Used by: collateralized conversion settlement
-- `current_min_history` / `current_max_history` — window extremes; the minimum is used by collateralized immediate conversion; the maximum gets dragged up by a hard-cap correction but the minimum deliberately does not (an open question in the code itself: "should we also correct current_min_history?", `database.cpp:2506`)
+- `current_min_history` / `current_max_history` — window extremes; the minimum is used by collateralized immediate conversion; the maximum gets dragged up by a hard-cap correction but the minimum deliberately does not (an open question in the code itself: "should we also correct current_min_history?", `database.cpp:2509`)
 
 ### HBD Hard Cap (Haircut Rule)
 
-Introduced at HF14 (`HIVE_HARDFORK_0_14__230`); when HBD (excluding treasury since `HIVE_HARDFORK_1_25_HBD_HARD_CAP`, `database.cpp:2485-2486`) would exceed the hard limit as a fraction of combined market cap, `current_median_history` is overridden upward (`database.cpp:2461-2509`):
+Introduced at HF14 (`HIVE_HARDFORK_0_14__230`); when HBD (excluding treasury since `HIVE_HARDFORK_1_25_HBD_HARD_CAP`, `database.cpp:2488-2489`) would exceed the hard limit as a fraction of combined market cap, `current_median_history` is overridden upward (`database.cpp:2464-2512`):
 
 ```
 limit L (full percentage points): 10% pre-HF26, 30% since HF26 (config.hpp:345-346)
-min_price = (100% − L)·hbd_supply HBD  per  L·hive_supply HIVE     // database.cpp:2495-2496
+min_price = (100% − L)·hbd_supply HBD  per  L·hive_supply HIVE     // database.cpp:2498-2499
 if (min_price > current_median_history) {
     current_median_history = min_price;        // override official price
     push system_warning_operation("HIVE price corrected upward due to ...% HBD cutoff rule ...");
@@ -668,21 +668,21 @@ if (min_price > current_max_history) current_max_history = min_price;
 // market_median_history is NEVER touched
 ```
 
-The derivation and a worked example live in the comment block (`database.cpp:2463-2481`), including why the price is expressed as `(100%-L)·X per L·Y` rather than `(100%/L − 1)·X per Y` — integer precision (with the naive form, L=30% and L=33% would produce identical prices).
+The derivation and a worked example live in the comment block (`database.cpp:2466-2484`), including why the price is expressed as `(100%-L)·X per L·Y` rather than `(100%/L − 1)·X per Y` — integer precision (with the naive form, L=30% and L=33% would produce identical prices).
 
-**Effect**: with the artificial price, HBD→HIVE conversions yield less HIVE per HBD, capping how much of the HIVE supply can be extracted via conversions — the stated threat being a large HBD holder exploiting a sharp HIVE price decline to take over the chain (`database.cpp:2463-2467`).
+**Effect**: with the artificial price, HBD→HIVE conversions yield less HIVE per HBD, capping how much of the HIVE supply can be extracted via conversions — the stated threat being a large HBD holder exploiting a sharp HIVE price decline to take over the chain (`database.cpp:2466-2470`).
 
-**Debt ratio measurement** (`calculate_HBD_percent()`, `database.cpp:2843-2866`): returns 0 while the feed is null; since HF24 excludes treasury HBD from the numerator **and** recomputes the denominator (virtual supply) without it (`database.cpp:2852-2858`); HF21 added half-denominator rounding (`database.cpp:2863-2864`).
+**Debt ratio measurement** (`calculate_HBD_percent()`, `database.cpp:2846-2869`): returns 0 while the feed is null; since HF24 excludes treasury HBD from the numerator **and** recomputes the denominator (virtual supply) without it (`database.cpp:2855-2861`); HF21 added half-denominator rounding (`database.cpp:2866-2867`).
 
 ### HBD Print Rate (Soft Throttle)
 
-Recomputed each block in `update_virtual_supply()` (`database.cpp:2868-2889`) — see "HBD Print Rate and Author Payout" for the formula and the HF14/HF20/HF26 parameter table. Note the two distinct mechanisms and thresholds since HF26: print throttling flips at 20% debt ratio; the price haircut engages at 30%.
+Recomputed each block in `update_virtual_supply()` (`database.cpp:2871-2892`) — see "HBD Print Rate and Author Payout" for the formula and the HF14/HF20/HF26 parameter table. Note the two distinct mechanisms and thresholds since HF26: print throttling flips at 20% debt ratio; the price haircut engages at 30%.
 
 ---
 
 ## Block Processing Order
 
-From `_apply_block()` (`database.cpp:2325-2356`), the per-block economic pipeline:
+From `_apply_block()` (`database.cpp:2328-2359`), the per-block economic pipeline:
 
 ```
  1. clear_expired_orders()
@@ -775,13 +775,13 @@ From `_apply_block()` (`database.cpp:2325-2356`), the per-block economic pipelin
 
 ## Key Discoveries
 
-1. **HF26 HBD print rate cliff**: `hbd_start_percent == hbd_stop_percent == 20%`, so the interpolation branch in `update_virtual_supply()` is dead code — HBD printing is binary at exactly 20% debt ratio (`database.cpp:2881-2886`).
+1. **HF26 HBD print rate cliff**: `hbd_start_percent == hbd_stop_percent == 20%`, so the interpolation branch in `update_virtual_supply()` is dead code — HBD printing is binary at exactly 20% debt ratio (`database.cpp:2884-2889`).
 
 2. **HF28 inflation base change**: treasury HBD is excluded from virtual supply for inflation, preventing a feedback loop where treasury accumulation raises inflation (`database.cpp:1724-1734`).
 
 3. **Collateralized conversion uses three different prices**: immediate quote at `current_min_history` (anti-manipulation), settlement at `market_median_history` (immune to haircut corruption of the official median), while regular conversions use `current_median_history` (deliberately exposed to the haircut). Rationale documented inline (`database_conversion.cpp:86-91`).
 
-4. **HBD interest compounding is touch-driven, not scheduled**: interest is evaluated only when a balance is modified ≥30 days after the last payment. Untouched savings accrue *simple* interest indefinitely and receive a lump payment on the next touch; only accounts that touch their balance periodically experience compounding (`database.cpp:3209-3233`, `3265-3297`; `protocol/hbd_interest.hpp:9-23`).
+4. **HBD interest compounding is touch-driven, not scheduled**: interest is evaluated only when a balance is modified ≥30 days after the last payment. Untouched savings accrue *simple* interest indefinitely and receive a lump payment on the next touch; only accounts that touch their balance periodically experience compounding (`database.cpp:3212-3236`, `3268-3300`; `protocol/hbd_interest.hpp:9-23`).
 
 5. **HF25 curation penalty redistributes; the reverse auction burned**: the reverse auction added *full* weight to `total_vote_weight` but discounted the voter's stored weight (gap → unclaimed → pool/author), while the HF25 ÷2/÷8 phase penalties discount **before** accumulating into `total_vote_weight`, so the penalty flows to the other curators of the same post (`hive_evaluator_social.cpp:798-826`).
 
@@ -789,7 +789,7 @@ From `_apply_block()` (`database.cpp:2325-2356`), the per-block economic pipelin
 
 7. **Witness pay is not equal**: per-block witness pay is `slice × 21 × weight / 25` with weights elected=1, timeshare=5, miner=1 — an elected witness block pays 0.84× nominal, a timeshare block 4.2× (`database.cpp:1748-1763`, `witness_objects.hpp:193-196`).
 
-8. **HBD interest moved to savings-only at HF25**; savings HIVE never earned interest at all (`database.cpp:3209`, `3256-3263`).
+8. **HBD interest moved to savings-only at HF25**; savings HIVE never earned interest at all (`database.cpp:3212`, `3256-3263`).
 
 9. **Dust vote threshold is per-vote**: 50,000,000 rshares subtracted from every vote (`hive_evaluator_social.cpp:706-707`); with `vote_power_reserve_rate = 10` a full vote consumes exactly 2% of mana (1/50), matching the in-code "50 vote transaction" remark.
 
@@ -803,9 +803,9 @@ From `_apply_block()` (`database.cpp:2325-2356`), the per-block economic pipelin
 
 14. **The 8-beneficiary limit is a soft fork**: protocol accepts up to 127; the evaluator enforces 8 only for transactions entering via the mempool (`is_in_control()`), so blocks containing 9–127 beneficiaries would be accepted (`hive_evaluator_social.cpp:122-123`).
 
-15. **Pre-HF19 the feed age filter was broken** (condition trivially true), so arbitrarily stale witness feeds entered the hourly median until `HIVE_HARDFORK_0_19__822` fixed the comparison (`database.cpp:2411-2423`).
+15. **Pre-HF19 the feed age filter was broken** (condition trivially true), so arbitrarily stale witness feeds entered the hourly median until `HIVE_HARDFORK_0_19__822` fixed the comparison (`database.cpp:2414-2426`).
 
-16. **Governance votes expire after 365 days** of inactivity and `remove_expired_governance_votes()` silently drops them — DHF proposal rankings can change without any new votes being cast (`config.hpp:175`, `database.cpp:2350`).
+16. **Governance votes expire after 365 days** of inactivity and `remove_expired_governance_votes()` silently drops them — DHF proposal rankings can change without any new votes being cast (`config.hpp:175`, `database.cpp:2353`).
 
 ---
 
@@ -825,8 +825,8 @@ From `_apply_block()` (`database.cpp:2325-2356`), the per-block economic pipelin
 | Comment options/beneficiaries | `hive_evaluator_social.cpp` | 108-172 |
 | Beneficiary validation | `protocol/hive_operations.cpp` | `comment_payout_beneficiaries::validate()` 150-175 |
 | Interest rate bounds | `protocol/hive_operations.hpp` / `.cpp` | `legacy_chain_properties::validate()` ~418-435 / `witness_set_properties` 329-340 |
-| HBD interest (liquid, pre-HF25) | `database.cpp` | `adjust_balance(HBD)` 3186-3243 |
-| HBD interest (savings) | `database.cpp` | `adjust_savings_balance(HBD)` 3265-3297 |
+| HBD interest (liquid, pre-HF25) | `database.cpp` | `adjust_balance(HBD)` 3189-3246 |
+| HBD interest (savings) | `database.cpp` | `adjust_savings_balance(HBD)` 3268-3300 |
 | Interest formula | `protocol/hbd_interest.hpp` | `evaluate_hbd_interest()` 9-23 |
 | Interest median | `witness_schedule.cpp` | 82-86 |
 | Claim rewards | `hive_evaluator_transfer.cpp` | `claim_reward_balance_evaluator` 621-675 |
@@ -840,9 +840,9 @@ From `_apply_block()` (`database.cpp:2325-2356`), the per-block economic pipelin
 | Power down processing | `database_vesting.cpp` | `process_vesting_withdrawals()` 111-303 |
 | Delayed voting | `util/delayed_voting.cpp` / `_processor.hpp` | add 7-13; maturation 88-105 / bucket 65 |
 | Vesting prices | `detail/state/global_property_object.hpp` | 87-96 |
-| Price feed + haircut | `database.cpp` | `update_median_feed()` 2399-2514 (cap 2461-2509) |
-| HBD % / print rate | `database.cpp` | `calculate_HBD_percent()` 2843-2866; `update_virtual_supply()` 2868-2889 |
-| Block order | `database.cpp` | `_apply_block` economic sequence 2325-2356 |
+| Price feed + haircut | `database.cpp` | `update_median_feed()` 2402-2517 (cap 2464-2512) |
+| HBD % / print rate | `database.cpp` | `calculate_HBD_percent()` 2846-2869; `update_virtual_supply()` 2871-2892 |
+| Block order | `database.cpp` | `_apply_block` economic sequence 2328-2359 |
 | Legacy compound template | `protocol/compound.hpp` | `calc_percent_reward<>()` |
 | Compound constants | `config.hpp` | 305-317 |
 | Reward fund object | `detail/state/reward_fund_object.hpp` | defaults 30-34 |
@@ -862,11 +862,11 @@ From `_apply_block()` (`database.cpp:2325-2356`), the per-block economic pipelin
 
 5. **HBD print rate cliff at HF26** (start == stop == 20%): no gradual throttle band remains; either intentional simplification or loss of fine-grained control (`config.hpp:343-344`).
 
-6. **Interest dust wipe**: the dollar-seconds accumulator is zeroed even when the computed interest truncates to zero, so balances below ~0.122 HBD (at 10% APR) can permanently lose accrued interest each time they're touched after a 30-day gap (`database.cpp:3217-3222`, `3277-3282`).
+6. **Interest dust wipe**: the dollar-seconds accumulator is zeroed even when the computed interest truncates to zero, so balances below ~0.122 HBD (at 10% APR) can permanently lose accrued interest each time they're touched after a 30-day gap (`database.cpp:3220-3225`, `3277-3282`).
 
 7. **Beneficiary limit is mempool-only**: the 8-beneficiary cap uses `is_in_control()`, so consensus accepts blocks with up to 127 beneficiaries. A producing witness could include such transactions; downstream apps assuming ≤8 could misbehave (`hive_evaluator_social.cpp:122-123`).
 
-8. **`current_min_history` is not corrected by the hard cap** while `current_max_history` is; the code itself carries the unresolved question ("should we also correct current_min_history?", `database.cpp:2506`). Practical impact: during a haircut, collateralized conversions still quote off the uncorrected market minimum — consistent with using `market_median_history` at settlement, so arguably intentional.
+8. **`current_min_history` is not corrected by the hard cap** while `current_max_history` is; the code itself carries the unresolved question ("should we also correct current_min_history?", `database.cpp:2509`). Practical impact: during a haircut, collateralized conversions still quote off the uncorrected market minimum — consistent with using `market_median_history` at settlement, so arguably intentional.
 
 ---
 

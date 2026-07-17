@@ -1,6 +1,6 @@
 # Hive Hardfork History Reference
 
-Source: hive-core release 1.28.6. 28 hardforks: HF1-22 pre-fork (inherited from Steem), HF23 Hive genesis (chain-split), HF24-28 Hive-native.
+Source: hive-core release 1.28.7. 28 hardforks: HF1-22 pre-fork (inherited from Steem), HF23 Hive genesis (chain-split), HF24-28 Hive-native.
 
 Versioning: HF1-23 use major version 0 (0.1-0.23). HF24-28 use major version 1 (1.24-1.28). The version bump came at HF24 but the chain split happened at HF23. Version comparison treats major 0 and 1 as equivalent for backward compatibility.
 
@@ -54,3 +54,5 @@ Activation: HF1-4 activated by time only. HF5+ require 17/21 witness supermajori
 **HF26 — Governance Improvements** (2022-10-11): Made dust-level votes count as real votes. Removed penalty for editing votes. Raised HBD hard cap to 20%. Allowed authority updates twice per hour. Solidified old soft forks (custom_binary disabled, custom op size limits enforced).
 
 **HF28 — Stability & Authority** (2025-11-19, block 100,000,000): Fixes a power-down rounding bug originating from HF1's vesting split. Stable votes use max mana instead of current mana for consistent vote strength. Extended signature expiration up to 24 hours. Allows strict and mixed authorities (owner/active combined with posting in one transaction). Excludes DHF treasury HBD from inflation calculation.
+
+**Software releases after HF28 (no new hardfork):** the mainnet `HIVE_BLOCKCHAIN_VERSION` moved 1.28.6 -> 1.28.7 (`config.hpp:140`) as a network-robustness maintenance release — fork-tolerance (a too-old block is treated as *unlinkable* rather than invalid, avoiding peer-disconnect storms) plus RocksDB info-LOG bounding. This is a *software* version bump only: the latest consensus hardfork remains **HF28**, and hardfork activation is time + witness-vote gated, never tied to the software version.

@@ -7,7 +7,7 @@ flow including the RC differential-usage hook (§1.7) and the out-of-band `witne
 fast-confirm path (§1.8), every balance/vesting/market/governance helper (§2), three deep-dives
 that resolve prior open questions — delayed voting (§2.14), DHF proposal payout (§2.15), and the
 reward-curve catalog (§2.16) — and a per-evaluator reference for all 50 registered evaluators
-(§5). Verified against hive-core `10ac0ce94f` (release 1.28.6).
+(§5). Verified against hive-core `1584099c30` (release 1.28.7).
 
 ---
 
@@ -217,7 +217,7 @@ Plugins register interpreters via `database::register_custom_operation_interpret
 
 Between `notify_pre_apply_operation` and the evaluator's `apply()`, the dispatcher calls
 `rc().handle_operation_discount<operation>(op)` — but **only after HF20**
-(`database.cpp:2737-2738`). This is the only RC hook that runs *inside* the evaluator path;
+(`database.cpp:2740-2741`). This is the only RC hook that runs *inside* the evaluator path;
 the rest of RC accounting (mana regeneration, the actual charge) happens inside vesting
 helpers and in `rc().finalize_transaction()` after all ops apply.
 
@@ -261,18 +261,18 @@ One consensus operation never flows through the evaluator dispatch at all:
 Instead it travels as a stand-alone **fast-confirmation transaction** (HF26+,
 `HIVE_HARDFORK_1_26_FAST_CONFIRMATION`). `is_fast_confirm_transaction` recognizes a
 transaction with exactly one operation of this type (`database.cpp:540`), and the chain plugin
-routes it to `database::process_fast_confirm_transaction()` (`database.cpp:2899-2954`) rather
+routes it to `database::process_fast_confirm_transaction()` (`database.cpp:2902-2957`) rather
 than `apply_transaction`. That handler:
-1. Asserts HF26 and that the trx really is a fast-confirm (`database.cpp:2902-2907`).
+1. Asserts HF26 and that the trx really is a fast-confirm (`database.cpp:2905-2910`).
 2. Validates the transaction with `skip_tapos_check` — the approving witness may be on a
-   different fork whose TaPoS references a block we don't have (`database.cpp:2911-2915`).
+   different fork whose TaPoS references a block we don't have (`database.cpp:2914-2918`).
 3. Verifies the witness is on the current irreversibility schedule
    (`get_witness_schedule_object_for_irreversibility`); ignores it otherwise
-   (`database.cpp:2920-2930`).
+   (`database.cpp:2923-2933`).
 4. Enforces monotonicity per witness via `_last_fast_approved_block_by_witness` — a newer
-   approval for an older/equal block number is dropped (`database.cpp:2932-2946`).
+   approval for an older/equal block number is dropped (`database.cpp:2935-2949`).
 5. Recomputes the last irreversible block (`update_last_irreversible_block`) and migrates
-   irreversible state (`database.cpp:2951-2953`).
+   irreversible state (`database.cpp:2954-2956`).
 
 So `witness_block_approve` is the transport for **one-block irreversibility / fast confirms**:
 witnesses signal block approval out-of-band to advance LIB faster than the normal "2/3 of
@@ -1786,7 +1786,7 @@ hardfork-conditional behavior, and key business logic.
 
 13. **custom_json exception handling differs by mode**: during block production/validation, interpreter exceptions propagate (transaction rejected). During replay, exceptions are swallowed to avoid chain divergence from non-deterministic interpreter bugs.
 
-14. **RC differential usage runs inside the dispatch path** (HF20+, `database.cpp:2737-2738`): `handle_operation_discount` charges only the *delta* in persistent state for five operations (`witness_update`, `account_update`, `account_update2`, `recover_account`, `delegate_rc`), so swapping one key for another costs nearly nothing. It is per-transaction and a negative usage from one op can subsidize another op in the same tx. Account metadata is deliberately excluded to keep RC deterministic across nodes with/without a metadata plugin.
+14. **RC differential usage runs inside the dispatch path** (HF20+, `database.cpp:2740-2741`): `handle_operation_discount` charges only the *delta* in persistent state for five operations (`witness_update`, `account_update`, `account_update2`, `recover_account`, `delegate_rc`), so swapping one key for another costs nearly nothing. It is per-transaction and a negative usage from one op can subsidize another op in the same tx. Account metadata is deliberately excluded to keep RC deterministic across nodes with/without a metadata plugin.
 
 15. **Delayed voting decouples VESTS from governance for 30 days** (HF24+): `transfer_to_vesting` adds VESTS immediately but buffers governance weight in up to 30 daily `delayed_votes` buckets; `get_governance_vote_power()` subtracts `sum_delayed_votes`. `process_delayed_voting` matures buckets ≥30 days old via `adjust_proxied_witness_votes` and emits `delayed_voting_operation`. Power-down cancels buffered votes first and only removes the matured *leftover* from the live vote chain. Reward-VESTS claims are **not** buffered.
 

@@ -4,7 +4,7 @@
 
 Hive uses Delegated Proof of Stake (DPoS) with 21 active witnesses producing blocks every 3 seconds. The consensus layer is built on five interacting subsystems: (1) witness scheduling via a virtual-time fair queuing algorithm, (2) a 200ms polling production loop in the witness plugin, (3) a single dedicated writer thread in the chain plugin that serializes all state mutations through two FIFO queues (blocks have priority over transactions), (4) an in-memory fork database tracking competing chains with longest-chain selection, and (5) a 75%-of-witnesses irreversibility threshold with HF26 "fast confirm" acceleration.
 
-All code verified directly from `libraries/chain/`, `libraries/plugins/chain/`, `libraries/plugins/witness/`, `libraries/plugins/queen/`, and `libraries/plugins/p2p/` in the hive-core repository at the pinned commit (release 1.28.6).
+All code verified directly from `libraries/chain/`, `libraries/plugins/chain/`, `libraries/plugins/witness/`, `libraries/plugins/queen/`, and `libraries/plugins/p2p/` in the hive-core repository at the pinned commit (release 1.28.7).
 
 ---
 
@@ -90,7 +90,7 @@ END          pending reapplied, all done       on_end_of_processing()
 | `sync_block_flow_control` | `sync` | same as p2p | Suppresses the per-block stats report unless the block is within `HIVE_UP_TO_DATE_MARGIN__BLOCK_STATS` = 20s of now (`block_flow_control.cpp:274-284`, `config.hpp:435`) — avoids log spam slowing down sync |
 | `existing_block_flow_control` | `old` | n/a | For already-known blocks: used when a **fast confirm triggers a fork switch** (`chain_plugin.cpp:966`) and in tests |
 
-In block-stats reports the buffer tag is replaced by `broken` (exception), `forked`, or `ignored` when applicable (`block_flow_control.cpp:135-143`). Reports include offset from block timestamp, wait/work/cleanup times, and before/after transaction counts (:130-207); report type/output configured via `block-stats-report-type/-output` (`chain_plugin.cpp:1816`).
+In block-stats reports the buffer tag is replaced by `broken` (exception), `forked`, or `ignored` when applicable (`block_flow_control.cpp:135-143`). Reports include offset from block timestamp, wait/work/cleanup times, and before/after transaction counts (:130-207); report type/output configured via `block-stats-report-type/-output` (`chain_plugin.cpp:1820`).
 
 ---
 
@@ -351,7 +351,7 @@ uint32_t database::get_slot_at_time(fc::time_point_sec when) const
 
 ### Missed Blocks
 
-When a block arrives with a timestamp more than one slot past the head block, the intervening slots were missed. `update_global_dynamic_data()` computes `missed_blocks = get_slot_at_time(b.timestamp) - 1` (`database.cpp:2793-2796`) and calls `update_witness_missed_blocks()` (`database_witness.cpp:284-306`):
+When a block arrives with a timestamp more than one slot past the head block, the intervening slots were missed. `update_global_dynamic_data()` computes `missed_blocks = get_slot_at_time(b.timestamp) - 1` (`database.cpp:2796-2799`) and calls `update_witness_missed_blocks()` (`database_witness.cpp:284-306`):
 
 1. For each missed slot, the witness scheduled at that slot (if different from the current producer) gets:
    - `total_missed++` counter increment
@@ -377,18 +377,18 @@ When a block arrives with a timestamp more than one slot past the head block, th
 |--------|------|--------------------|
 | P2P block (live) | `accept_block` → writer → `chain_plugin::push_block` → fork DB → `apply_block_extended` | `skip_transaction_signatures` unless the node is a block producer or `p2p-force-validate` (`p2p_plugin.cpp:156`) |
 | P2P block (sync) | same, with `sync_block_flow_control` | same as live (sync mode affects stats/lock behavior, not validation flags) |
-| Block before last checkpoint | same | large set: witness/tx signatures, dupe, size, TaPoS, authority, undo-history, schedule, validate, invariants + `skip_undo_block` (`chain_plugin.cpp:1046-1062`); merkle and fork DB explicitly NOT skipped (comments :1051, :1055) |
+| Block before last checkpoint | same | large set: witness/tx signatures, dupe, size, TaPoS, authority, undo-history, schedule, validate, invariants + `skip_undo_block` (`chain_plugin.cpp:1047-1063`); merkle and fork DB explicitly NOT skipped (comments :1051, :1055) |
 | Self-produced | `push_generate_block_request` → writer → `block_producer` → `chain_plugin::push_block` | `skip_block_size_check` is NOT in the set; production uses node flags + `skip_undo_history_check` when stale production enabled (`witness_plugin.cpp:671`) |
-| Replay | `reindex_internal` → `db.apply_block()` directly — **no fork DB, no flow control**, `irreversible_block_writer` (store_block is a no-op, `irreversible_block_writer.cpp:19-21`) | `skip_validate_invariants | skip_block_log | skip_undo_block` ("needed to keep head block == LIB") + unless `--validate-during-replay`: witness/tx signatures, dupe, TaPoS, merkle, schedule, authority, validate (`chain_plugin.cpp:1222-1240`) |
+| Replay | `reindex_internal` → `db.apply_block()` directly — **no fork DB, no flow control**, `irreversible_block_writer` (store_block is a no-op, `irreversible_block_writer.cpp:19-21`) | `skip_validate_invariants | skip_block_log | skip_undo_block` ("needed to keep head block == LIB") + unless `--validate-during-replay`: witness/tx signatures, dupe, TaPoS, merkle, schedule, authority, validate (`chain_plugin.cpp:1226-1244`) |
 
 ### `push_block` vs `apply_block` — the precise difference
 
-- **`chain_plugin::push_block(block_ctrl, skip)`** (`chain_plugin.cpp:1039-1097`) is the full pipeline for a **new** block: checkpoint skip-flag handling, `without_pending_transactions` (clear pending, restore+reapply after), `_push_block` → `sync_block_writer::push_block` (fork DB insertion, fork resolution, possibly applying several blocks), `notify_finish_push_block`, `on_end_of_apply_block`, free-memory check. It may conclude the block is on a shorter fork and not apply it at all.
-- **`database::apply_block_extended(full_block, skip, block_ctrl)`** (`database.cpp:2123-2142`) is the state transition for one block assumed to extend the current state head: sets `TX_STATUS_P2P_BLOCK`, wraps `apply_block()` in an undo session unless `skip_undo_block`.
+- **`chain_plugin::push_block(block_ctrl, skip)`** (`chain_plugin.cpp:1039-1101`) is the full pipeline for a **new** block: checkpoint skip-flag handling, `without_pending_transactions` (clear pending, restore+reapply after), `_push_block` → `sync_block_writer::push_block` (fork DB insertion, fork resolution, possibly applying several blocks), `notify_finish_push_block`, `on_end_of_apply_block`, free-memory check. It may conclude the block is on a shorter fork and not apply it at all.
+- **`database::apply_block_extended(full_block, skip, block_ctrl)`** (`database.cpp:2126-2145`) is the state transition for one block assumed to extend the current state head: sets `TX_STATUS_P2P_BLOCK`, wraps `apply_block()` in an undo session unless `skip_undo_block`.
 - **`database::apply_block()`** applies skip flags via `detail::with_skip_flags()` then delegates to `_apply_block()` (consensus-critical body).
 - There is no `database::push_block` — fork choice lives in `sync_block_writer`/`fork_database`, state transition in `database`.
 
-### `_apply_block()` — The Consensus-Critical Method (`database.cpp:2183-2369`)
+### `_apply_block()` — The Consensus-Critical Method (`database.cpp:2186-2372`)
 
 This is the heart of consensus. The exact execution order:
 
@@ -488,11 +488,11 @@ No per-transaction undo sessions — entire block is atomic. If any transaction 
 3. Update _last_pushed_block_number and _last_pushed_block_time atomics
 ```
 
-After `_apply_block` returns, the surrounding `chain_plugin::push_block` runs `notify_finish_push_block` (where the witness plugin emits fast confirms and refreshes production data) and `on_end_of_apply_block`, then pending transactions are reapplied (see below), and `db.check_free_memory()` may auto-grow the shared memory file (`chain_plugin.cpp:1073-1089`, `database.cpp:2144-2181`).
+After `_apply_block` returns, the surrounding `chain_plugin::push_block` runs `notify_finish_push_block` (where the witness plugin emits fast confirms and refreshes production data) and `on_end_of_apply_block`, then pending transactions are reapplied (see below), and `db.check_free_memory()` may auto-grow the shared memory file (`chain_plugin.cpp:1074-1093`, `database.cpp:2147-2184`).
 
 ### Transaction Application Chain
 
-**`apply_transaction()`** -> sets skip flags -> **`_apply_transaction()`** (`database.cpp:2644-2702`):
+**`apply_transaction()`** -> sets skip flags -> **`_apply_transaction()`** (`database.cpp:2647-2705`):
 
 1. **Status check**: verify TX_STATUS is set
 2. **Duplicate check**: `is_known_transaction(trx_id)` (unless `skip_transaction_dupe_check`)
@@ -517,7 +517,7 @@ New transactions enter the pending pool via `process_non_fast_confirm_transactio
 
 ### Operation Application
 
-**`database_impl::apply_operation()`** (`database.cpp:2722-2746`):
+**`database_impl::apply_operation()`** (`database.cpp:2725-2749`):
 1. Create operation notification
 2. `notify_pre_apply_operation()`
 3. If HF20+: `rc().handle_operation_discount(op)` — RC discounts
@@ -543,8 +543,8 @@ Defined in `database.hpp:201-216`:
 | `skip_witness_schedule_check` | 1<<9 | Reindexing |
 | `skip_validate` | 1<<10 | Pre-checkpoint, pending reapplication |
 | `skip_validate_invariants` | 1<<11 | Replay |
-| `skip_undo_block` | 1<<12 | Replay, pre-checkpoint, queen ("keeps head block == LIB"; also short-circuits LIB calculation to LIB=head, `database.cpp:2318-2319`) |
-| `skip_block_log` | 1<<13 | Replay (switches LIB computation to the legacy algorithm, `database.cpp:2995-3005`) |
+| `skip_undo_block` | 1<<12 | Replay, pre-checkpoint, queen ("keeps head block == LIB"; also short-circuits LIB calculation to LIB=head, `database.cpp:2321-2322`) |
+| `skip_block_log` | 1<<13 | Replay (switches LIB computation to the legacy algorithm, `database.cpp:2998-3008`) |
 
 ### Pending Transaction Reapplication
 
@@ -553,7 +553,7 @@ After a block is applied, previously pending transactions are re-tested. `withou
 - **Order**: popped transactions (`_popped_tx`, recovered from fork switches) are reapplied first, then prior pending transactions (:199-210)
 - **In-sync gate**: reapplication only *executes* transactions when the block being processed is within `HIVE_UP_TO_DATE_MARGIN__PENDING_TXS` = 20s of now (`config.hpp:436`, :92-96); otherwise everything is just postponed (kept without execution)
 - **Time budget**: execution stops after `HIVE_PENDING_TRANSACTION_EXECUTION_LIMIT` = 200ms (`config.hpp:423`, :108-110); remaining transactions are **postponed** — kept in the pool unexecuted
-- **Mempool cap**: postponed transactions are dropped entirely once `_pending_tx_size >= _max_mempool_size` (`max-mempool-size` option, default 100M; `chain_plugin.cpp:1507`, `db_with.hpp:158-171`)
+- **Mempool cap**: postponed transactions are dropped entirely once `_pending_tx_size >= _max_mempool_size` (`max-mempool-size` option, default 100M; `chain_plugin.cpp:1511`, `db_with.hpp:158-171`)
 - **Outcome counters** (fed to block stats): expired / known (already in block) / applied / failed (RC or other exception) / postponed / dropped (:98-103, :215)
 - **Skip flags**: `skip_validate | skip_transaction_signatures | skip_transaction_dupe_check` — with documented reasoning: validation can't become invalid, signatures are witness's job to recheck, TaPoS deliberately NOT skipped so fork switches drop cross-fork transactions, duplicates checked against the in-memory pending index (:175-193)
 - If the pool is unexpectedly non-empty at restore time, a `NOTIFYALERT!` is logged; testnet builds abort (:76-88)
@@ -586,14 +586,16 @@ struct fork_item {
 
 ### Fork Resolution: Longest Chain Rule
 
-**`fork_database::_push_block()`** (`fork_database.cpp:73-99`):
+**`fork_database::_push_block()`** (`fork_database.cpp:73-107`):
 
 ```cpp
-// must be within max_size of current head
-FC_ASSERT(item->get_block_num() > std::max<int64_t>(0, int64_t(_head->get_block_num()) - _max_size));  // :77-79
+// too-old guard: block below the cache window (head - _max_size). Since 1.28.7
+// this throws unlinkable_block_exception (previously a plain FC_ASSERT). :84-87
+HIVE_ASSERT(item->get_block_num() > std::max<int64_t>(0, int64_t(_head->get_block_num()) - _max_size),
+            unlinkable_block_exception, "attempting to push a block that is too old");
 // Link to parent
-auto itr = _index.get<block_id>().find(item->previous_id());
-HIVE_ASSERT(itr != index.end(), unlinkable_block_exception, "block does not link to known chain");
+auto itr = index.find(item->previous_id());
+HIVE_ASSERT(itr != index.end(), unlinkable_block_exception, "block does not link to known chain");  // :95
 FC_ASSERT(!(*itr)->invalid);   // can't build on a block flagged bad
 item->prev = *itr;
 
@@ -605,6 +607,8 @@ if (!_head || item->get_block_num() > _head->get_block_num())
 ```
 
 The rule is simple: **highest block number wins**. Fork DB's `_head` pointer always tracks the tallest chain. The `unlinkable_block_exception` is translated to a graphene::net exception so the P2P layer can fetch missing ancestors (`p2p_plugin.cpp:178-185`).
+
+**1.28.7 fork tolerance:** both the too-old guard (`:84-87`) and the missing-parent guard (`:95`) now throw `unlinkable_block_exception`. The too-old case was previously a generic `FC_ASSERT`, which the p2p layer read as the peer having sent an *invalid* block and reacted by disconnecting it. With one-block irreversibility the cache window is only a couple blocks deep, so a routine micro-fork could cascade into a network-wide disconnect storm (observed 2026-07-09). Treating a too-old block as *unlinkable* instead routes it through normal sync/fork reconciliation. Companion 1.28.7 change: the `apply_block`/`push_block` rethrows now capture only the block's num+id, not the full block, because that exception can be sent to the offending peer inside a `closing_connection_message` and a nested full block exceeds the serializer's unpack recursion limit (`database.cpp:2124`, `chain_plugin.cpp:1090`).
 
 ### `sync_block_writer::push_block()` — Fork Decision (`sync_block_writer.cpp:67-160`)
 
@@ -666,16 +670,16 @@ _head = prev;  // Simply move head pointer back
 **Threshold**: `HIVE_IRREVERSIBLE_THRESHOLD = 75 * HIVE_1_PERCENT = 7500` (75%, `config.hpp:381`)
 
 ```cpp
-// database.cpp:2993, :3014
+// database.cpp:2996, :3017
 offset = (HIVE_100_PERCENT - HIVE_IRREVERSIBLE_THRESHOLD) * num_witnesses / HIVE_100_PERCENT;  // 21 -> 5
 witnesses_required_for_irreversibility = num_witnesses - offset;                               // 21 -> 16
 ```
 
 With 21 witnesses: 16 must approve.
 
-**`update_last_irreversible_block(optional<switch_forks_t> sf)`** (`database.cpp:2956-3064`) — the `sf` parameter is key:
-- Called at the end of `_apply_block` with **no callback** (`std::optional<switch_forks_t>()`, `database.cpp:2321`)
-- Called from fast-confirm processing **with** a fork-switch callback (`database.cpp:2951`, callback built in `chain_plugin.cpp:963-1000`)
+**`update_last_irreversible_block(optional<switch_forks_t> sf)`** (`database.cpp:2959-3067`) — the `sf` parameter is key:
+- Called at the end of `_apply_block` with **no callback** (`std::optional<switch_forks_t>()`, `database.cpp:2324`)
+- Called from fast-confirm processing **with** a fork-switch callback (`database.cpp:2954`, callback built in `chain_plugin.cpp:963-1000`)
 
 Algorithm variants, in order:
 
@@ -738,7 +742,7 @@ else
 
 `is_fast_confirm_transaction` (`database.cpp:537-541`): exactly one operation and its variant tag is `witness_block_approve_operation`. The `sf` lambda passed in (`chain_plugin.cpp:963-1000`) wraps `sync_block_writer::switch_forks` in `without_pending_transactions` with an `existing_block_flow_control` — **a fast confirm alone can trigger a fork switch** when a supermajority confirms a block on another fork.
 
-**Processing** (`process_fast_confirm_transaction()`, `database.cpp:2899-2954`):
+**Processing** (`process_fast_confirm_transaction()`, `database.cpp:2902-2957`):
 1. Assert HF26 active and shape correct
 2. `validate_transaction(full_transaction, skip_tapos_check)` — full validation (expiration, signature against witness authority) except TaPoS, because the approving witness may be on a different fork (comment :2909-2914)
 3. Ignore if the witness is not in the irreversibility schedule (:2920-2930)
@@ -754,7 +758,7 @@ else
 
 ### Irreversibility Propagation
 
-**`migrate_irreversible_state(old_last_irreversible)`** (`database.cpp:3066-3097`):
+**`migrate_irreversible_state(old_last_irreversible)`** (`database.cpp:3069-3100`):
 
 When LIB advanced from `old_lib` to `new_lib`:
 
@@ -775,9 +779,9 @@ When LIB advanced from `old_lib` to `new_lib`:
 The `dynamic_global_property_object` tracks participation via:
 - `recent_slots_filled` — 128-bit shift register (1 = block produced, 0 = missed)
 - `participation_count` — running count of 1-bits (0-128)
-- `current_aslot` — absolute slot number since genesis (`current_aslot += missed_blocks+1` per block, `database.cpp:2830`)
+- `current_aslot` — absolute slot number since genesis (`current_aslot += missed_blocks+1` per block, `database.cpp:2833`)
 
-### Update Logic (`database.cpp:2815-2831`)
+### Update Logic (`database.cpp:2818-2834`)
 
 ```cpp
 for (uint32_t i = 0; i < missed_blocks + 1; i++)
@@ -810,16 +814,16 @@ The witness plugin checks this against `_required_witness_participation` (defaul
 
 Two distinct limits bound how far the node can roll back:
 
-1. **`HIVE_MAX_UNDO_HISTORY` = 10,000** (`config.hpp:369`). Enforced in `update_global_dynamic_data()` (`database.cpp:2833-2840`):
+1. **`HIVE_MAX_UNDO_HISTORY` = 10,000** (`config.hpp:369`). Enforced in `update_global_dynamic_data()` (`database.cpp:2836-2843`):
    ```cpp
    HIVE_ASSERT( _dgp.head_block_number - get_last_irreversible_block_num() < HIVE_MAX_UNDO_HISTORY,
                 undo_database_exception,
                 "The database does not have enough undo history to support a blockchain with so many missed blocks. "
                 "Please add a checkpoint if you would like to continue applying blocks beyond this point." );
    ```
-   Every reversible block keeps an undo session alive in chainbase; this caps that growth. **Behavior when exceeded**: the block being applied fails with `undo_database_exception` — the node stops following the chain. This happens when LIB stalls (e.g. participation below 75% so irreversibility cannot advance) for ~10,000 blocks (~8.3 hours). **Escape hatches**: (a) configure a `checkpoint` — pre-checkpoint blocks carry `skip_undo_history_check` and `skip_undo_block` (`chain_plugin.cpp:1046-1062`); (b) witnesses running `enable-stale-production` get `skip_undo_history_check` in their production skip flags (`witness_plugin.cpp:671`); (c) replay sets it implicitly (LIB pinned to head via `skip_undo_block`).
+   Every reversible block keeps an undo session alive in chainbase; this caps that growth. **Behavior when exceeded**: the block being applied fails with `undo_database_exception` — the node stops following the chain. This happens when LIB stalls (e.g. participation below 75% so irreversibility cannot advance) for ~10,000 blocks (~8.3 hours). **Escape hatches**: (a) configure a `checkpoint` — pre-checkpoint blocks carry `skip_undo_history_check` and `skip_undo_block` (`chain_plugin.cpp:1047-1063`); (b) witnesses running `enable-stale-production` get `skip_undo_history_check` in their production skip flags (`witness_plugin.cpp:671`); (c) replay sets it implicitly (LIB pinned to head via `skip_undo_block`).
 
-2. **Fork DB `MAX_BLOCK_REORDERING` = 1024** (`fork_database.hpp:67`): the fork DB refuses blocks more than 1024 below its head (`fork_database.cpp:77-79`) and its effective size is continuously narrowed to `head - LIB + 1` as LIB advances (`sync_block_writer.cpp:59`). This bounds the *practical* reorg depth to head−LIB, normally a handful of blocks; 1024 is only reachable when irreversibility stalls.
+2. **Fork DB `MAX_BLOCK_REORDERING` = 1024** (`fork_database.hpp:67`): the fork DB rejects blocks more than 1024 below its head as *unlinkable* (`fork_database.cpp:84-87`; since 1.28.7 - see Fork Resolution) and its effective size is continuously narrowed to `head - LIB + 1` as LIB advances (`sync_block_writer.cpp:59`). This bounds the *practical* reorg depth to head−LIB, normally a handful of blocks; 1024 is only reachable when irreversibility stalls.
 
 ---
 
@@ -827,7 +831,7 @@ Two distinct limits bound how far the node can roll back:
 
 ### Block Storage Modes (`block-log-split` option)
 
-`block-log-split` (`chain_plugin.cpp:1506`, default **9999**) selects the storage backend (`block_storage_i::create_storage`, :1548):
+`block-log-split` (`chain_plugin.cpp:1510`, default **9999**) selects the storage backend (`block_storage_i::create_storage`, :1552):
 
 | Value | Meaning |
 |-------|---------|
@@ -939,7 +943,7 @@ Reads of pruned blocks fail with an explicit message: "Block ${num} has been pru
 
 1. **Fast confirms never enter blocks**: The `witness_block_approve_evaluator::do_apply()` always asserts false. These transactions are processed entirely out-of-band via `process_fast_confirm_transaction()`, which updates an in-memory map and immediately re-checks LIB.
 
-2. **Fast confirms get no P2P priority — but they alone can trigger fork switches**: there is no fast-confirm special-casing in the net layer or the write queues (they ride the normal transaction queue behind blocks). Their power is in processing: `update_last_irreversible_block` is only given a fork-switch callback on the fast-confirm path; when LIB lands on another (equal-or-longer) fork, the switch executes immediately. The same situation discovered during `_apply_block` is deferred to the next block or fast confirm (`database.cpp:3038-3050`).
+2. **Fast confirms get no P2P priority — but they alone can trigger fork switches**: there is no fast-confirm special-casing in the net layer or the write queues (they ride the normal transaction queue behind blocks). Their power is in processing: `update_last_irreversible_block` is only given a fork-switch callback on the fast-confirm path; when LIB lands on another (equal-or-longer) fork, the switch executes immediately. The same situation discovered during `_apply_block` is deferred to the next block or fast confirm (`database.cpp:3041-3053`).
 
 3. **The single-writer architecture is the concurrency model**: one `write_queue` thread performs every state mutation; P2P blocks and generation requests use a priority queue over transactions; in live mode the writer yields the write lock every 500ms (1000ms on witness nodes) for readers. Promise-release points differ by source: P2P threads resume at TXS_EXECUTED (before housekeeping/pending reapplication), the witness thread at APPLIED (so it never sees stale head state).
 
@@ -949,7 +953,7 @@ Reads of pruned blocks fail with an explicit message: "Block ${num} has been pru
 
 6. **Known bad merkle roots are tolerated**: `shared_db_merkle` map contains block numbers with known incorrect merkle roots from historical chain data. These are accepted to maintain replay compatibility.
 
-7. **The future witness schedule (HF26+) drives irreversibility**: `get_witness_schedule_object_for_irreversibility()` returns the *future* schedule after HF26 (`database.cpp:2891-2897`). Both LIB counting and fast-confirm eligibility use it; fast-confirm generation also signs for future-scheduled local witnesses.
+7. **The future witness schedule (HF26+) drives irreversibility**: `get_witness_schedule_object_for_irreversibility()` returns the *future* schedule after HF26 (`database.cpp:2894-2900`). Both LIB counting and fast-confirm eligibility use it; fast-confirm generation also signs for future-scheduled local witnesses.
 
 8. **Participation safety**: If participation rate drops below a configurable threshold (default 33%), witnesses stop producing blocks entirely. The `recent_slots_filled` 128-bit register provides a 6.4-minute rolling window.
 
@@ -973,30 +977,30 @@ Reads of pruned blocks fail with an explicit message: "Block ${num} has been pru
 
 | Component | File | Key Methods/Lines |
 |-----------|------|-------------------|
-| Writer thread & queues | `chain_plugin.cpp` | loop :439-737, queues :180-209, visitor :289-413, entry points :1969-2158 |
+| Writer thread & queues | `chain_plugin.cpp` | loop :439-737, queues :180-209, visitor :289-413, entry points :1973-2162 |
 | Fast confirm routing | `chain_plugin.cpp` | `push_transaction()` :950-1006 (incl. fork-switch lambda :963-1000) |
-| push_block pipeline | `chain_plugin.cpp` | `push_block()` :1039-1097, `_push_block()` :1099-1119, checkpoint flags :1046-1062 |
-| Replay — reindex | `chain_plugin.cpp` | `reindex_internal()` :1222-1290 |
+| push_block pipeline | `chain_plugin.cpp` | `push_block()` :1039-1101, `_push_block()` :1103-1123, checkpoint flags :1047-1063 |
+| Replay — reindex | `chain_plugin.cpp` | `reindex_internal()` :1226-1294 |
 | Replay — IRB writer | `irreversible_block_writer.cpp` | `store_block()` no-op :19-21 |
 | Flow control | `block_flow_control.hpp` | phases :135-146; subclasses :206-305 |
 | Flow control impl | `block_flow_control.cpp` | transitions :46-89, promise points :209-267, sync stats gate :274-284 |
-| Block application | `database.cpp` | `_apply_block()` :2183-2369, `apply_block_extended()` :2123-2142, `validate_block_header()` :2757-2779 |
-| Transaction application | `database.cpp` | `_apply_transaction()` :2644-2702, `validate_transaction()` :2521-2642, pending entry :552-576 |
-| Operation dispatch | `database.cpp` | `apply_operation()` :2722-2746 |
+| Block application | `database.cpp` | `_apply_block()` :2186-2372, `apply_block_extended()` :2126-2145, `validate_block_header()` :2760-2782 |
+| Transaction application | `database.cpp` | `_apply_transaction()` :2647-2705, `validate_transaction()` :2524-2645, pending entry :552-576 |
+| Operation dispatch | `database.cpp` | `apply_operation()` :2725-2749 |
 | Pending reapplication | `db_with.hpp` | `pending_transactions_restorer` :58-243 |
 | Witness scheduling | `witness_schedule.cpp` | `update_witness_schedule4()` :152-396, shuffle :372-388, HF26 dual schedule :403-440 |
 | Slot mapping | `database.cpp` | `get_scheduled_witness()` :904-910, `get_slot_time()` :912-935, `get_slot_at_time()` :937-943 |
 | Missed blocks / witness stats | `database_witness.cpp` | `update_witness_missed_blocks()` :284-306, `update_signing_witness()` :175-185 |
-| Participation | `database.cpp` | `update_global_dynamic_data()` :2789-2841, `witness_participation_rate()` :531-535 |
-| Undo history cap — enforcement | `database.cpp` | :2833-2840 |
+| Participation | `database.cpp` | `update_global_dynamic_data()` :2792-2844, `witness_participation_rate()` :531-535 |
+| Undo history cap — enforcement | `database.cpp` | :2836-2843 |
 | Undo history cap — constant | `config.hpp` | 369 |
-| Fork DB | `fork_database.cpp` | `_push_block()` :73-99, `pop_block()` :20-28, `set_max_size()` :146-175, witness map :255, `fetch_branch_from()` :290-330 |
+| Fork DB | `fork_database.cpp` | `_push_block()` :73-107, `pop_block()` :20-28, `set_max_size()` :154-183, witness map :263, `fetch_branch_from()` :298-338 |
 | Fork decision & switch | `sync_block_writer.cpp` | `push_block()` :67-160, `switch_forks()` :162-264, `store_block()` :24-60 |
-| LIB calculation | `database.cpp` | `update_last_irreversible_block()` :2956-3064 |
+| LIB calculation | `database.cpp` | `update_last_irreversible_block()` :2959-3067 |
 | LIB determination | `sync_block_writer.cpp` | `find_new_last_irreversible_block()` :266-367 |
-| Fast confirm processing | `database.cpp` | `is_fast_confirm_transaction()` :537-541, `process_fast_confirm_transaction()` :2899-2954 |
+| Fast confirm processing | `database.cpp` | `is_fast_confirm_transaction()` :537-541, `process_fast_confirm_transaction()` :2902-2957 |
 | Fast confirm generation | `witness_plugin.cpp` | `on_finish_push_block()` :219-308, toggle :533-546 |
-| Irreversibility migration | `database.cpp` | `migrate_irreversible_state()` :3066-3097 |
+| Irreversibility migration | `database.cpp` | `migrate_irreversible_state()` :3069-3100 |
 | Witness plugin | `witness_plugin.cpp` | production data :310-367, loop :369-467, `maybe_produce_block()` :469-526, queen mode :570-577 |
 | Block producer | `block_producer.cpp` | `_generate_block()` :31-85, hardfork votes :87-108, `apply_pending_transactions()` :111-216, queen fill :218-253 |
 | Queen plugin | `queen_plugin.cpp` | production trigger :98-127, slot scan :162-223, init/testnet guard :268-297 |
@@ -1019,7 +1023,7 @@ Reads of pruned blocks fail with an explicit message: "Block ${num} has been pru
 
 3. **Fork switch error recovery is conditional, and failure always propagates**: after a failed fork switch, reverting to the old fork happens only when *both* (a) no new-fork block became irreversible past the common ancestor and (b) the chain is now shorter than where it started (`sync_block_writer.cpp:236-237`). If the partially-applied new fork is already at least as long, the node stays on it; if irreversibility crossed the common ancestor, reverting is impossible. In every case the exception is rethrown (:260) — the pushing peer's block is reported failed even when the node recovered to a consistent state.
 
-4. **Fast confirm TaPoS skip**: fast confirms intentionally skip TaPoS validation because the approving witness may reference a block on a different fork (`database.cpp:2909-2915`); generation softens this by referencing the LIB block in TaPoS (`witness_plugin.cpp:271-276`). They still carry full signature validation, a 30-minute expiration, and per-witness block-number monotonicity, but structurally remain weaker-validated than block transactions.
+4. **Fast confirm TaPoS skip**: fast confirms intentionally skip TaPoS validation because the approving witness may reference a block on a different fork (`database.cpp:2912-2918`); generation softens this by referencing the LIB block in TaPoS (`witness_plugin.cpp:271-276`). They still carry full signature validation, a 30-minute expiration, and per-witness block-number monotonicity, but structurally remain weaker-validated than block transactions.
 
 5. **Fast confirms are invisible to transaction dedup infrastructure**: they never enter `transaction_index` (`is_known_transaction` stays false), so the P2P layer's "is item known" check (`p2p_plugin.cpp:120-123`) cannot recognize an already-processed fast confirm by ID; dedup relies on the net-layer inventory cache and the per-witness monotonicity check. Harmless in practice (re-processing is an ignored no-op) but a structural oddity.
 

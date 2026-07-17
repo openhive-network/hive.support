@@ -1,6 +1,6 @@
 # Hive Configuration Constants Reference
 
-Source: hive-core release 1.28.6. Constants from `libraries/protocol/include/hive/protocol/config.hpp` unless noted.
+Source: hive-core release 1.28.7. Constants from `libraries/protocol/include/hive/protocol/config.hpp` unless noted.
 
 Percentage values use basis-point encoding: `HIVE_100_PERCENT = 10,000`, `HIVE_1_PERCENT = 100`, `HIVE_1_BASIS_POINT = 1`.
 
