@@ -31,7 +31,7 @@ END LOOP;
 | `app_next_iteration(context, range OUT)` | next block range (procedure form, used in examples) | `application_loop/loop.sql` |
 | `app_context_attach` / `app_context_detach` | resume / pause the context | `:240`,`:331` |
 | `app_context_set_forking` / `_non_forking` | toggle fork rewind | `:419`,`:367` |
-| `app_get_irreversible_block(context)` | the context's irreversible block | `:518` |
+| `app_get_irreversible_block(context)` | the context's irreversible block | `:532` (`:518` is the zero-argument overload returning `hafd.hive_state.consistent_block`) |
 | `app_reset_data` / `app_remove_context` | wipe / delete | `:116`,`:92` |
 
 ## Stages (auto-scaling batches)

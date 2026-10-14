@@ -1,0 +1,224 @@
+{
+  "topic": "haf",
+  "anchor": {"version": "1.28.6", "sha": "222c848355efbdf0e4970c5f384b6da7cbfb582e"},
+  "items": [
+    {
+      "id": "HAF-E001",
+      "kind": "trap",
+      "question": "My HAF app wants the newest, not-yet-irreversible blocks. Can I read hafd.blocks_reversible and hafd.operations_reversible directly, filtering on the newest id in hafd.fork?",
+      "expected": "No. Read your context's auto-generated views (my_app.blocks_view, my_app.operations_view, ...): each is a UNION ALL of the irreversible rows (num <= the context's irreversible_block) and the reversible rows of the context's own fork, selecting per block the row with MAX(fork_id) <= the context's fork_id and num <= current_block_num. The raw _reversible tables hold rows from every fork hived has seen, including abandoned ones, and are not aligned with your context's cursor.",
+      "forbidden": [
+        "Yes, filter hafd.*_reversible by the newest hafd.fork.id",
+        "Join hafd.blocks with hafd.blocks_reversible yourself using the context's fork_id",
+        "Reversible data is not readable by apps at all; only the irreversible tables are"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/haf/schema.md (The per-context views (the merge))",
+          "research/haf/findings/04-data-model.md (2. The per-context views (the reversible/irreversible merge))",
+          "reference/haf/README.md (Important Non-Obvious Facts)"
+        ],
+        "source": [
+          "src/hive_fork_manager/blocks_views_for_contexts.sql:76",
+          "src/hive_fork_manager/blocks_views_for_contexts.sql:149-156",
+          "src/hive_fork_manager/blocks_views_for_contexts.sql:163"
+        ]
+      },
+      "applies": "HAF 1.28.6",
+      "origin": "reference/haf/README.md non-obvious facts"
+    },
+    {
+      "id": "HAF-E002",
+      "kind": "trap",
+      "question": "For monitoring I compute my app's lag as (block_num of the newest row in hafd.events_queue) minus my context's current_block_num. Right after a fork switch the lag became a huge negative number. Why?",
+      "expected": "Because events_queue.block_num is overloaded per event type: for BACK_FROM_FORK it is the id of the hafd.fork row, not a block number (NEW_BLOCK = the new block, NEW_IRREVERSIBLE = the new irreversible block, MASSIVE_SYNC = the head irreversible block after a massive push). Read the column only together with event, or compute lag from the context cursor and hive.app_get_irreversible_block instead.",
+      "forbidden": [
+        "block_num is always the block the event refers to; the queue must have been corrupted",
+        "A fork resets the context's current_block_num to zero",
+        "The events queue is truncated on a fork switch, so the newest row is stale"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/haf/schema.md (Events & forks)",
+          "research/haf/findings/02-fork-manager-schema.md (4. The events queue and forks)",
+          "research/haf/findings/02-fork-manager-schema.md (7. Notable findings)"
+        ],
+        "source": [
+          "src/hive_fork_manager/events_queue.sql:1-13",
+          "src/hive_fork_manager/forks.sql:1",
+          "src/hive_fork_manager/context_rewind/data_schema.sql:7"
+        ]
+      },
+      "applies": "HAF 1.28.6",
+      "origin": "reference/haf/README.md non-obvious facts"
+    },
+    {
+      "id": "HAF-E003",
+      "kind": "trap",
+      "question": "My app filters custom_json operations by custom_json_type_id (for example the 'follow' and 'reblog' ids) in my context's operations_view. Does HAF 1.28.6 index that column, so the query is fast out of the box?",
+      "expected": "No. HAF deliberately creates no generic index on custom_json_type_id, because it would also cover high-volume ids such as Splinterlands that most apps never read. An app opts in per type with SELECT hive.create_custom_json_type_index(ARRAY['follow','reblog',...]), a SECURITY DEFINER function (so an app role can index hafd.operations without owning it) that creates a deterministic partial index hive_operations_custom_json_types_<ids>_idx ON hafd.operations (custom_json_type_id) WHERE custom_json_type_id IN (...); call it after replay, once hafd.custom_json_types is populated (hivemind does this at sync start).",
+      "forbidden": [
+        "Yes, hafd.operations ships with an index on custom_json_type_id",
+        "App roles cannot create indexes on hafd.operations, so ask the HAF admin to add one by hand",
+        "Use a GIN index on body_value ->> 'id' in your own schema instead"
+      ],
+      "evidence": {
+        "kb": [
+          "contrib/haf/2026-07-23-expand-custom-json-type-index.md (Description)",
+          "contrib/haf/2026-07-23-expand-custom-json-type-index.md (Evidence)",
+          "research/haf/findings/04-data-model.md (1. Core tables (columns))"
+        ],
+        "source": [
+          "src/hive_fork_manager/custom_json_type_schema_update.sql:6-9",
+          "src/hive_fork_manager/custom_json_type_schema_update.sql:13-28",
+          "src/hive_fork_manager/custom_json_type_schema_update.sql:30-33",
+          "src/hive_fork_manager/custom_json_type_schema_update.sql:37-38",
+          "src/hive_fork_manager/custom_json_type_schema_update.sql:39-80"
+        ]
+      },
+      "applies": "HAF 1.28.6",
+      "origin": "contrib 2026-07-23"
+    },
+    {
+      "id": "HAF-E004",
+      "kind": "lookup",
+      "question": "What is hafd.contexts.last_active_at for, which API calls update it, and what happens to a HAF app that stops calling them?",
+      "expected": "It is the app's liveness heartbeat: hive.app_next_block stamps last_active_at = NOW() on every call (hive.app_next_iteration goes through it), and an app that stops calling it is detected as dead and its context is auto-detached, so a dead app's reversible data and rewind triggers no longer pin the database. A detached context is paused; it must be re-attached (hive.app_context_attach) before the app advances again.",
+      "forbidden": [
+        "It is informational only; nothing in HAF acts on it",
+        "HAF terminates the app's database session when it goes stale",
+        "A stale context is removed with app_remove_context, deleting the app's tables"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/haf/apps.md (Key behaviors)",
+          "research/haf/findings/03-app-development.md (3. The consume loop)",
+          "research/haf/findings/03-app-development.md (5. Context lifecycle)",
+          "research/haf/findings/02-fork-manager-schema.md (2. The context registry)"
+        ],
+        "source": [
+          "src/hive_fork_manager/app_api.sql:198-224",
+          "src/hive_fork_manager/app_api.sql:210-212",
+          "src/hive_fork_manager/context_rewind/data_schema.sql:9-27",
+          "src/hive_fork_manager/hived_api.sql:727 (proc_perform_dead_app_contexts_auto_detach; confirmed in worktree)",
+          "docker/cron_jobs.sql:2 (confirmed in worktree)"
+        ]
+      },
+      "applies": "HAF 1.28.6",
+      "origin": "reference/haf/apps.md key behaviors"
+    },
+    {
+      "id": "HAF-E005",
+      "kind": "lookup",
+      "question": "hive.app_next_iteration (or hive.app_next_block) returned a blocks_range of (NULL, NULL). Is that an error I should handle, and what does it mean?",
+      "expected": "No. (NULL, NULL) means no new blocks are available yet; the loop just retries (commit or return, then call again). A live app spends most of its time there between 3-second blocks.",
+      "forbidden": [
+        "It means the context was detached and must be re-attached",
+        "It means HAF is still in massive sync and the app must wait for the MASSIVE_SYNC event first",
+        "It is an error; raise and restart the app"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/haf/apps.md (Key behaviors)",
+          "research/haf/findings/03-app-development.md (3. The consume loop)",
+          "research/haf/findings/03-app-development.md (7. Notable findings)"
+        ],
+        "source": [
+          "src/hive_fork_manager/app_api.sql:198-224",
+          "src/hive_fork_manager/application_loop/loop.sql"
+        ]
+      },
+      "applies": "HAF 1.28.6",
+      "origin": "reference/haf/apps.md key behaviors"
+    },
+    {
+      "id": "HAF-E006",
+      "kind": "lookup",
+      "question": "How is hafd.operations.id composed in HAF 1.28.6, and where does an operation's block number come from given that hafd.operations has no block_num column?",
+      "expected": "id is a bigint encoded as |32-bit block_num|32-bit in-block sequence| (comment at irreversible_blocks.sql:101), so it sorts by block then position and embeds the block number; the block is derived from the id (hafd.operation_id_to_block_num(id)), which is what the context's operations_view exposes as its block_num column. Ids are therefore not a dense sequence, and the operation type lives in op_type_id, not in the id.",
+      "forbidden": [
+        "id is a plain BIGSERIAL assigned in insertion order",
+        "The low 8 bits of id hold op_type_id",
+        "hafd.operations stores block_num as a regular column"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/haf/schema.md (Core tables (irreversible / reversible pairs))",
+          "research/haf/findings/04-data-model.md (1. Core tables (columns))",
+          "research/haf/findings/04-data-model.md (6. Notable findings)",
+          "reference/haf/README.md (Important Non-Obvious Facts)"
+        ],
+        "source": [
+          "src/hive_fork_manager/irreversible_blocks.sql:100-109",
+          "src/hive_fork_manager/irreversible_blocks.sql:101",
+          "src/hive_fork_manager/types/operation/operation_id.sql:3 (confirmed in worktree)",
+          "src/hive_fork_manager/blocks_views_for_contexts.sql:540 (confirmed in worktree)"
+        ]
+      },
+      "applies": "HAF 1.28.6",
+      "origin": "reference/haf/README.md non-obvious facts"
+    },
+    {
+      "id": "HAF-E007",
+      "kind": "reasoning",
+      "question": "I am writing a HAF app that computes daily aggregates and can tolerate data lagging by the irreversibility window. Should I leave the context forking (the default), and what changes if I make it non-forking?",
+      "expected": "Make it non-forking (_is_forking => FALSE in hive.app_create_context, or hive.app_context_set_non_forking later): the app is then never rewound on BACK_FROM_FORK, its views and app_next_block serve only irreversible blocks, and the fork-capture triggers are not installed when the context is (re)attached, so its writes do not feed an undo log; in lite mode HAF forces non-forking anyway. Keep the default forking context only when the app must see reversible head blocks and wants its registered tables rewound automatically on a fork switch.",
+      "forbidden": [
+        "Non-forking contexts still see the reversible head; they just are not rewound",
+        "Forking has no cost; it is only a flag on hafd.contexts",
+        "Switch it with UPDATE hafd.contexts SET is_forking = FALSE"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/haf/apps.md (Key behaviors)",
+          "reference/haf/forks.md (Why it matters)",
+          "research/haf/findings/05-forks-reversibility.md (5. Forking vs non-forking)",
+          "research/haf/findings/03-app-development.md (2. Creating a context)",
+          "research/haf/findings/03-app-development.md (3. The consume loop)"
+        ],
+        "source": [
+          "src/hive_fork_manager/app_api.sql:22-55",
+          "src/hive_fork_manager/app_api.sql:34-37",
+          "src/hive_fork_manager/app_api.sql:218-223",
+          "src/hive_fork_manager/app_api.sql:367",
+          "src/hive_fork_manager/app_api.sql:419",
+          "src/hive_fork_manager/blocks_views_for_contexts.sql:163",
+          "src/hive_fork_manager/context_rewind/detach_table.sql:98-101 (confirmed in worktree)",
+          "src/hive_fork_manager/app_api_impl.sql:482-495 (confirmed in worktree)"
+        ]
+      },
+      "applies": "HAF 1.28.6",
+      "origin": "reference/haf/apps.md key behaviors; research/haf/findings/05-forks-reversibility.md section 5"
+    },
+    {
+      "id": "HAF-E008",
+      "kind": "reasoning",
+      "question": "We want a small HAF node for an app that only cares about one community's accounts. What does a HAF node index by default, how do we restrict it, and if we track account X do we also get operations X did not sign but which affect X?",
+      "expected": "By default a HAF node indexes the whole chain: psql-enable-filter defaults to true, but with no track-* options the filter accepts everything. Restrict it with the sql_serializer options psql-track-account-range (accounts in a [from,to] range, repeatable), psql-track-operations (operation types) and/or psql-track-body-operations (per-type regex on the body, documented as a performance footgun); filtering is applied at index time, so dropped data never reaches the cache, WAL or tables. Account tracking is impacted-account membership (hive.get_impacted_accounts): an operation is kept if any account it impacts is tracked, i.e. account-history semantics, not signer-only.",
+      "forbidden": [
+        "Filtering is applied at query time by the context views, so the node is always full-size",
+        "Track-account keeps only operations signed by that account",
+        "psql-enable-filter=true already narrows indexing; set it to false to get a full node"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/haf/filtering.md (Three filter axes (plugin options, sql_serializer.cpp:969-972))",
+          "reference/haf/filtering.md (How it applies)",
+          "research/haf/findings/07-filtering.md (2. The three filter dimensions)",
+          "research/haf/findings/07-filtering.md (6. Notable findings)",
+          "reference/haf/README.md (Important Non-Obvious Facts)"
+        ],
+        "source": [
+          "src/sql_serializer/sql_serializer.cpp:969-972",
+          "src/sql_serializer/sql_serializer.cpp:1023",
+          "src/sql_serializer/include/hive/plugins/sql_serializer/blockchain_data_filter.hpp:18",
+          "src/sql_serializer/include/hive/plugins/sql_serializer/blockchain_data_filter.hpp:35-37",
+          "src/sql_serializer/include/hive/plugins/sql_serializer/filter_collector.hpp:27-31",
+          "src/hive_fork_manager/get_impacted_accounts.sql:1"
+        ]
+      },
+      "applies": "HAF 1.28.6",
+      "origin": "reference/haf/filtering.md"
+    }
+  ]
+}

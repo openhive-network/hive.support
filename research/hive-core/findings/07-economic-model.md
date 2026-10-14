@@ -805,7 +805,7 @@ From `_apply_block()` (`database.cpp:2328-2359`), the per-block economic pipelin
 
 15. **Pre-HF19 the feed age filter was broken** (condition trivially true), so arbitrarily stale witness feeds entered the hourly median until `HIVE_HARDFORK_0_19__822` fixed the comparison (`database.cpp:2414-2426`).
 
-16. **Governance votes expire after 365 days** of inactivity and `remove_expired_governance_votes()` silently drops them — DHF proposal rankings can change without any new votes being cast (`config.hpp:175`, `database.cpp:2353`).
+16. **Governance votes expire after 365 days** of inactivity and `remove_expired_governance_votes()` silently drops them — DHF proposal rankings can change without any new votes being cast (`config.hpp:175`, `database.cpp:2352`).
 
 ---
 

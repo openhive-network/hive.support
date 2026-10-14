@@ -12,7 +12,7 @@ Hive protocol-level validation is implemented in `validate()` methods on each op
 - Transaction must have at least one operation (`HIVE_PROTOCOL_NUMBER_ASSERT( operations.size() > 0 )`).
 - Each operation's `validate()` is invoked via `operation_validate_visitor`; exceptions are wrapped with `FC_CAPTURE_AND_RETHROW( (op) )`.
 - The two-argument `validate( notify )` variant also calls the `notify` callback before and after each operation — used by apply-layer observers; the checks are identical.
-- Transaction expiration: max `HIVE_MAX_TIME_UNTIL_EXPIRATION` = 3600 seconds (1 hour) — enforced at chain level, **not** in validate().
+- Transaction expiration: max `HIVE_MAX_TIME_UNTIL_EXPIRATION` = 3600 seconds (1 hour) of runtime validity; since HF28 the field may be up to `HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION` = 86400 s ahead (`database.cpp:2536-2548`) — enforced at chain level, **not** in validate().
 - Max transaction size: `HIVE_MAX_TRANSACTION_SIZE` = 65,536 bytes (64KB) — enforced at serialization/chain level, not validate().
 - HF28 posting/active mixing rule: enforced during **signature verification** (`transaction_util.cpp:59-73`), not validate(). Pre-HF28 a transaction with posting-required operations cannot also have operations requiring active/owner/witness or `other` authorities. Guarded by `HIVE_HARDFORK_1_28_ALLOW_STRICT_AND_MIXED_AUTHORITIES` (`database.cpp:2612`).
 
@@ -698,7 +698,7 @@ All 43 virtual operations (IDs 50–92) inherit `virtual_operation::validate()` 
 | Concern | validate() enforces? | Chain (evaluator/verify) enforces | Source |
 |---------|:---:|---|---|
 | Transaction size ≤ 64KB | no | serialization/chain | `HIVE_MAX_TRANSACTION_SIZE` in `config.hpp:364` |
-| Transaction expiration ≤ 1h from head | no | chain | `HIVE_MAX_TIME_UNTIL_EXPIRATION` |
+| Transaction expiration ≤ 1h from head (field ≤ 24h since HF28, runtime capped at 1h) | no | chain | `HIVE_MAX_TIME_UNTIL_EXPIRATION`, `HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION` |
 | Posting cannot mix with active/owner pre-HF28 | no | `verify_authority_impl` | `transaction_util.cpp:61-73` |
 | Authority recursion depth ≤ 2 | no | `sign_state::check_authority_impl` | `sign_state.hpp:216-220` |
 | Distinct accounts visited in auth ≤ 125 | no | `sign_state::check_authority_impl` | `sign_state.hpp:226-233` |
@@ -730,7 +730,7 @@ All 43 virtual operations (IDs 50–92) inherit `virtual_operation::validate()` 
 | `HIVE_MAX_ACCOUNT_CREATION_FEE` | 1,000,000,000 | account_create, claim_account, witness props |
 | `HIVE_MIN_ACCOUNT_CREATION_FEE` | 1 (mainnet), 0 (testnet) | witness props |
 | `HIVE_MAX_TRANSACTION_SIZE` | 65,536 (64KB) | Chain-level |
-| `HIVE_MAX_TIME_UNTIL_EXPIRATION` | 3600 (1 hour) | Chain-level |
+| `HIVE_MAX_TIME_UNTIL_EXPIRATION` | 3600 (1 hour; HF28+: field limit 86400, runtime cap 3600) | Chain-level |
 | `HIVE_MIN_BLOCK_SIZE_LIMIT` | 65,536 | witness props (= `HIVE_MAX_TRANSACTION_SIZE`) |
 | `HIVE_MAX_BLOCK_SIZE` | 2,097,152 (2MB) | witness props |
 | `HIVE_BENEFICIARY_LIMIT` | 128 (effective cap 127 via `<`) | comment_payout_beneficiaries |

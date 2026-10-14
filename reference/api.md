@@ -370,6 +370,6 @@ Methods: `get_version`, `get_witness_schedule`, `get_current_median_history_pric
 
 4. **Pagination** -- database_api `list_*` methods use cursor-based pagination with `{start, limit, order}`. Max limit is 1000. condenser_api limits vary per method.
 
-5. **Optional plugins** -- condenser_api's market, reputation, and RC methods silently return empty data if those plugins aren't enabled. No error distinguishes "plugin missing" from "no data."
+5. **Optional plugins** -- a condenser_api method whose soft-dependency plugin (market_history, reputation, rc, account_history, block, ...) is not enabled throws `FC_ASSERT("X_plugin not enabled.")`, surfaced as JSON-RPC error -32003, so "plugin missing" is distinguishable from "no data" (empty result). The only silent degradation is the reputation field inside `get_accounts` (`condenser_api.cpp:379`). Unknown api/method names come back as -32002 (via `find_api_method`), not the nominal -32601.
 
 6. **wallet_bridge_api shortcuts** -- Some methods (`get_account`, `list_accounts`, `get_open_orders`, `get_reward_fund`) bypass database_api and query chain DB directly for efficiency.

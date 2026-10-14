@@ -41,10 +41,10 @@ This document captures the complete protocol foundation of the Hive blockchain a
 - **Where**: `hardfork_block.hpp:30`, `database_hardfork.cpp:114-145`, `config.hpp:66/135/140`
 - **Impact**: Minor code inconsistency. The constant could be updated to 101319928 to match all other entries in `hardfork_block.hpp`.
 
-### 8. Transaction Expiration Hard Limit is 1 Hour
-- **What**: `HIVE_MAX_TIME_UNTIL_EXPIRATION = 3600` seconds (1 hour). For signatures specifically, the limit is 1 day (`HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION = 86400`).
+### 8. Transaction Expiration: 1 Hour Runtime Cap, 24 Hour Field Limit Since HF28
+- **What**: `HIVE_MAX_TIME_UNTIL_EXPIRATION = 3600` seconds (1 hour) and `HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION = 86400` (1 day) (`config.hpp:232-233`). Before HF28 the transaction `expiration` field had to be within 1 hour of head block time. Since HF28 (`HIVE_HARDFORK_1_28_EXPIRATION_TIME`) the field may be up to 24 hours ahead, and the node sets the transaction's runtime expiration to `min(expiration, now + 1 hour)` at first validation (`database.cpp:2536-2548`).
 - **Where**: `config.hpp:232-233`
-- **Impact**: Transactions must be broadcast within 1 hour of creation. The separate signature expiration allows pre-signed transactions with a longer validity window.
+- **Impact**: A pre-signed transaction can carry an expiration up to 24 hours out (HF28+), but any node that first validates it treats it as expired 1 hour later; before HF28 the field itself was limited to 1 hour.
 
 ### 9. Block ID is SHA-224 of the *Signed* Header with Block Number Spliced In; Block Digest is SHA-256 of the *Unsigned* Header
 - **What**: The real block ID computation lives in the chain layer, not protocol. `full_block_type::construct_block_id()`: (1) `sha224` over the serialized `signed_block_header` bytes (header **including** `witness_signature`), (2) overwrite the first 4 bytes of that hash with `endian_reverse_u32(block_num)`, (3) truncate to 20 bytes (`block_id_type` is ripemd160-sized but holds no RIPEMD hash). The **digest that the witness signs** is different: `sha256` over the serialized **unsigned** `block_header` only. The witness signature is `signer->sign_compact(digest)`. Notably, **no chain ID is mixed into the block digest** (unlike transaction signatures) — cross-chain replay of blocks is instead prevented by the `previous` block-ID chain. The protocol-layer `block_header::legacy_digest()` (`block.cpp:7-11`) and `signed_block::legacy_calculate_merkle_root()` exist "just for unit tests; actual function is in full_block" (`block.cpp:18`).
@@ -74,7 +74,7 @@ This document captures the complete protocol foundation of the Hive blockchain a
 ### 14. Authority Verification: Posting Isolation, Role Upgrade, and the HF28 "Strict and Mixed" Switch
 - **What**: The full verification algorithm lives in protocol `verify_authority_impl()`. Pre-HF28 behavior (`allow_strict_and_mixed_authorities = false`): (a) a transaction with any posting-required operation **may not** also require active/owner/witness/other authorities (`transaction_util.cpp:59-74`); (b) **role upgrade** — a posting requirement is satisfied by posting *or* active *or* owner authority (`transaction_util.cpp:101-104`), an active requirement by active *or* owner (`transaction_util.cpp:146-158`); (c) signatures not consumed by verification cause rejection via `tx_irrelevant_sig` ("Unnecessary signature(s) detected", `transaction_util.cpp:184-188, 250-252`). After HF28 both flags flip (`database.cpp:2612-2613`): mixing posting with active/owner in one transaction becomes legal, role checks become **strict** (an owner key no longer auto-satisfies active/posting requirements), and redundant signatures are tolerated. Also: `HIVE_MAX_AUTHORITY_MEMBERSHIP` (40) and `HIVE_MAX_SIG_CHECK_ACCOUNTS` (125) are passed as 0 (unlimited) for blocks before HF20 (`database.cpp:2621-2622`).
 - **Where**: `transaction_util.cpp:18-192`, `database.cpp:2598-2626`, `sign_state.hpp:167+` (weight accumulation/recursion)
-- **Impact**: Critical for wallet/signing implementations: today an owner key signs anything, but post-HF28 a transaction must carry signatures for the exact roles required, and posting+active mixing becomes possible.
+- **Impact**: Critical for wallet/signing implementations: before HF28 an owner key signed anything; since HF28 (live on mainnet since 2025-11-19) a transaction must carry signatures for the exact roles required, and posting+active mixing is possible.
 
 ### 15. Transactions Validate Against Their Actual Wire Bytes; Either Serialization is Accepted
 - **What**: `full_transaction_type::compute_sig_digest()` hashes `chain_id || <the exact serialized bytes the transaction arrived in>` (`full_transaction.cpp:110-116`) — not a re-serialization. A transaction may be packed in legacy or HF26 format; `is_legacy_pack()` detects which by re-packing under a legacy guard and comparing bytes (`full_transaction.cpp:263-284`). Duplicate signatures are rejected during key recovery (`tx_duplicate_sig`, `full_transaction.cpp:145-148`). Transaction IDs are likewise the first 20 bytes of SHA-256 over the actual serialized transaction (`full_transaction.cpp:93-108`; protocol equivalent `transaction.cpp:58-64`).
@@ -117,7 +117,7 @@ All constants from `config.hpp` and related headers, organized by domain. Values
 | `HIVE_BLOCKS_PER_YEAR` | 10,512,000 | blocks | `365*24*60*60/3` |
 | `HIVE_BLOCKS_PER_DAY` | 28,800 | blocks | `24*60*60/3` |
 | `HIVE_BLOCKS_PER_HOUR` | 1,200 | blocks | `60*60/3` |
-| `HIVE_MAX_TIME_UNTIL_EXPIRATION` | 3,600 | seconds | 1 hour — max transaction expiration window |
+| `HIVE_MAX_TIME_UNTIL_EXPIRATION` | 3,600 | seconds | 1 hour — runtime expiration cap (pre-HF28: hard field limit); `HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION` = 86,400 is the HF28+ field limit |
 | `HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION` | 86,400 | seconds | 1 day — max signature validity |
 | `HIVE_ONE_DAY_SECONDS` | 86,400 | seconds | Convenience constant |
 | `HIVE_SECONDS_PER_YEAR` | 31,536,000 | seconds | `60*60*24*365` |
@@ -581,7 +581,7 @@ Collection: `transaction::get_required_authorities()` (`transaction.cpp:90-98`) 
 
 Verification: `verify_authority()` (`transaction_util.cpp:18-192`) walks the requirements against a `sign_state` seeded with the public keys recovered from the transaction's signatures. `sign_state::check_authority_impl()` (`sign_state.hpp:167+`) accumulates key weights, recursing into `account_auths` up to `max_recursion_depth` and counting membership/account limits.
 
-Semantics (pre-HF28, i.e., current mainnet):
+Semantics (pre-HF28; mainnet has been post-HF28 since 2025-11-19, see the strict/mixed switch below):
 - **Posting isolation**: operations requiring posting authority cannot share a transaction with operations requiring active/owner/witness/other authority (`transaction_util.cpp:59-74`).
 - **Role upgrade**: posting requirement satisfied by posting, active, or owner authority (`transaction_util.cpp:101-104`); active requirement satisfied by active or owner (`transaction_util.cpp:146-158`); owner requirement only by owner (`transaction_util.cpp:162-166`).
 - **Witness requirement**: satisfied iff the transaction is signed with the witness's current signing key (`transaction_util.cpp:168-182`).
@@ -724,7 +724,7 @@ void transaction::set_reference_block(const block_id_type& reference_block) {
 ### Expiration
 
 - Transactions must include an expiration timestamp
-- Maximum expiration: `HIVE_MAX_TIME_UNTIL_EXPIRATION` = **3,600 seconds** (1 hour) from head block time
+- Maximum expiration: `HIVE_MAX_TIME_UNTIL_EXPIRATION` = **3,600 seconds** (1 hour) from head block time before HF28; since HF28 the field may be up to `HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION` = 86,400 s ahead with the runtime validity capped at 1 hour (Discovery 8)
 - Expired transactions are rejected; not-yet-valid transactions are also rejected
 
 ### Transaction ID Computation
@@ -837,7 +837,7 @@ A: 65,536 bytes / 64 KB (`HIVE_MAX_TRANSACTION_SIZE = 1024*64`). Source: `config
 A: 2,097,152 bytes / 2 MB (`HIVE_MAX_BLOCK_SIZE = 2*1024*1024`). Source: `config.hpp:366`. Witness-voted `maximum_block_size` in dgpo cannot exceed it.
 
 **Q: What is the transaction expiration window?**
-A: Maximum 3,600 seconds / 1 hour (`HIVE_MAX_TIME_UNTIL_EXPIRATION`). Source: `config.hpp:232`
+A: 1 hour of runtime validity (`HIVE_MAX_TIME_UNTIL_EXPIRATION`, `config.hpp:232`); since HF28 the `expiration` field itself may be up to 24 hours ahead (`HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION`, `config.hpp:233`; `database.cpp:2536-2548`)
 
 **Q: What are the cashout windows?**
 A: Currently 7 days (604,800s). Was 1 day pre-HF12, 12 hours pre-HF17. Source: `config.hpp:155-159`

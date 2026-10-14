@@ -63,14 +63,16 @@ Examples:
 ```
 contrib/
 |-- README.md          <- This file
-|-- hive-core/
+|-- hive-core/         <- hived protocol, consensus, economics, RC, API
 |   |-- *.md           <- Pending contributions
 |   +-- .digested/     <- Archived after pipeline processed them
-|-- haf/
-|   +-- ...
-+-- <topic>/
-    +-- ...
+|-- wax/               <- client library
+|-- haf/               <- indexing framework
++-- hivemind/          <- social API layer
 ```
+
+Topic names match the `reference/` and `research/` directories. A contribution that corrects a
+rule in `reference/rules/` or an eval item in `evals/` goes to the topic the rule or item belongs to.
 
 ## Important
 

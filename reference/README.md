@@ -21,7 +21,7 @@ Source-code-verified reference for Hive blockchain (hived). All data from hive-c
 - 50 regular operations + 43 virtual = 93 total
 - 37 state object types in chainbase
 - 28 hardforks (HF1-23 Steem-era, HF24-28 Hive-era)
-- ~175 API methods across 17 plugins
+- 198 API methods across 18 plugins (plus the built-in jsonrpc namespace)
 - 3 native assets: HIVE (3 decimals), HBD (3 decimals), VESTS (6 decimals)
 
 ## Important Non-Obvious Facts

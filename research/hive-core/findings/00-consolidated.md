@@ -42,7 +42,7 @@ The Hive blockchain is a Delegated Proof of Stake system producing blocks every 
 
 **What it is**: HF1's 1M vesting multiplier recalculated `vesting_withdraw_rate` via integer division instead of multiplying, introducing truncation. Affected accounts (e.g., 'gil') could never complete power-down — remainder required 368+ years. `database_comment.cpp:1463-1476` (buggy recalculation), `database_vesting.cpp:128-129` (HF28 fix using modulo for final installment).
 
-**Status**: Fixed in HF28 (block 100,000,000). No action needed.
+**Status**: Fixed in HF28 (activated 2025-11-19 at block 101,319,928; the `HIVE_HARDFORK_1_28_BLOCK` constant of 100,000,000 is not the activation block). No action needed.
 
 ### Architecture Documentation (Not Bugs)
 
@@ -113,7 +113,7 @@ Steem-era artifacts persist throughout the codebase:
 - **Phantom objects**: `block_stats_object` type ID 24 reserved but never defined (Part 05)
 - **Legacy objects**: `liquidity_reward_balance_object` unused since HF12, `comment_cashout_ex_object` empty since HF19 (Part 05)
 - **Broken API**: `get_account_references` permanently throws "Needs to be refactored for Hive" (Part 10)
-- **condenser_api**: 57-method thick adapter layer preserving Steem-era API format (Part 10)
+- **condenser_api**: 62-method thick adapter layer preserving Steem-era API format (Part 10)
 
 ### Theme 3: Hardfork-Driven Evolution
 
@@ -148,7 +148,7 @@ The economic model involves tightly coupled mechanisms:
 
 ### Theme 6: API Layer Complexity
 
-175 methods across 17 API plugins, with significant overlap between `condenser_api` (legacy), `database_api` (direct state), and `wallet_bridge_api` (convenience). Three different locking strategies (read/write/lockless). Two calling conventions (dotted and generic). Dual serialization support (legacy + HF26).
+198 methods across 18 API plugins (plus the built-in jsonrpc namespace), with significant overlap between `condenser_api` (legacy), `database_api` (direct state), and `wallet_bridge_api` (convenience). Three different locking strategies (read/write/lockless). Two calling conventions (dotted and generic). Dual serialization support (legacy + HF26).
 
 ---
 
@@ -168,7 +168,7 @@ The economic model involves tightly coupled mechanisms:
 
 **Version compatibility hack**: Major versions 0 and 1 treated as equivalent for the HF24 transition (`version.hpp:50-61`).
 
-**HF28**: Defined at block 100,000,000 (expected November 2025). Uses `next_hf_time()` function rather than compile-time constant.
+**HF28**: activated 2025-11-19 13:00 UTC at block 101,319,928 (time + witness vote; the `HIVE_HARDFORK_1_28_BLOCK` constant of 100,000,000 is unused for activation, see Part 01 Discovery 7). Uses `next_hf_time()` function rather than compile-time constant.
 
 **Discrepancies found**: `HIVE_BLOCKCHAIN_PRECISION` comment says "actually HBD precision" but value (1000) applies to both HIVE and HBD. Public key prefix still "STM" (Steem-era name; constant is misleadingly called `HIVE_ADDRESS_PREFIX`).
 
@@ -321,10 +321,10 @@ The economic model involves tightly coupled mechanisms:
 
 ### Part 10: API Layer
 
-**17 API plugins** exposing ~175 methods via JSON-RPC 2.0. **4 transport types**: HTTP, HTTPS, WebSocket, Unix socket.
+**18 API plugins** (plus the built-in jsonrpc namespace) exposing 198 methods via JSON-RPC 2.0. **4 transport types**: HTTP, HTTPS, WebSocket, Unix socket.
 
 **Major APIs**:
-- `condenser_api`: 57 methods (legacy Steem-compatible, thick adapter)
+- `condenser_api`: 62 methods (legacy Steem-compatible, thick adapter)
 - `database_api`: 51 methods (direct state access, find/list pattern)
 - `wallet_bridge_api`: 35 methods (convenience wrapper, simplified returns)
 - `rc_api`: 7 methods (Resource Credits)
@@ -333,7 +333,7 @@ The economic model involves tightly coupled mechanisms:
 
 **7 non-API plugins**: chain (core), witness (block production), p2p (networking), market_history, reputation, transaction_status, state_snapshot.
 
-**Key issues**: `get_account_references` permanently broken. Inconsistent pagination limits across APIs. Optional plugin dependencies silently fail. `wallet_bridge_api` bypasses `database_api` for some methods, accessing chain DB directly.
+**Key issues**: `get_account_references` permanently broken. Inconsistent pagination limits across APIs. A method whose optional plugin is missing throws a clear `X_plugin not enabled.` assert (JSON-RPC -32003); only the reputation field inside `get_accounts` degrades silently (Part 10 Discrepancy 3). `wallet_bridge_api` bypasses `database_api` for some methods, accessing chain DB directly.
 
 **Documentation**: 1.3MB OpenAPI/Swagger spec in `libraries/plugins/apis/documentation/openapi.json`.
 
@@ -413,13 +413,13 @@ Investigated GitLab issues, MRs, branches, and commit history — no active work
 ### Consensus
 
 **6. How is HF28 activation controlled?** — RESOLVED
-Dual-trigger: block number AND time. `hardfork_block.hpp:30` sets `HIVE_HARDFORK_1_28_BLOCK = 100000000`. `hardfork.d/1_28.hf` sets time via `next_hf_time()` -> mainnet `1763557200` (2025-11-19 13:00 UTC). Overridable via `HIVE_HF28_TIME` env var. `process_hardforks()` in `database_hardfork.cpp:114-144` requires BOTH conditions (time reached AND block number reached naturally through consensus). Neither condition alone triggers activation.
+Time plus witness supermajority, no block-number condition. `hardfork.d/1_28.hf` sets the time via `next_hf_time()` -> mainnet `1763557200` (2025-11-19 13:00 UTC), overridable via `HIVE_HF28_TIME` env var. `process_hardforks()` (`database_hardfork.cpp:114-144`) applies the next hardfork when `hardforks.next_hardfork_time <= head_block_time()` and the witness-voted `next_hardfork` version is ahead of the last applied one; the `HIVE_HARDFORK_1_28_BLOCK = 100000000` constant (`hardfork_block.hpp:30`) is never consulted (Part 01 Discovery 7). Activation happened at block 101,319,928, the first block whose timestamp reached the hardfork time (verified against a public node: block 101,319,927 is 12:59:57, block 101,319,928 is 13:00:00; block 100,000,000 dates from 2025-10-04).
 
 **7. Fork DB capacity and undo stack interaction?** — RESOLVED
 Fork DB has `max_size = 1024` blocks (`fork_database.hpp:207`). Blocks older than `head - 1024` are rejected (`fork_database.cpp:84-87`). Oldest block in fork DB = last irreversible block (`fork_database.cpp:448-449`). When blocks fall off the fork DB, their undo data is committed — they become irreversible. This enforces a hard **1024-block reorg limit** (~51 minutes at 3s blocks).
 
 **8. Fast-confirm P2P propagation?** — RESOLVED
-Fast confirms are regular P2P transactions (not a separate message type). Witness plugin calls `p2p_plugin.broadcast_transaction()` (`witness_plugin.cpp:290`). Peers receive via standard gossip, then `chain_plugin.push_transaction()` routes them to `process_fast_confirm_transaction()` — a separate code path from normal transactions. Fast confirms are **never included in blocks** — the evaluator asserts this (`hive_evaluator.cpp:623-628`). They update a per-witness tracking map (`_last_fast_approved_block_by_witness`), which feeds into `update_last_irreversible_block()`. When 67%+ of witnesses approve a block, it becomes irreversible.
+Fast confirms are regular P2P transactions (not a separate message type). Witness plugin calls `p2p_plugin.broadcast_transaction()` (`witness_plugin.cpp:290`). Peers receive via standard gossip, then `chain_plugin.push_transaction()` routes them to `process_fast_confirm_transaction()` — a separate code path from normal transactions. Fast confirms are **never included in blocks** — the evaluator asserts this (`hive_evaluator.cpp:623-628`). They update a per-witness tracking map (`_last_fast_approved_block_by_witness`), which feeds into `update_last_irreversible_block()`. When 75% of the scheduled witnesses (16 of 21, `HIVE_IRREVERSIBLE_THRESHOLD`, `config.hpp:381`) have approved a block, it becomes irreversible.
 
 **9. Split block log migration procedure?** — ASK TEAM
 No migration documentation found in source. The split block log (1M-block part files) is implemented in `block_log.cpp` but the procedure for migrating a running node from monolithic to split format is not documented in the codebase.
@@ -626,7 +626,7 @@ Part 04 says HBD interest is "hidden as side effect of adjust_balance(HBD)" whil
 | JSON-RPC routing/registration | `json_rpc/json_rpc_plugin.cpp` |
 | API declaration macros | `json_rpc/include/.../utility.hpp` |
 | WebServer transports | `webserver/webserver_plugin.cpp` |
-| condenser_api (57 methods) | `apis/condenser_api/` |
+| condenser_api (62 methods) | `apis/condenser_api/` |
 | database_api (51 methods) | `apis/database_api/` |
 | wallet_bridge_api (35 methods) | `apis/wallet_bridge_api/` |
 | rc_api (7 methods) | `apis/rc_api/` |
@@ -663,7 +663,7 @@ Part 04 says HBD interest is "hidden as side effect of adjust_balance(HBD)" whil
 | Consensus constants cataloged | 150+ |
 | Hardforks documented | 28 |
 | API plugins | 17 |
-| API methods | ~175 |
+| API methods | 198 (18 plugins + jsonrpc) |
 | `has_hardfork()` checks | 225+ across 19 files |
 | Tracked bugs/issues | 9 (1 arch debt, 3 bugs [1 fixed], 2 tech debt, 2 errata/policy, 1 low) |
 | Open questions | 25 -> 21 resolved, 2 known/unresolved, 2 ask-team |

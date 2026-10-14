@@ -16,8 +16,8 @@ Percentage values use basis-point encoding: `HIVE_100_PERCENT = 10,000`, `HIVE_1
 | `HIVE_BLOCKS_PER_YEAR` | 10,512,000 | |
 | `HIVE_ONE_DAY_SECONDS` | 86,400 | |
 | `HIVE_SECONDS_PER_YEAR` | 31,536,000 | |
-| `HIVE_MAX_TIME_UNTIL_EXPIRATION` | 3,600 s | Max transaction expiration window (1 hr) |
-| `HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION` | 86,400 s | Max signature validity (1 day) |
+| `HIVE_MAX_TIME_UNTIL_EXPIRATION` | 3,600 s | Runtime expiration cap (1 hr); before HF28 also the hard limit on the `expiration` field |
+| `HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION` | 86,400 s | HF28+: max offset of the `expiration` field (1 day); the node still treats the tx as expired 1 hr after first validation (`database.cpp:2536-2548`) |
 | `HIVE_CASHOUT_WINDOW_SECONDS` | 604,800 s | Post payout window (7 days) |
 | `HIVE_CASHOUT_WINDOW_SECONDS_PRE_HF12` | 86,400 s | 1 day |
 | `HIVE_CASHOUT_WINDOW_SECONDS_PRE_HF17` | 43,200 s | 12 hours |

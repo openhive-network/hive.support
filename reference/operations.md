@@ -79,9 +79,9 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 **Authority**: posting (voter)
 **Fields**: voter (account), author (account), permlink (string), weight (int16)
 **Validation**: |weight| <= 10000; permlink < 256 chars UTF-8
-**Evaluator**: Deducts voting mana from voter proportional to |weight|. Computes rshares and applies to comment. HF20+: separate downvote mana pool. HF28+: stake-based (not mana-based) vote power calculation. Creates/updates comment_vote_object.
-**Virtual ops**: effective_comment_vote_operation (always)
-**Notes**: Upvote lockout 12h before payout (HF17+). Vote edits get curation rewards since HF26. Three-phase curation weighting since HF25 (early=full, mid=/2, late=/8).
+**Evaluator**: Returns early (no mana used, no rshares, no comment_vote_object, no virtual op) when the comment has already paid out: on HF19+ mainnet the comment_cashout_object is removed at payout, so a vote on any paid-out comment succeeds as a consensus no-op (RC is still charged). Otherwise deducts voting mana proportional to |weight|, computes rshares and applies them to the comment. HF20+: mana-based voting; HIVE_VOTE_DUST_THRESHOLD is subtracted from rshares (a dust vote succeeds with 0 rshares and still consumes its mana), not asserted as pre-HF20. HF21+: separate downvote mana pool (25%; `downvote_pool_percent` is 0 until the HF21 migration sets it). HF28+: stake-based vote cost from effective vesting shares, so a 100% vote costs ceil(E/50) = 2% of max mana for upvotes and downvotes alike; the downvote gate is strict (`>`) while the upvote gate is `has_mana` (>=), so a zero-stake account can upvote (0 rshares) but not downvote. Creates/updates comment_vote_object.
+**Virtual ops**: effective_comment_vote_operation (on every vote that reaches the comment, including unvotes; none for a vote on a paid-out comment)
+**Notes**: Upvote lockout 12h before payout (HF17+; linear attenuation of rshares inside the window since HF20). Vote edits get curation rewards since HF26. Three-phase curation weighting since HF25 (early=full, mid=/2, late=/8). Common question: "do votes on old (paid-out) posts consume voting mana?" - no (see Evaluator); they only cost RC.
 
 ### comment_operation (ID: 1)
 **Authority**: posting (author)
@@ -388,7 +388,7 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 **Fields**: required_auths (set<account>), required_posting_auths (set<account>), id (string max 32), json (json string)
 **Validation**: Total auths 1-40; valid JSON
 **Evaluator**: Looks up custom_operation_interpreter by id. If registered, delegates. If none, silently succeeds. JSON size <= 8192 bytes (HF26+). Most commonly used custom op.
-**Notes**: Well-known IDs: "rc" (RC delegation, protocol-level), "follow", "reblog", "community" (Hivemind), "ssc-mainnet-hive" (Hive Engine).
+**Notes**: Well-known IDs: "rc" (RC delegation, the only chain-interpreted id), "follow", "reblog", "community", "notify" (the four ids hivemind interprets; they must carry exactly one posting auth and no active auth to be indexed, see reference/hivemind/operations.md), "ssc-mainnet-hive" (Hive Engine).
 
 ---
 

@@ -21,7 +21,7 @@ Base classes (`extension_helpers.ts`): `ASignatureProvider.signTransaction` =
 `Provider.for(chainOrBase, backend, pubKeyOrAccount, role?)` then `signTransaction(tx)`.
 
 ```ts
-const provider = BeekeeperProvider.for(chain, wallet, "alice", "active");  // resolves role key
+const provider = await BeekeeperProvider.for(chain, wallet, "alice", "active");  // with a role it resolves the key via find_accounts and returns a Promise
 await provider.signTransaction(tx);
 ```
 

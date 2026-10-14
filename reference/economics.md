@@ -6,7 +6,7 @@ Source: hive-core release 1.28.7. All formulas verified against source code.
 
 ## Inflation
 
-Current rate: ~9.78%, decreasing 0.01% every 250,000 blocks (~8.68 days). Floor: 0.95% at block 220,750,000 (~March 2037).
+Started at 9.78% (HF16 model), decreasing 0.01% every 250,000 blocks (~8.68 days): at block B the rate is `max(978 - floor(B / 250000), 95)` basis points, so about 5.73% around block 101.3M (HF28, November 2025) and about 5.4% at 110M blocks. Floor: 0.95% at block 220,750,000 (~March 2037). Read the live value from the formula and the current head block, never from a cached "current rate".
 
 ```
 inflation_rate = max(978 - floor(head_block_num / 250000), 95)   // basis points

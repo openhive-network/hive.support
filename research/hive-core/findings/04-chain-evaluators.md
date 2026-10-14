@@ -1447,18 +1447,19 @@ hardfork-conditional behavior, and key business logic.
 - **Modifies**: `account_object` (voting mana deducted, last_vote_time). `comment_cashout_object` (net_rshares, vote_weight, total_vote_weight). `comment_vote_object` (on edit). Pre-HF17: root `comment_cashout_object` and `comment_cashout_ex_object` (cashout time recalculation, abs_rshares), `dynamic_global_property_object` (rshares2).
 - **Creates**: `comment_vote_object` (new vote)
 - **Removes**: —
-- **Virtual Ops**: `effective_comment_vote_operation` (always, on every successful vote)
+- **Paid-out comments**: `hf20_vote_evaluator` returns at `hive_evaluator_social.cpp:620-623` (`return; // comment already paid`) when there is no `comment_cashout_object` or the payout time is `maximum()` - before `update_manabar` (`:651-654`), before any mana math or mana assert (`:657-702`), before the vote object create/modify (`:839-848`) and before the virtual op (`:851`). Since HF19 the cashout object is removed at payout (`database_comment.cpp:477-481`, together with every `comment_vote_object`, `:366-373`), so on mainnet every vote on a paid-out comment succeeds as a consensus no-op; RC is still charged because RC counts the vote by operation type (`rc_utility.cpp:799-820`, `resource_count.cpp:331-335`). Answers the common "do votes on old posts consume mana?" question: no.
+- **Virtual Ops**: `effective_comment_vote_operation` (on every vote that reaches the comment, including unvotes; none for votes on paid-out comments - see above)
 - **Chain-State Checks**:
   - Voter has not declined voting rights
   - (positive vote) Comment allows votes
   - Sufficient voting mana/power
-  - HF14+: rshares above `HIVE_VOTE_DUST_THRESHOLD` (or zero weight)
-  - Upvote lockout: HF7 (1 min before payout), HF17+ (12 hours before payout, linear attenuation in HF20+)
+  - Pre-HF20 only (HF14+): rshares above `HIVE_VOTE_DUST_THRESHOLD` asserted (`pre_hf20_vote_evaluator`, `hive_evaluator_social.cpp:369`, HF13 form at `:373`); the HF20+ evaluator subtracts the threshold instead (`:704-707`), so a dust vote succeeds with 0 rshares and still consumes its full `used_mana`
+  - Upvote lockout: HF7 (1 min before payout), HF17+ (12 hours before payout, linear attenuation in HF20+). The `Comment is actively being rewarded. Cannot vote on comment.` assert (`:625-626`) is dead on HF19+ mainnet: during transaction evaluation `head_block_time()` is still the previous block's timestamp (`dgp.time` is written in `update_global_dynamic_data`, `database.cpp:2832`, called at `:2317` after the transaction loop `:2295-2305`), and `process_comment_cashout` (`:2340`) removed every cashout object with `cashout_time <= that time` at the end of that block (`database_comment.cpp:432,464`), so any surviving cashout object has `cashout_time > _now`
   - New vote: weight != 0, rshares > 0
   - Vote edit: weight must differ from previous
-  - HF20+ downvotes: `voting_mana + downvote_mana > used_mana`
+  - HF21+ downvotes (the downvote branches are gated on `dgpo.downvote_pool_percent`, default 0 at `include/hive/chain/detail/state/global_property_object.hpp:160`, set to `HIVE_DOWNVOTE_POOL_PERCENT_HF21` only by the HF21 migration at `database_hardfork.cpp:424`): strict `voting_mana + downvote_mana > used_mana` (`:692`) versus the upvote `has_mana` (`>=`) gate (`:699`), so a zero-stake account can upvote with 0 rshares but cannot downvote (code comment `:689-691`; `tests/unit/tests/hf28_tests.cpp:1893-1907`)
 - **Business Logic — Vote Power (Pre-HF20)**: Mana regeneration over `HIVE_VOTING_MANA_REGENERATION_SECONDS`. `used_power = current_power * |weight| * 86400 / (100% * vote_power_reserve_rate * regen_seconds)`. `rshares = effective_vesting_shares * used_power / 100%`.
-- **Business Logic — Mana (HF20+)**: Three mana eras: (1) HF28+: `used_mana = effective_vesting_shares * |weight| * 86400 / 100%` (stake-based, not current-mana-based). (2) Pre-HF28 downvotes: mana scaled by downvote_pool_percent. (3) Pre-HF28 upvotes: `used_mana = voting_mana * |weight| * 86400 / 100%`. Dust threshold subtracted directly: `rshares = used_mana - HIVE_VOTE_DUST_THRESHOLD`.
+- **Business Logic — Mana (HF20+)**: Three mana eras: (1) HF28+: `used_mana = effective_vesting_shares * |weight| * 86400 / 100%` (stake-based, not current-mana-based; `:659-662`). After the `max_vote_denom` round-up (`:686`) a 100% vote costs ceil(E/50) = 2% of max mana for upvotes and downvotes alike, so only 49 full votes fit in one block from a full bar unless E is divisible by 50 (code comment `:698`; `hf28_tests.cpp:1810-1819`); the downvote pool holds 12.5 full downvotes and the 13th spills into upvote mana (`hf28_tests.cpp:1841-1848`). (2) HF21..HF27 downvotes: mana scaled by downvote_pool_percent (`:663-677`, dead after HF28). (3) Pre-HF28 upvotes: `used_mana = voting_mana * |weight| * 86400 / 100%`. Dust threshold subtracted directly: `rshares = used_mana - HIVE_VOTE_DUST_THRESHOLD`.
 - **Business Logic — Curation Weight**: The incremental curation weight of a vote is
   `vote_weight = W(comment.vote_rshares_after) − W(comment.vote_rshares_before)` where `W` =
   `evaluate_reward_curve(rshares, curation_reward_curve, content_constant)` (HF20+ path
@@ -1476,7 +1477,7 @@ hardfork-conditional behavior, and key business logic.
     "phase factors" are hard-coded at `:813-814`).
   - **HF26+ vote edits**: edits now recompute and receive curation weight; before HF26 an edit
     set `vote_weight = 0` (no curation for changed votes).
-- **Hardfork Notes**: HF1 (scaling), HF6 (duplicate vote check), HF7 (lockout), HF13 (dust threshold), HF14 (dust rounding), HF17 (lockout 12h, reward fund curve, cashout unification), HF19 (sqrt curve override), HF20 (mana system, downvote pool, lockout attenuation), HF22 (uint128 downvote fix), HF25 (early/mid/late phases), HF26 (vote edit curation), HF28 (stake-based vote)
+- **Hardfork Notes**: HF1 (scaling), HF6 (duplicate vote check), HF7 (lockout), HF13 (dust threshold), HF14 (dust rounding), HF17 (lockout 12h, reward fund curve, cashout unification), HF19 (sqrt curve override), HF20 (mana system, dust threshold subtracted instead of asserted, lockout attenuation), HF21 (separate downvote pool, 25%), HF22 (uint128 downvote fix), HF25 (early/mid/late phases), HF26 (vote edit curation), HF28 (stake-based vote)
 
 ---
 

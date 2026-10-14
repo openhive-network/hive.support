@@ -1,0 +1,255 @@
+{
+  "topic": "hivemind",
+  "anchor": {"version": "1.28.6", "sha": "cab9e328bfd5bd9da2d228d68db75b07b7ae8f93"},
+  "items": [
+    {
+      "id": "HM-E001",
+      "kind": "trap",
+      "question": "I broadcast a 'follow' custom_json (alice follows bob) signed with alice's ACTIVE key: required_auths = ['alice'], required_posting_auths = []. The transaction is in an irreversible block and RC was charged, but bridge.get_relationship_between_accounts still reports follows = false and the follow never appears. Is hivemind lagging?",
+      "expected": "No. Hivemind only processes social custom_jsons that carry exactly one required_posting_auths entry and zero required_auths; the follow processor (and the reblog, notify and community processors) silently skip everything else, even though the op is valid on L1. Re-broadcast with the posting authority (required_posting_auths = ['alice']) and keep the payload's follower equal to that auth account.",
+      "forbidden": [
+        "hivemind is still syncing; wait for the block to become irreversible",
+        "active authority is a superset of posting, so the follow will be indexed",
+        "follows must be sent under the 'reblog' id"
+      ],
+      "evidence": {
+        "kb": [
+          "research/hivemind/findings/08-l1-consistency.md (Key Discovery 6; Key Discovery 7)",
+          "reference/hivemind/README.md (L1 consistency)",
+          "reference/hivemind/operations.md (Follow custom_json (id follow))"
+        ],
+        "source": [
+          "hive/db/sql_scripts/hafapp_api.sql:108-115,165-168",
+          "hive/db/sql_scripts/massive_sync.sql:533-539,700-707,2151-2157"
+        ]
+      },
+      "applies": "hivemind 1.28.6",
+      "origin": "findings part 08 discovery 6"
+    },
+    {
+      "id": "HM-E002",
+      "kind": "trap",
+      "question": "bridge.get_post for a very popular post returns exactly 1000 entries in active_votes, yet the post has several thousand voters. Is the API node truncating, or is my client mis-parsing the array?",
+      "expected": "Neither is broken: hivemind hardcodes a 1000-vote cap. Both post-object builders (bridge and condenser) call list_votes with limit 1000, database_api.find_votes does too, and database_api.list_votes only accepts limit in [1, 1000], so no single response ever lists more than 1000 votes for a post. Use the post's counters (bridge stats.total_votes, condenser net_votes) for totals, and page database_api.list_votes (order by_comment_voter, start [author, permlink, last_voter]) to enumerate beyond 1000.",
+      "forbidden": [
+        "pass a larger limit to get_post to receive all votes",
+        "the post really has only 1000 votes",
+        "the node operator misconfigured the vote limit"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/hivemind/api.md (Common rules; database_api (3))",
+          "research/hivemind/findings/06-legacy-apis.md (Key Discovery 3)",
+          "research/hivemind/findings/05-bridge-api.md (Key Discovery 4)"
+        ],
+        "source": [
+          "hive/db/sql_scripts/postgrest/utilities/create_bridge_post_object.sql:69-70",
+          "hive/db/sql_scripts/postgrest/database_api/database_api_find_votes.sql:32",
+          "hive/db/sql_scripts/postgrest/database_api/database_api_list_votes.sql:42,64-66",
+          "hive/db/sql_scripts/postgrest/utilities/list_votes.sql:1-106"
+        ]
+      },
+      "applies": "hivemind 1.28.6",
+      "origin": "findings part 06 discovery 3; reference/hivemind/README.md Key Numbers"
+    },
+    {
+      "id": "HM-E003",
+      "kind": "trap",
+      "question": "For the same post, condenser_api.get_content returns author_reputation as a 15-digit integer while bridge.get_post returns author_reputation as a number in the 70s. Which endpoint is broken?",
+      "expected": "Neither. Condenser post objects emit the raw reputation bigint, while bridge post objects (and bridge.get_profile) apply rep_log10 = (log10(rep) - 9) * 9 + 25, which maps 0 to 25 and a 15-digit value into the 70s. Convert condenser/follow/tags values client-side with the same formula and never apply it again to bridge values.",
+      "forbidden": [
+        "the bridge value is wrong or truncated",
+        "condenser is returning rshares instead of reputation",
+        "apply rep_log10 to the bridge value as well"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/hivemind/api.md (Response objects (bridge vs condenser))",
+          "reference/hivemind/serving.md (Utility belt)",
+          "research/hivemind/findings/06-legacy-apis.md (Key Discovery 2)",
+          "research/hivemind/findings/07-serving-internals.md (The utility belt)"
+        ],
+        "source": [
+          "hive/db/sql_scripts/postgrest/utilities/create_condenser_post_object.sql:35",
+          "hive/db/sql_scripts/postgrest/utilities/rep_log10.sql:1-35",
+          "hive/db/sql_scripts/postgrest/utilities/get_profiles.sql:29-67"
+        ]
+      },
+      "applies": "hivemind 1.28.6",
+      "origin": "reference/hivemind/README.md non-obvious facts (API behavior: two reputation formulas)"
+    },
+    {
+      "id": "HM-E004",
+      "kind": "trap",
+      "question": "A paid-out post set a 50% beneficiary. bridge.get_post reports author_payout_value roughly double what the author's author_reward_operation shows they actually received. Is hivemind's payout mirror corrupt?",
+      "expected": "No, it is deliberate legacy behavior: hivemind computes author_payout_value = payout - curator_payout_value, and its stored payout is the vop total (author + curator + beneficiary), so the beneficiary share is reported inside author_payout_value (condenser's total_payout_value is derived the same way). The stored mirror itself is correct; subtract the beneficiary share yourself or read the comment_reward/author_reward virtual ops for the author-only amount.",
+      "forbidden": [
+        "author_payout_value excludes beneficiary rewards",
+        "hivemind double-counts the curator cut",
+        "the payout mirror is only wrong for pre-HF19 posts"
+      ],
+      "evidence": {
+        "kb": [
+          "research/hivemind/findings/08-l1-consistency.md (Key Discovery 4; Key Discovery 5)",
+          "reference/hivemind/README.md (L1 consistency)",
+          "reference/hivemind/operations.md (The op filter (staging), op 53 comment_reward)"
+        ],
+        "source": [
+          "hive/db/sql_scripts/postgrest/utilities/create_bridge_post_object.sql:104-115",
+          "hive/db/sql_scripts/postgrest/utilities/create_condenser_post_object.sql:67-107",
+          "hive/db/sql_scripts/massive_sync.sql:756-889"
+        ]
+      },
+      "applies": "hivemind 1.28.6",
+      "origin": "findings part 08 discovery 5"
+    },
+    {
+      "id": "HM-E005",
+      "kind": "lookup",
+      "question": "Which custom_json ids does hivemind 1.28.6 actually index, and what happens to custom_json operations with any other id?",
+      "expected": "Exactly four ids: follow, reblog, community and notify (reblog payloads are accepted under either the follow or the reblog id). Every other custom_json id is dropped at the staging filter (load_ops_staging keeps op 18 only for those ids via HAF's custom_json_type_id, and the partial index is created for that array at sync start), so it never touches hivemind state.",
+      "forbidden": [
+        "every custom_json id is indexed into a generic table",
+        "only follow and community are interpreted",
+        "the rc id is also interpreted by hivemind"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/hivemind/operations.md (The op filter (staging))",
+          "reference/hivemind/architecture.md (HAF integration)",
+          "research/hivemind/findings/03-sync-internals.md (Key Discovery 1)",
+          "research/hivemind/findings/01-architecture-deployment.md (8. HAF integration: context & stages)"
+        ],
+        "source": [
+          "hive/db/sql_scripts/massive_sync.sql:168-208",
+          "hive/indexer/hive_db/haf_functions.py:9,39-48"
+        ]
+      },
+      "applies": "hivemind 1.28.6",
+      "origin": "reference/hivemind/README.md non-obvious facts (API behavior: only four custom_json ids)"
+    },
+    {
+      "id": "HM-E006",
+      "kind": "lookup",
+      "question": "What JSON-RPC error does hivemind return when I call a method name that does not exist inside a known namespace, for example bridge.get_postz?",
+      "expected": "Code -32602 (not the standard -32601) with message 'Assert Exception:unknown method: ...' and a data payload fabricated to look like a hived assert_exception (code 10, name assert_exception, a fake stack frame and an assert_hash). Only an unknown namespace such as foo.bar yields -32601 'Api not found foo', without the fabricated data.",
+      "forbidden": [
+        "-32601 Method not found",
+        "an HTTP 404 from PostgREST",
+        "-32600 Invalid Request"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/hivemind/serving.md (Error contract)",
+          "research/hivemind/findings/07-serving-internals.md (Key Discovery 1)"
+        ],
+        "source": [
+          "hive/db/sql_scripts/postgrest/utilities/exceptions.sql:90-112",
+          "hive/db/sql_scripts/postgrest/utilities/exceptions.sql:3-36",
+          "hive/db/sql_scripts/postgrest/utilities/exceptions.sql:114-125 (api-not-found path returns -32601; confirmed in worktree, not stated in the KB)",
+          "hive/db/sql_scripts/postgrest/utilities/dispatch.sql:11-31"
+        ]
+      },
+      "applies": "hivemind 1.28.6",
+      "origin": "findings part 07 discovery 1"
+    },
+    {
+      "id": "HM-E007",
+      "kind": "lookup",
+      "question": "What are the parameter defaults and allowed ranges for bridge.account_notifications, and how far back in time can it return notifications?",
+      "expected": "account is required; min_score defaults to 25 and must be in [0, 100]; limit defaults to 100 and must be in [1, 100]; last_id is an exclusive cursor for descending pagination. Results are floored at 90 days before head (block_before_head('90 days')), matching the 90-day retention of hive_notification_cache.",
+      "forbidden": [
+        "limit defaults to 20 with a maximum of 1000",
+        "min_score defaults to 0",
+        "notifications are retained indefinitely"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/hivemind/api.md (bridge (25))",
+          "research/hivemind/findings/05-bridge-api.md (Key Discovery 5; Method catalog)",
+          "reference/hivemind/README.md (Key Numbers)"
+        ],
+        "source": [
+          "hive/db/sql_scripts/postgrest/bridge_api/bridge_api_account_notifications.sql:15-104"
+        ]
+      },
+      "applies": "hivemind 1.28.6",
+      "origin": "findings part 05 discovery 5"
+    },
+    {
+      "id": "HM-E008",
+      "kind": "lookup",
+      "question": "Calling bridge.get_ranked_posts with limit = 100 fails with 'limit = 100 outside valid range [1:20]'. What is the real maximum page size for hivemind post lists, and can my client raise it?",
+      "expected": "Post-list limits are validated against the hivemind_app.max_posts_per_call GUC, default 20 (the default limit is least(20, GUC)); valid_number raises on out-of-range values instead of clamping. Only the node operator can change it (ALTER DATABASE ... SET hivemind_app.max_posts_per_call), so a client must paginate with start_author / start_permlink.",
+      "forbidden": [
+        "the maximum is 100",
+        "values above the maximum are silently clamped to 20",
+        "pass a page or offset parameter"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/hivemind/api.md (Common rules)",
+          "research/hivemind/findings/05-bridge-api.md (Key Discovery 2)",
+          "reference/hivemind/serving.md (GUCs (operator/deploy knobs))"
+        ],
+        "source": [
+          "hive/db/sql_scripts/postgrest/utilities/api_limits.sql:1-8",
+          "hive/db/sql_scripts/postgrest/bridge_api/bridge_api_get_ranked_posts.sql:27-30",
+          "hive/db/sql_scripts/postgrest/utilities/valid_number.sql (raise-not-clamp; confirmed in worktree)"
+        ]
+      },
+      "applies": "hivemind 1.28.6",
+      "origin": "findings part 05 discovery 2"
+    },
+    {
+      "id": "HM-E009",
+      "kind": "reasoning",
+      "question": "I join hivemind_app.hive_posts.created_at against HAF block timestamps to find the block that created each post, and every match lands one block too early. Why, and what should I join on instead?",
+      "expected": "Hivemind deliberately stamps real operations (comment, vote, ...) with the PREVIOUS block's timestamp, replicating the old Python _head_block_date behavior, so created_at / updated_at / last_update are 3 seconds earlier than the true L1 block time (only virtual-op-derived times are exact). Join on hive_posts.block_num_created, which is the creating block and does not move on edits (block_num does).",
+      "forbidden": [
+        "hivemind stores the previous block's number, so subtract one from block_num",
+        "it is clock skew between the HAF node and hivemind",
+        "created_at equals the block timestamp; the join is wrong for another reason"
+      ],
+      "evidence": {
+        "kb": [
+          "research/hivemind/findings/08-l1-consistency.md (Key Discovery 13)",
+          "reference/hivemind/operations.md (The op filter (staging), Date quirk)",
+          "reference/hivemind/schema.md (Core tables (21), hive_posts)",
+          "research/hivemind/findings/03-sync-internals.md (Key Discovery 1)"
+        ],
+        "source": [
+          "hive/db/sql_scripts/massive_sync.sql:177-193"
+        ]
+      },
+      "applies": "hivemind 1.28.6",
+      "origin": "findings part 08 discovery 13"
+    },
+    {
+      "id": "HM-E010",
+      "kind": "reasoning",
+      "question": "My HAF app reads hivemind_app.hive_posts.muted_reasons to reproduce bridge's stats.muted_reasons, but for some posts bridge lists reasons 3 or 4 that the column never contains. Where do they come from?",
+      "expected": "Only bits 0-2 (MUTED_COMMUNITY_MODERATION, MUTED_COMMUNITY_TYPE, MUTED_PARENT) are stored; bits 3 MUTED_REPUTATION and 4 MUTED_ROLE_COMMUNITY are appended at read time by create_bridge_post_object: 3 when the author is grayed (hive_accounts_view.is_grayed, reputation <= -464800000000) and 4 when the author's role in the post's community is -2 (muted). Reproduce them by joining the reputation view and hive_roles, not by reading the column.",
+      "forbidden": [
+        "the column is stale; re-sync hivemind",
+        "bits 3 and 4 are written by community mutePost operations",
+        "stats.muted_reasons is just the decoded column"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/hivemind/README.md (API behavior)",
+          "reference/hivemind/schema.md (Encodings)",
+          "research/hivemind/findings/05-bridge-api.md (Key Discovery 4)",
+          "research/hivemind/findings/02-schema-data-model.md (Key Discovery 2; 6. Encodings & enums)"
+        ],
+        "source": [
+          "hive/db/sql_scripts/postgrest/utilities/create_bridge_post_object.sql:123-136",
+          "hive/db/sql_scripts/postgrest/utilities/muted_reasons_operations.sql:10-14",
+          "hive/db/sql_scripts/hive_accounts_view.sql:4-17"
+        ]
+      },
+      "applies": "hivemind 1.28.6",
+      "origin": "reference/hivemind/README.md non-obvious facts (API behavior: muted_reasons runtime bits)"
+    }
+  ]
+}

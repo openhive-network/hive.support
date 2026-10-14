@@ -41,8 +41,10 @@ const acc  = await chain.api.database_api.find_accounts({ accounts: ["alice"] })
 
 - **Not all ~175 hived methods are predefined** - reach for `extend` (or condenser_api
   via extension) for the rest.
-- hived **error responses become typed `Wax*` exceptions** via the core; a thrown
-  `WaxChainApiError` carries request/response data.
+- hived **error responses become typed `Wax*` exceptions** via the core; a recognized
+  hived error is rethrown as that typed exception with a `WaxChainApiError` (request and
+  response data) attached as its `cause`; `WaxChainApiError` itself is thrown for
+  unrecognized or invalid responses (`chain_api.ts:85-96`).
 
 ## Extending
 

@@ -10,7 +10,7 @@ Key characteristics:
 - **Demand-responsive pricing**: cost adapts to usage via pool dynamics (a rational price curve with a characteristic time derived from a 15-day / 16-hour / 1-hour half-life depending on resource)
 - **RC = function of stake**: max RC equals effective VESTS adjusted for delegations and the permanent creation-fee bonus
 - **5-day regeneration** (`HIVE_RC_REGEN_TIME = HIVE_VOTING_MANA_REGENERATION_SECONDS = 432000`)
-- **RC payer = first operation's required authority**: deterministically the first account whose active/owner/posting authority is required by the first operation (two special-case overrides)
+- **RC payer = first operation's required authority**: deterministically the first account whose active/owner/posting authority is required by the first operation that declares one (`get_resource_user` loops over operations until a visitor returns a non-empty account, `resource_user.cpp:54-65`; two special-case overrides)
 
 **Code references**: Core logic in `libraries/chain/rc/`, headers in `libraries/chain/include/hive/chain/rc/`, API in `libraries/plugins/apis/rc_api/`, initial parameters at `libraries/jsonball/data/resource_parameters.json` (transformed at build time by `programs/build_helpers/hive_build_helpers/rc_generate_resource_parameters.py`).
 
@@ -780,7 +780,7 @@ Output: `DLOG`, `ILOG`, `NOTIFY` (app notification `"rc_stats"`), or `BOTH` (NOT
 
 2. **Resource units are `[1, 10000, 10, 1, 1]`**, not `[10, 100000, 100, 10, 10]`. Only `resource_new_accounts` (10000) and `resource_market_bytes` (10) have scaling factors; the others are raw. The RC API at `rc_api.cpp:269` has a hardcoded assertion/comment documenting this exact sequence.
 
-3. **Resource weights create a persistent 50/50 split between new_accounts and everything-else**: Because `weight[new_accounts] = sum_of_other_weights`, the global RC regen is divided 50% new_accounts / 50% rest. This makes subsidized account creation perpetually expensive regardless of demand for other resources.
+3. **new_accounts is priced on a regen share of 100%, independent of the other resources**: Because `weight[new_accounts] = sum_of_other_weights` while the divisor excludes new_accounts, its `pool_regen_share` equals the full `rc_regen` (see "Resource Weights" above; the earlier "50/50 split" reading was wrong, corrected per the 2026-06-13 contrib). The other resources split the same 100% among themselves, so subsidized account creation is priced on its own budget regardless of demand for other resources.
 
 4. **Differential discount is per-transaction and per-operation, not per-block**: Operations that modify existing state (authority rotation via account_update, witness URL changes, existing-delegation modifications) get a discount for the state they're overwriting. Stored as negative initial state_bytes usage; subsequent ops in the same tx can benefit. `prevent_negative` clamps each resource to ≥ 0 after summing — one resource cannot subsidize another.
 

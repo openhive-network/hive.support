@@ -35,7 +35,7 @@ Activation: HF1-4 activated by time only. HF5+ require 17/21 witness supermajori
 | **25** | 55,235,767 | 2021-06-30 | **Recurrent transfers**; `collateralized_convert`; governance vote expiration (365d); pure linear rewards |
 | **26** | 68,676,505 | 2022-10-11 | Dust votes count; no vote-edit penalty; HBD cap raised to 20%; fast confirmation op |
 | 27 | 69,050,084 | 2022-10-24 | Timeshare witness scheduling hotfix (13 days after HF26) |
-| **28** | 100,000,000 | 2025-11-19 | Power down fix; **stable votes** (max mana); extended expiration (24h); strict/mixed authorities; DHF HBD excluded from inflation |
+| **28** | 101,319,928 (code constant `HIVE_HARDFORK_1_28_BLOCK` = 100,000,000 is unused for activation) | 2025-11-19 | Power down fix; **stable votes** (max mana); extended expiration (24h); strict/mixed authorities; DHF HBD excluded from inflation |
 
 ## Key Hardfork Details
 
@@ -53,6 +53,6 @@ Activation: HF1-4 activated by time only. HF5+ require 17/21 witness supermajori
 
 **HF26 — Governance Improvements** (2022-10-11): Made dust-level votes count as real votes. Removed penalty for editing votes. Raised HBD hard cap to 20%. Allowed authority updates twice per hour. Solidified old soft forks (custom_binary disabled, custom op size limits enforced).
 
-**HF28 — Stability & Authority** (2025-11-19, block 100,000,000): Fixes a power-down rounding bug originating from HF1's vesting split. Stable votes use max mana instead of current mana for consistent vote strength. Extended signature expiration up to 24 hours. Allows strict and mixed authorities (owner/active combined with posting in one transaction). Excludes DHF treasury HBD from inflation calculation.
+**HF28 — Stability & Authority** (2025-11-19 13:00 UTC, activated at block 101,319,928, the first block at the hardfork time; the `HIVE_HARDFORK_1_28_BLOCK` constant still says 100,000,000 but block constants play no part in activation, which is time + witness supermajority via `process_hardforks()`): Fixes a power-down rounding bug originating from HF1's vesting split. Stable votes use max mana instead of current mana for consistent vote strength. Extended signature expiration up to 24 hours. Allows strict and mixed authorities (owner/active combined with posting in one transaction). Excludes DHF treasury HBD from inflation calculation.
 
 **Software releases after HF28 (no new hardfork):** the mainnet `HIVE_BLOCKCHAIN_VERSION` moved 1.28.6 -> 1.28.7 (`config.hpp:140`) as a network-robustness maintenance release — fork-tolerance (a too-old block is treated as *unlinkable* rather than invalid, avoiding peer-disconnect storms) plus RocksDB info-LOG bounding. This is a *software* version bump only: the latest consensus hardfork remains **HF28**, and hardfork activation is time + witness-vote gated, never tied to the software version.

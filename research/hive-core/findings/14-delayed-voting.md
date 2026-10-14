@@ -312,7 +312,7 @@ process_vesting_withdrawals();       // 2338 — bucket cancellation + route re-
 process_decline_voting_rights();     // 2346
 process_proposals( note );           // 2347 — DHF tally: delayed votes excluded
 process_delayed_voting( note );      // 2348 — maturation
-remove_expired_governance_votes();   // 2349
+remove_expired_governance_votes();   // 2352
 ```
 
 Two ordering consequences: (a) on a block where a weekly power-down installment and a

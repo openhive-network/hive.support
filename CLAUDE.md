@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Source-code-verified knowledge base about the Hive blockchain ecosystem, designed for Claude Code instances to use as authoritative reference when working on Hive projects.
+Source-code-verified knowledge base about the Hive blockchain ecosystem, designed for Claude Code instances (and any other LLM agent) to use as authoritative reference when working on Hive projects.
 
 **Ground truth is always the source code.** If documentation conflicts with code, the code wins.
 
@@ -23,6 +23,17 @@ Need to look something up? Go to `reference/`:
 
 The table above is the **protocol** layer (hive-core release `1.28.7`).
 
+**Doing a task** ("build and broadcast a transfer", "display an asset", "build a HAF app",
+"debug a rejected transaction")? Start at `reference/tasks.md`: it gives the ordered reading
+path across topics, the rules to check and how to verify.
+
+**Reviewing or writing code**? Read `reference/rules/` first (verified best practices and
+traps with evidence; ids `HC-`, `WAX-`, `HAF-`, `HM-`), then the topic reference.
+
+**Need to prove a claim instead of asserting it**? `reference/verify.md` maps claim types to
+the tool that observes the behavior (wax offline validation, `verify_authority`, `rc_api`, a
+test chain, replay, unit tests, HAF SQL).
+
 **Using the wax client library** (build / sign / broadcast / API)? Start at
 `reference/wax/README.md` (anchored to wax `2.0.2`): entry points & API
 (`reference/wax/api.md`), operations & builders (`reference/wax/operations.md`),
@@ -34,6 +45,13 @@ transaction lifecycle (`reference/wax/transactions.md`), assets & `waxify`
 (`reference/haf/internals.md`), schema & data model (`reference/haf/schema.md`), building an
 app (`reference/haf/apps.md`), forks & reversibility (`reference/haf/forks.md`), filtering
 (`reference/haf/filtering.md`).
+
+**Using Hivemind** (the social API: posts, follows, communities, notifications)?
+Start at `reference/hivemind/README.md` (anchored to hivemind `1.28.6`):
+architecture & deployment (`reference/hivemind/architecture.md`), schema
+(`reference/hivemind/schema.md`), sync internals (`reference/hivemind/sync.md`),
+operation semantics (`reference/hivemind/operations.md`), API methods
+(`reference/hivemind/api.md`), serving internals (`reference/hivemind/serving.md`).
 
 ## Key Facts
 
@@ -51,7 +69,10 @@ app (`reference/haf/apps.md`), forks & reversibility (`reference/haf/forks.md`),
 hive.support/
 |-- CLAUDE.md              <- You are here
 |-- reference/             <- COMPACT LOOKUP DOCS (start here)
-|   |-- README.md          <- Navigation guide
+|   |-- README.md          <- Navigation guide (protocol layer)
+|   |-- tasks.md           <- Developer task -> reading path across topics
+|   |-- verify.md          <- Claim type -> the tool that checks it
+|   |-- rules/             <- Verified best-practice rules and traps (per topic)
 |   |-- operations.md      <- All 93 operations
 |   |-- state-objects.md   <- All state objects
 |   |-- constants.md       <- All config constants
@@ -59,10 +80,17 @@ hive.support/
 |   |-- consensus.md       <- Consensus mechanisms
 |   |-- api.md             <- API endpoints
 |   |-- rc.md              <- Resource Credits
-|   +-- hardforks.md       <- Hardfork history
+|   |-- hardforks.md       <- Hardfork history
+|   |-- wax/               <- wax client library (README + 5 area docs)
+|   |-- haf/               <- HAF framework (README + 5 area docs)
+|   +-- hivemind/          <- Hivemind social API (README + 6 area docs)
 |-- research/
-|   +-- hive-core/
-|       +-- findings/      <- DETAILED ANALYSIS (with source file:line citations)
+|   |-- hive-core/findings/  <- DETAILED ANALYSIS (source file:line citations)
+|   |-- wax/findings/
+|   |-- haf/findings/
+|   +-- hivemind/findings/
+|-- evals/                 <- Benchmark items + run reports (does the KB help an agent?)
+|-- mcp/                   <- Dependency-free MCP server serving this KB to any agent
 |-- contrib/               <- FEEDBACK -- write here to improve the KB
 +-- .claude/
     |-- settings.json      <- Agent and skill configuration
@@ -71,34 +99,52 @@ hive.support/
 ```
 
 **reference/** = compact lookup tables for quick answers
-**research/hive-core/findings/** = detailed analysis with source code citations for deep investigation
+**research/<topic>/findings/** = detailed analysis with source code citations for deep investigation
 
 ## When to Use What
 
 - **Quick lookup** (what fields does transfer_operation have?) -> `reference/operations.md`
+- **A task** (how do I broadcast a transfer with wax?) -> `reference/tasks.md`
+- **Code review / "should I"** -> `reference/rules/<topic>.md`
+- **Prove it** (will this transaction pass?) -> `reference/verify.md`
 - **Deep investigation** (how exactly does the vote evaluator handle HF25 curation penalties?) -> `research/hive-core/findings/04-chain-evaluators.md`
 - **Verify a claim** (is X really true?) -> Read the source code at the file:line cited in findings
-- **Found an error?** -> Write a contribution file in `contrib/hive-core/` (see `CONTRIBUTING.md`)
+- **Found an error?** -> Write a contribution file in `contrib/<topic>/` (see `CONTRIBUTING.md`)
 
 ## Agents and Skills
 
 ### Agents
 
-- **hive-researcher** — Investigate Hive questions deeply using the KB. Writes contrib notes when it discovers gaps.
-- **hive-reviewer** — Code review specialized for Hive projects. Checks operations, state, RC, economics. Writes contrib notes when it finds KB inconsistencies.
+- **hive-researcher** — Investigate Hive questions deeply using the KB (routes "how do I" questions through `reference/tasks.md`). Writes contrib notes when it discovers gaps.
+- **hive-reviewer** — Code review specialized for Hive projects. Reads `reference/rules/` first, then checks operations, state, RC, economics, indexing and social-API semantics. Writes contrib notes when it finds KB inconsistencies.
 
 ### Skills (slash commands)
 
-- `/hive-lookup <query>` — Quick lookup against reference docs
+- `/hive-lookup <query>` — Quick lookup against reference docs (all topics)
 - `/hive-verify <claim>` — Verify a claim about Hive behavior against the KB
 - `/hive-op <operation_name>` — Complete documentation for a specific operation
 
+Producer-side skills (`/forge-*`: `expand`, `zoom`, `improve`, `distill`, `audit`, `contrib`, `eval`, `publish`) maintain the KB; `/forge-eval` runs the `evals/` benchmark.
+
+## Any agent, not only Claude Code
+
+`mcp/hive_support_mcp.py` is a read-only MCP server (Python standard library only) that
+serves this KB to any MCP client: `hive_tasks`, `hive_operation`, `hive_rules`,
+`hive_search`, `hive_read`, `hive_index`. See `mcp/README.md`.
+
+## Measuring it
+
+`evals/` holds benchmark questions with verified expected answers and forbidden answers,
+derived from contrib corrections, triaged open questions and the non-obvious facts of each
+topic. `/forge-eval` answers each item with and without the KB using the same model and
+grades both; reports live in `evals/results/`. A KB-condition miss is a KB gap to fix.
+
 ## Contributing to the Knowledge Base
 
-Found something wrong or missing? Write a contribution file to `contrib/hive-core/`:
+Found something wrong or missing? Write a contribution file to `contrib/<topic>/`:
 
 ```
-contrib/hive-core/YYYY-MM-DD-<source>-<slug>.md
+contrib/<topic>/YYYY-MM-DD-<source>-<slug>.md
 ```
 
 See `contrib/README.md` for the format. Contributions are reviewed and incorporated into future KB revisions. Do not edit `reference/` or `research/` files directly.
@@ -106,7 +152,7 @@ See `contrib/README.md` for the format. Contributions are reviewed and incorpora
 ## Research Coverage
 
 ### hive-core (Complete)
-10-part source-level analysis of hived, completed 2026-04-04.
+10-part source-level analysis of hived, completed 2026-04-04, plus 7 zoom parts.
 
 | Part | Focus |
 |------|-------|
@@ -121,6 +167,7 @@ See `contrib/README.md` for the format. Contributions are reviewed and incorpora
 | 08 | Resource Credits System |
 | 09 | Hardfork History |
 | 10 | API Layer — Endpoints and Data Access |
+| 11-17 | Zooms: validate/evaluate gaps, recurrent transfers, external storage, delayed voting, RC consensus, escrow/recovery gaps, witness subsidy |
 
 ### wax (Complete)
 7-part source-level analysis of the wax client library, completed 2026-06-20.
@@ -154,8 +201,25 @@ that leaves HAF's embedded protocol unchanged). Documents HAF's own surface (SQL
 | 06 | Indexing internals (cache, per-type processor threads, dumpers, WAL, index management) |
 | 07 | Filtering (index a subset by account / operation / body) |
 
+### Hivemind (Complete)
+8-part source-level analysis of the Hivemind social API layer, completed 2026-08-02.
+Anchored to hivemind `1.28.6` (`cab9e328bf`, tag == master == release/1.28.6), which pairs
+with the HAF KB's anchor (HAF `1.28.6`). Documents hivemind's own surface (the Python
+indexer, the `hivemind_app` schema, and the PL/pgSQL + PostgREST API); protocol and HAF
+mechanics are cross-referenced, not re-derived.
+
+| Part | Focus |
+|------|-------|
+| 01 | Architecture & deployment (indexer + PostgREST/rewriter serving; images; roles; HAF context) |
+| 02 | Schema & data model (21 core + staging tables, views, canonical post record, 41 HAF-managed indexes) |
+| 03 | Sync internals (massive/live pipelines, two-counter model, crash-safety matrix, fills) |
+| 04 | Operation semantics (17-op map, follow machine, community gating, payout mirroring, notifications) |
+| 05 | Bridge API (25 methods; validator; the bridge post object; ranked-posts matrix) |
+| 06 | Legacy namespaces (condenser/follow/tags/database - delegations, stubs, object differences) |
+| 07 | Serving internals (error contract, utility belt, REST + dynamic OpenAPI, search/BM25, hive.*) |
+| 08 | L1 consistency cross-check vs hive-core (re-derived protocol assumptions verified; treasury-accounts gap, legacy deviations) |
+
 ### Not Yet Covered
-- Hivemind — Social API layer
 - P2P Protocol — Network layer details
 
 ## Source

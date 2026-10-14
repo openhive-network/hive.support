@@ -1,0 +1,269 @@
+{
+  "topic": "wax",
+  "anchor": {"version": "2.0.2", "sha": "c9c4918a845f59ebd97fff1316d00c91827df623"},
+  "items": [
+    {
+      "id": "WAX-E001",
+      "kind": "trap",
+      "question": "In @hiveio/wax a database_api.find_accounts result contains balance: { amount: \"1500\", precision: 3, nai: \"@@000000021\" }. Is amount a JavaScript number of HIVE, and how much HIVE is this?",
+      "expected": "amount is a string (BigInt-backed), not a JS number, and it is the integer count of smallest units: 1500 at precision 3 is 1.500 HIVE (nai @@000000021). Do not Number() it for math or display; build assets with hiveSatoshis/hiveCoins and render with the wax formatter.",
+      "forbidden": [
+        "amount is a JavaScript number",
+        "the balance is 1500 HIVE",
+        "precision can be ignored because amount is already in whole HIVE"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/wax/assets.md (NaiAsset)",
+          "research/wax/findings/04-assets-formatters.md (1. The three native assets and the NAI representation; 6. Notable findings #1)"
+        ],
+        "source": [
+          "ts/wasm/lib/detailed/api/types/asset.ts:1-5",
+          "ts/wasm/lib/detailed/base_api.ts:223-257"
+        ]
+      },
+      "applies": "wax 2.0.2 (TS); Python 2.0.1 uses the same smallest-unit convention",
+      "origin": "reference/wax/README.md non-obvious facts | findings/04 notable findings"
+    },
+    {
+      "id": "WAX-E002",
+      "kind": "lookup",
+      "question": "What are the two construction entry points of @hiveio/wax, which one works fully offline, and are they synchronous in TypeScript?",
+      "expected": "createWaxFoundation(opts?) returns IWaxBaseInterface and is the offline foundation (build/sign/validate, no network); createHiveChain(opts?) returns IHiveChainInterface and adds API calls and broadcast (HiveChainApi extends WaxBaseApi, so it is a superset). Both are async in TypeScript because the WASM module is loaded; the Python equivalents create_wax_foundation / create_hive_chain are synchronous (Cython .so).",
+      "forbidden": [
+        "new HiveChainApi() is the public way to construct wax",
+        "createHiveChain is synchronous in TypeScript",
+        "createWaxFoundation can broadcast transactions"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/wax/api.md (Entry points)",
+          "reference/wax/README.md (Key Numbers)",
+          "research/wax/findings/01-architecture.md (3. Public entry points (both languages); 6. TS vs Python divergences (entry-point level))"
+        ],
+        "source": [
+          "ts/wasm/lib/index.ts:67",
+          "ts/wasm/lib/index.ts:82",
+          "ts/wasm/lib/detailed/base.ts:9-23",
+          "ts/wasm/lib/detailed/chain.ts:12-36",
+          "python/wax/wax/wax_factory.py:10-29"
+        ]
+      },
+      "applies": "wax 2.0.2 (TS); Python 2.0.1",
+      "origin": "reference/wax/api.md entry points | README key numbers"
+    },
+    {
+      "id": "WAX-E003",
+      "kind": "lookup",
+      "question": "With await createHiveChain() and no options, which chain id, endpoints and per-request timeout does wax use?",
+      "expected": "chainId is the literal Hive mainnet id beeab0de00000000000000000000000000000000000000000000000000000000 (the literal hex value, not a hash of it); apiEndpoint is https://api.hive.blog for JSON-RPC and restApiEndpoint is https://api.syncad.com for REST; apiTimeout is 2000 ms; waxApiCaller is undefined.",
+      "forbidden": [
+        "the mainnet chain id is sha256 of the string beeab0de...",
+        "the default timeout is 30 seconds",
+        "one endpoint serves both JSON-RPC and REST in TypeScript"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/wax/api.md (Options (defaults))",
+          "reference/wax/README.md (Key Numbers)",
+          "research/wax/findings/01-architecture.md (4. TypeScript binding - API classes and defaults)"
+        ],
+        "source": [
+          "ts/wasm/lib/detailed/base.ts:9-11",
+          "ts/wasm/lib/detailed/chain.ts:12-18",
+          "hive-core libraries/protocol/include/hive/protocol/config.hpp:142"
+        ]
+      },
+      "applies": "wax 2.0.2 (TS); Python 2.0.1 takes a single endpoint_url",
+      "origin": "reference/wax/api.md options table | findings/01 defaults"
+    },
+    {
+      "id": "WAX-E004",
+      "kind": "trap",
+      "question": "I created a chain with createHiveChain() and want to query a HAF REST app through chain.restApi, but TypeScript says the method does not exist. Does wax ship the REST methods, and what is the intended way?",
+      "expected": "No: wax predefines no REST methods at all (HiveRestApiTypes = {}); REST/HAF endpoints are app-supplied through chain.extendRest<YourRestApi>(defs), and you call them on the extended instance it returns. chain.api predefines only a curated JSON-RPC subset (account_by_key_api, database_api, network_broadcast_api, block_api, rc_api); other hived APIs such as condenser_api are added with chain.extend<T>(defs).",
+      "forbidden": [
+        "wax ships typed definitions for the common HAF REST apps out of the box",
+        "use chain.api for REST calls",
+        "chain.restApi works out of the box because api.syncad.com is the default REST endpoint"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/wax/api.md (Calling the API (TypeScript); Extending)",
+          "reference/wax/README.md (Important Non-Obvious Facts)",
+          "research/wax/findings/06-chain-api-client.md (4. Predefined API surface and extending it; 10. Notable findings #1, #5)"
+        ],
+        "source": [
+          "ts/wasm/lib/detailed/chain_api_data.ts:12-14",
+          "ts/wasm/lib/detailed/chain_api_data.ts:16-73",
+          "ts/wasm/lib/detailed/chain_api.ts:155",
+          "ts/wasm/lib/detailed/chain_api.ts:170"
+        ]
+      },
+      "applies": "wax 2.0.2 (TS); Python 2.0.1 merges class-based collections with chain.extends()",
+      "origin": "reference/wax/README.md non-obvious facts | findings/06 notable findings"
+    },
+    {
+      "id": "WAX-E005",
+      "kind": "trap",
+      "question": "On Hive mainnet I call chain.createTransaction(), push operations, and sign the transaction only 5 minutes later without having serialized it in between. Has the default expiration already passed, and when exactly is the default '+1m' resolved?",
+      "expected": "No. The default '+1m' is applied lazily by flushTransaction() at the first flush (first serialize, sigDigest, id or signing) and only once, so an unflushed transaction does not consume its window; the first flush fixes expiration = local realtime + 1 minute on mainnet. After that first flush the value is locked, so a preview or log that serializes the transaction early does start the window. (On non-mainnet chain ids the reference is the head block time captured at createTransaction.)",
+      "forbidden": [
+        "expiration is fixed at createTransaction() time",
+        "expiration is recomputed on every serialize or sign",
+        "on mainnet wax takes the expiration reference from the API node's head block time"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/wax/transactions.md (Gotchas; Stages: Expiration)",
+          "research/wax/findings/03-transaction-lifecycle.md (4. Expiration (lazy, locked once); 11. Notable findings #1, #2)"
+        ],
+        "source": [
+          "ts/wasm/lib/detailed/transaction.ts:63",
+          "ts/wasm/lib/detailed/transaction.ts:66-70",
+          "ts/wasm/lib/detailed/transaction.ts:168-172",
+          "ts/wasm/lib/detailed/transaction.ts:339-344",
+          "ts/wasm/lib/detailed/chain_api.ts:185-188"
+        ]
+      },
+      "applies": "wax 2.0.2 (TS); Python 2.0.1 mirrors the lazy _apply_expiration",
+      "origin": "transactions.md gotchas | findings/03 notable findings"
+    },
+    {
+      "id": "WAX-E006",
+      "kind": "trap",
+      "question": "Does tx.validate() in wax confirm that the accounts named in my operations exist on chain and that my signatures satisfy their authorities?",
+      "expected": "No. validate() calls cpp_tx_validate, an offline structural/protocol check with no API access. Chain-state checks belong to the OnlineTransaction returned by chain.createTransaction(): its async validate(operations) hooks resolve accounts through the API and performOnChainVerification() runs recursive, API-backed authority verification, which chain.broadcast(tx) invokes before network_broadcast_api.broadcast_transaction when the transaction is an OnlineTransaction.",
+      "forbidden": [
+        "validate() queries the node to check that accounts exist",
+        "validate() verifies the signatures against on-chain authorities",
+        "broadcast performs no authority pre-check of any kind"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/wax/transactions.md (Stages: Validate)",
+          "reference/wax/api.md (Broadcast)",
+          "research/wax/findings/03-transaction-lifecycle.md (9. Validation and broadcast)",
+          "research/wax/findings/06-chain-api-client.md (5. Broadcast)",
+          "research/wax/findings/05-signing-signers.md (3. Required authorities and online verification)"
+        ],
+        "source": [
+          "ts/wasm/lib/detailed/transaction.ts:335",
+          "core/foundation.hpp:283",
+          "ts/wasm/lib/detailed/online_transaction.ts:36",
+          "ts/wasm/lib/detailed/online_transaction.ts:185-210",
+          "ts/wasm/lib/detailed/chain_api.ts:110-117"
+        ]
+      },
+      "applies": "wax 2.0.2 (TS); Python 2.0.1 has the same Transaction / OnlineTransaction split",
+      "origin": "transactions.md stages table | findings/03 section 9 | findings/06 section 5"
+    },
+    {
+      "id": "WAX-E007",
+      "kind": "lookup",
+      "question": "How many operations does wax's protobuf operation oneof define, how many of them can be pushed into a transaction, and which hive-core regular operations are missing from wax?",
+      "expected": "90 operations: 47 broadcastable (proto fields 1-50 with gaps at 36, 38 and 39) plus 43 virtual (fields 100-142, chain-emitted and receive-only, present for block/history deserialization). Compared with hive-core's 50 regular operations, wax omits custom_binary (its proto exists only as custom_binary.proto.disabled), reset_account and set_reset_account (defunct, no .proto).",
+      "forbidden": [
+        "93 operations, the same as hive-core",
+        "50 broadcastable operations",
+        "virtual operations can be pushed with pushOperation"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/wax/operations.md (The surface: 90 operations)",
+          "reference/wax/README.md (Key Numbers)",
+          "research/wax/findings/02-operations-surface.md (2. The proto operation surface: 47 broadcastable + 43 virtual = 90)",
+          "reference/operations.md (hive-core operation table rows 35, 37, 38 and the disabled-operations notes)"
+        ],
+        "source": [
+          "hive:libraries/protocol/proto/operation.proto:102-195",
+          "hive:libraries/protocol/proto/operation.proto:103-149",
+          "hive:libraries/protocol/proto/operation.proto:151-194",
+          "hive:libraries/protocol/proto/custom_binary.proto.disabled"
+        ]
+      },
+      "applies": "wax 2.0.2 (bundled hive submodule f4e0a4b7); same proto surface in Python 2.0.1",
+      "origin": "reference/wax/operations.md surface table | findings/02 section 2"
+    },
+    {
+      "id": "WAX-E008",
+      "kind": "lookup",
+      "question": "Which signer packages exist for @hiveio/wax, what is the common usage pattern, and does a private key ever pass through wax?",
+      "expected": "Five npm packages: @hiveio/wax-signers-beekeeper, -keychain, -metamask, -peakvault and -external. The pattern is Provider.for(chainOrBase, backend, pubKeyOrAccount, role?) (with a role, wax resolves that role's key via database_api.find_accounts and returns a Promise) followed by await provider.signTransaction(tx); key custody stays in the backend and wax only receives signatures. The browser signers are TypeScript-only; Python signs through a beekeepy unlocked wallet with await tx.sign(wallet, key).",
+      "forbidden": [
+        "the signers are bundled inside the core @hiveio/wax package",
+        "you pass the WIF private key to signTransaction",
+        "Python can use the keychain or metamask signer"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/wax/signing.md (Signer packages (npm, pluggable))",
+          "reference/wax/README.md (Key Numbers)",
+          "research/wax/findings/05-signing-signers.md (2. Signer packages (pluggable backends); 7. Python parallel; 8. Notable findings #1, #4, #6)"
+        ],
+        "source": [
+          "ts/packages/signers-beekeeper/src/index.ts:27",
+          "ts/packages/signers-beekeeper/src/index.ts:36-48",
+          "ts/packages/signers-beekeeper/src/index.ts:85-89",
+          "ts/packages/signers-{beekeeper,external,keychain,metamask,peakvault}",
+          "python/wax/wax/_private/transaction.py:113-115"
+        ]
+      },
+      "applies": "wax 2.0.2 (TS); Python 2.0.1 where noted",
+      "origin": "reference/wax/signing.md signer packages | findings/05 section 2"
+    },
+    {
+      "id": "WAX-E009",
+      "kind": "reasoning",
+      "question": "My app works on mainnet, but against a Hive testnet node every broadcast fails with a signature/authority error although I sign with the correct active key. I construct wax with only apiEndpoint changed. What is wrong and how do I fix it?",
+      "expected": "The chain id. With only apiEndpoint changed, chainId stays the mainnet default beeab0de00..00, and tx.sigDigest is cpp_tx_sig_digest(handle, chainId, true), which folds the chain id into the digest as the cross-chain replay guard, so the signature is valid for mainnet but not for the testnet. Pass the testnet's chainId in createHiveChain({ apiEndpoint, chainId }) (Python: chain_id in WaxChainOptions); note that a non-mainnet id also switches the expiration reference from local realtime to the head block time.",
+      "forbidden": [
+        "the active key must be wrong",
+        "use legacy_sigDigest for testnets",
+        "wax detects the chain id automatically from the endpoint"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/wax/README.md (Important Non-Obvious Facts: sigDigest binds the chain id)",
+          "reference/wax/api.md (Options (defaults))",
+          "research/wax/findings/03-transaction-lifecycle.md (7. Signing - The digest; 4. Expiration (lazy, locked once); 11. Notable findings #4)",
+          "research/wax/findings/01-architecture.md (4. TypeScript binding - API classes and defaults)"
+        ],
+        "source": [
+          "ts/wasm/lib/detailed/transaction.ts:258-268",
+          "ts/wasm/lib/detailed/transaction.ts:62-70",
+          "ts/wasm/lib/detailed/base.ts:9-11",
+          "core/foundation.hpp:279"
+        ]
+      },
+      "applies": "wax 2.0.2 (TS); Python 2.0.1 (tx_sig_digest with chain_id)",
+      "origin": "README non-obvious facts | findings/03 signing section"
+    },
+    {
+      "id": "WAX-E010",
+      "kind": "reasoning",
+      "question": "A Node.js service keeps a single createHiveChain() instance alive for weeks; after some days every wax call throws RuntimeError: memory access out of bounds (or unreachable). Will wax recover by itself, and what should the service do?",
+      "expected": "No. WasmManager caches the Emscripten module in mainModule and never resets it, and safeWasmCall only translates thrown C++ exceptions into typed Wax* errors (unrecognized ones become a generic WaxError), so a corrupted module stays poisoned for the process lifetime. The service must detect the WASM runtime error itself, drop its cached chain/foundation object and rebuild it (each createHiveChain / createWaxFoundation call constructs a new WasmManager and loads the module afresh), which is how consumers such as denser handle it.",
+      "forbidden": [
+        "wax automatically reloads the WASM module after a RuntimeError",
+        "retrying the same call on the same instance will eventually succeed",
+        "this is a hived node problem, so switch the API endpoint"
+      ],
+      "evidence": {
+        "kb": [
+          "reference/wax/README.md (Important Non-Obvious Facts: No WASM heap-corruption recovery in wax core)",
+          "research/wax/findings/01-architecture.md (4. TypeScript binding - WasmManager: lifecycle and error translation; 8. Notable findings #1)"
+        ],
+        "source": [
+          "ts/wasm/lib/detailed/util/wasm_errors.ts:17",
+          "ts/wasm/lib/detailed/util/wasm_errors.ts:75-81",
+          "ts/wasm/lib/detailed/util/wasm_errors.ts:85-99",
+          "ts/wasm/lib/detailed/base.ts:9-23",
+          "ts/wasm/lib/detailed/chain.ts:12-36"
+        ]
+      },
+      "applies": "wax 2.0.2 (TS, WASM binding only; Python uses a native .so)",
+      "origin": "README non-obvious facts | findings/01 WasmManager finding"
+    }
+  ]
+}

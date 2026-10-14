@@ -10,7 +10,7 @@ Every Hive account has a regenerating RC mana bar. Transactions consume RC propo
 
 - **Max RC** = effective VESTS - delegated_rc + rc_adjustment + received_rc
 - **Effective VESTS** = own VESTS + received VEST delegations - delegated VESTS
-- **RC payer** = account providing the first required authority in the transaction
+- **RC payer** = the first required authority of the first operation that declares one (operations declaring no authority are skipped, `resource_user.cpp:54-65`); overrides: `witness_set_properties` charges its `owner`, `recover_account` charges `account_to_recover`
 - Non-consensus: blocks containing RC-violating transactions are accepted during replay; enforcement is only at mempool/block-production time
 
 ---

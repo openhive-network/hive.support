@@ -9,7 +9,7 @@ Build -> sign -> broadcast, at a glance. Deep detail:
 const chain = await createHiveChain();
 const tx = await chain.createTransaction();            // head block -> TaPoS; expiration "+1m"
 tx.pushOperation({ transfer_operation: { from, to, amount, memo } });
-const provider = BeekeeperProvider.for(chain, wallet, "alice", "active");
+const provider = await BeekeeperProvider.for(chain, wallet, "alice", "active"); // with a role: Promise
 await provider.signTransaction(tx);                     // encrypt-then-sign, appends signature
 await chain.broadcast(tx);
 ```
