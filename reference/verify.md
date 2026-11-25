@@ -5,14 +5,14 @@ does happen. When a question can be settled by running something, run it and rep
 observed result; cite the KB for the mechanism. When no tool applies, say the claim is
 source-derived and cite the section and `file:line`.
 
-Anchors: hived `1.28.7`, wax `2.0.2`, HAF `1.28.6`, hivemind `1.28.6`. Method names below are
+Anchors: hived `1.28.8`, wax `2.0.2`, HAF `1.28.6`, hivemind `1.28.6`. Method names below are
 the ones listed in `api.md`; source citations are into the pinned hived tree.
 
 | Claim type | Authoritative check | KB background |
 |------------|---------------------|---------------|
 | Transaction is well-formed (fields, limits, sizes) | wax `tx.validate()` (offline protocol `validate()`) | `wax/transactions.md` (Stages); `operations.md` (Validation lines); findings hive-core 03 |
 | Signatures / authority satisfied | `database_api.verify_authority`, `verify_account_authority`, `get_required_signatures`, `get_potential_signatures` | `api.md` (Authority / Validation); `wax/signing.md` (Authorities) |
-| Account can afford the RC | `rc_api.find_rc_accounts`, `get_resource_pool`, `get_resource_params` | `rc.md` (Cost Calculation; Overview: RC is mempool-only) |
+| Account can afford the RC | `rc_api.find_rc_accounts`, `get_resource_pool`, `get_resource_params` | `rc.md` (Cost Calculation; Overview: RC is non-consensus until HF29) |
 | Chain accepts it (stateful evaluator rules) | apply it: a test chain, or mainnet `condenser_api.broadcast_transaction_synchronous` | findings hive-core 04 (section 5, per evaluator), 11 (validate vs evaluate gaps) |
 | Why a transaction was rejected | grep the quoted assert text in the pinned `libraries/chain` and `libraries/protocol` | findings 03/04/11; `hivemind/serving.md` (Error contract: hivemind fabricates the same error shape) |
 | Did my transaction land, what happened | `condenser_api.get_transaction`, `is_known_transaction`, `get_ops_in_block`, `get_account_history` | `api.md` (condenser_api, account_history_api) |
@@ -37,10 +37,15 @@ Climb until the answer is observed, not inferred.
    `get_potential_signatures(trx)` show which keys are needed (`api.md` > database_api >
    Authority / Validation). The required level per operation is the `Authority` line in
    `operations.md`; `custom_json` has its own model (its entry).
-3. **RC.** RC is enforced only at the mempool (`rc.md` > Overview): a transaction already in a
-   block was accepted regardless of RC. Before broadcasting, compare the account's
-   `rc_manabar` from `rc_api.find_rc_accounts` with the cost model in `rc.md` > Cost
-   Calculation; `broadcast_transaction_synchronous` reports the charged `rc_cost`.
+3. **RC.** RC is non-consensus until HF29, defined in 1.28.8 code and inactive on mainnet
+   (`rc.md` > Overview; hive-core Part 08, section Non-Consensus Status): a node enforces it for
+   new and re-applied pending transactions and while it produces a block, not when it applies or
+   replays a block, so on mainnet a transaction already in a block was accepted regardless of RC.
+   Under HF29 (test chains that activate it, section 6) the RC payer and balance checks assert in
+   every mode, which makes RC part of consensus (hive-core Part 01, section HF29 (Defined in
+   1.28.8, Inactive on Mainnet)). Before broadcasting, compare the account's `rc_manabar` from
+   `rc_api.find_rc_accounts` with the cost model in `rc.md` > Cost Calculation;
+   `broadcast_transaction_synchronous` reports the charged `rc_cost`.
 4. **Evaluator rules** (balances, existing objects, hardfork gates, rate limits) are checked
    only when the transaction is applied. Use a test chain (section 6) when mainnet must not be
    touched. On mainnet `condenser_api.broadcast_transaction_synchronous` blocks until the
@@ -50,7 +55,7 @@ Climb until the answer is observed, not inferred.
    `fc::assert_exception` whose message is the quoted text in the source; grep the pinned
    tree for that text to land on the exact check, then use findings 03/04/11 for the
    semantics. Example: "Account does not have enough mana to downvote" is the strict downvote
-   gate at `libraries/chain/hive_evaluator_social.cpp:692-694`. Hivemind's API returns errors
+   gate at `libraries/chain/hive_evaluator_social.cpp:694-696`. Hivemind's API returns errors
    shaped like hived's `assert_exception` too (`hivemind/serving.md` > Error contract), so
    first establish which service answered.
 
@@ -69,7 +74,8 @@ the client's binary form. wax has four serialization forms (HF26 JSON, HF26 bina
 API-shape JSON, legacy JSON; `wax/transactions.md` > Serialization forms). Legacy JSON uses
 the wire names `STEEM` / `SBD` and the `STM` public-key prefix (`README.md` > Important
 Non-Obvious Facts). The signature digest binds the chain id (`wax/README.md`); mainnet's id is
-the literal `beeab0de00..00`, testnet's is `sha256("testnet")` (`constants.md`).
+the literal `beeab0de00..00`, testnet's default is `fc::sha256::hash("testnet")` = `18dcf0a2...274e`, a hash of the fc-packed string, not plain SHA-256 of `testnet` (`constants.md`; testnet and
+mirrornet nodes take another with the `chain-id` option, `chain_plugin.cpp:1557-1558`).
 
 ## 4. What are the numbers?
 
@@ -77,8 +83,9 @@ the literal `beeab0de00..00`, testnet's is `sha256("testnet")` (`constants.md`).
   stable vote); inputs are the account's effective vesting shares (`state-objects.md` >
   account_object) and `dynamic_global_property_object` fields. The executable spec is
   `tests/unit/tests/hf28_tests.cpp`: 49 full votes from a full bar before the round-up bites
-  (`:1810-1819`), 12 full downvotes then spill into upvote mana (`:1841-1848`), a zero-stake
-  account can upvote but not downvote (`:1893-1907`).
+  (`hf28_tests.cpp:1813-1823`), 12 full downvotes then spill into upvote mana
+  (`hf28_tests.cpp:1844-1852`), a zero-stake account can upvote but not downvote
+  (`hf28_tests.cpp:1896-1910`).
 - **RC cost**: `rc.md` > Cost Calculation with live `rc_api.get_resource_params` /
   `get_resource_pool`; the account side from `find_rc_accounts`. Spec:
   `tests/unit/tests/rc_tests.cpp`, `direct_rc_delegation.cpp`.
@@ -87,8 +94,8 @@ the literal `beeab0de00..00`, testnet's is `sha256("testnet")` (`constants.md`).
   `operation_time_tests.cpp`.
 - Other executable specs in `tests/unit/tests/`: `operation_tests.cpp` (validation and
   evaluators), `proposal_tests.cpp` (DHF), `delayed_voting_tests.cpp`, `hf23_tests.cpp`,
-  `hf24_tests.cpp`, `hf26_tests.cpp`, `serialization_tests.cpp`, `undo_tests.cpp`,
-  `block_tests.cpp`.
+  `hf24_tests.cpp`, `hf26_tests.cpp`, `hf29_tests.cpp` (each case at HF28 and at HF29),
+  `serialization_tests.cpp`, `undo_tests.cpp`, `block_tests.cpp`.
 
 ## 5. Which hardfork applies?
 
@@ -101,22 +108,29 @@ historical behavior directly, replay (section 6) with `--stop-at-block N`.
 ## 6. A chain you can experiment on
 
 - **Unit tests**: configure hived with `-DBUILD_HIVE_TESTNET=ON`, build the `chain_test`
-  target, run `./tests/chain_test --run_test=<suite>/<case>` (`--list_content` lists them;
-  `tests/unit/CMakeLists.txt:59-62`).
+  target, run `tests/unit/chain_test --run_test=<suite>/<case>` from the build directory (`scripts/run_chain_tests_parallel.sh:57`) (`--list_content` lists them;
+  `tests/unit/CMakeLists.txt:59-62`). Unless a test picks a hardfork, the default fixture starts
+  the chain at hardfork `HIVE_BLOCKCHAIN_VERSION.minor_v()` (`clean_database_fixture.cpp:67`),
+  which on testnet builds is HF29 since 1.28.8 (`protocol/config.hpp:69`; HF28 at 1.28.7), so
+  such a test shows HF29 rules, not mainnet's (hive-core Part 01, section HF29 (Defined in
+  1.28.8, Inactive on Mainnet)).
 - **Functional tests**: `tests/python/functional` under pytest with the markers `testnet`,
   `mirrornet`, `mainnet_5m` (`tests/python/pytest.ini`); the node harness is the
   `hiveio-test-tools` package (`tests/python/hive-local-tools/pyproject.toml:34`).
 - **Network types**: a testnet build (`BUILD_HIVE_TESTNET`) or a mirrornet build
-  (`HIVE_CONVERTER_BUILD`, a mainnet clone for testing; `CMakeLists.txt:241-243`).
+  (`HIVE_CONVERTER_BUILD`, a mainnet clone for testing); both define `USE_ALTERNATE_CHAIN_ID`
+  (`cmake/hive_options.cmake:2-10`, `:19-35`). Since 1.28.8 they register HF29, at the time the
+  `alternate-chain-spec` `hardfork_schedule` gives it, else at the 2100-01-01 placeholder
+  (hive-core Part 01, section HF29 (Defined in 1.28.8, Inactive on Mainnet)).
 - **`debug_node_api`** (testing only, never on a production node; `api.md` > Plugin
   Overview): `debug_generate_blocks`, `debug_generate_blocks_until`, `debug_set_hardfork`,
   `debug_has_hardfork`, `debug_get_hardfork_property_object`, `debug_set_vest_price`,
   `debug_fail_transaction`, `debug_throw_exception`, `debug_get_head_block`,
   `debug_get_witness_schedule`, `debug_get_future_witness_schedule`, `debug_get_json_schema`
-  (`libraries/plugins/apis/debug_node_api/include/hive/plugins/debug_node_api/debug_node_api.hpp:162-183`).
+  (`libraries/plugins/apis/debug_node_api/include/hive/plugins/debug_node_api/debug_node_api.hpp:162-184`).
 - **Replay** for consensus questions: `hived --replay-blockchain [--validate-during-replay]
   [--stop-at-block N | --exit-at-block N]`; `--force-replay` cleans old state first
-  (`libraries/plugins/chain/chain_plugin.cpp:1519-1525`). `--validate-during-replay` turns
+  (`libraries/plugins/chain/chain_plugin.cpp:1544-1550`). `--validate-during-replay` turns
   the validations normally skipped during replay back on.
 - Builds are heavy; run them on a dedicated build host, never on a workstation that holds
   credentials.

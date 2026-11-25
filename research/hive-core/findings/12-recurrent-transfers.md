@@ -1,7 +1,7 @@
 # Findings: recurrent-transfers
 
-> Zoom deep-dive. Source pinned at hive-core `1584099c3054a97f02abfb4788b23f02eea98728`
-> (release `1.28.7`). Every `file:line` below refers to that worktree. Where a claim
+> Zoom deep-dive. Source pinned at hive-core `274384a8adddf54b69965a7fd43d8eb0ddda7701`
+> (release `1.28.8`). Every `file:line` below refers to that worktree. Where a claim
 > depends on git history, the commit hash and its ancestry relative to the pinned SHA
 > are stated explicitly.
 
@@ -14,24 +14,28 @@ evaluator does create/update/delete CRUD, while block-processing
 (`process_recurrent_transfers()`, run once per block) walks a trigger-date-ordered index and
 executes due transfers, emitting `fill_recurrent_transfer_operation` or
 `failed_recurrent_transfer_operation` virtual ops. The most consequential discoveries at this
-SHA: (1) the **only active hardfork gate is HF25** — the HF28 `pair_id` guard and a pre-HF28
-"faulty" end-date check were both *removed* as replay-safe cleanup (commit `b155eb62e`); (2)
+SHA: (1) the **only hardfork gate active on mainnet is HF25** - the HF28 `pair_id` guard and a
+pre-HF28 "faulty" end-date check were both *removed* as replay-safe cleanup (commit
+`b155eb62e`), and the two HF29 gates added in 1.28.8 are inactive on mainnet; (2)
 scheduling is **grid-anchored, not drifting** — late execution never shifts the schedule
-(empirically asserted by a unit test); and (3) `executions >= 2` is enforced in `validate()`
-on **every** path including deletion, a restriction that a *future* HF29 (absent here) relaxes.
+(empirically asserted by a unit test); and (3) on mainnet `executions >= 2` is enforced on
+**every** path including deletion, since 1.28.8 by the evaluator (`validate()` rejects only 0),
+a restriction that HF29 (defined in 1.28.8, inactive on mainnet) relaxes for modify and delete.
 
 ## Key Discoveries
 
-### 1. Only HF25 is an active hardfork gate at this SHA; the HF28 `pair_id` guard was removed
+### 1. Only HF25 is a hardfork gate active on mainnet at this SHA; the HF28 `pair_id` guard was removed
 - **What**: The evaluator and the block processor each gate the *entire* feature on
-  `HIVE_HARDFORK_1_25` and nothing else. The `pair_id` extension (documented as "Since HF28")
-  has **no** HF28 assertion anywhere in the worktree. The guard
+  `HIVE_HARDFORK_1_25`; the only other gates are two HF29 checks on the `executions` minimum,
+  in the evaluator since 1.28.8 and inactive on mainnet (Discovery 3). The `pair_id` extension
+  (documented as "Since HF28") has **no** HF28 assertion anywhere in the worktree. The guard
   `FC_ASSERT( !was_pair_id || has_hardfork(HIVE_HARDFORK_1_28), ... )` existed in an ancestor
   commit (`8ab354b9c`) but was deleted by ancestor commit `b155eb62e` ("clean transfer
   operations and their handling code") together with a pre-HF28 "Legacy faulty validation
   (issue #456)" duration check.
-- **Where**: `libraries/chain/hive_evaluator_transfer.cpp:908` (HF25, the only gate);
-  `:916` (`op.get_pair_id()` called with no version check);
+- **Where**: `libraries/chain/hive_evaluator_transfer.cpp:954` (HF25, the only gate active on
+  mainnet; the two HF29 gates are at `hive_evaluator_transfer.cpp:991, 1011`);
+  `:962` (`op.get_pair_id()` called with no version check);
   `libraries/chain/database_dhf.cpp:39` (HF25 gate in processing). Removal verified via
   `git show b155eb62e -- libraries/chain/hive_evaluator_transfer.cpp`.
 - **Impact**: At this SHA the code carries **no explicit version gate** for the `pair_id`
@@ -47,25 +51,34 @@ on **every** path including deletion, a restriction that a *future* HF29 (absent
   a later block (because the per-block cap was hit) therefore keeps its place on the original
   time grid; its next fire is `original + N × recurrence`, regardless of when it actually ran.
 - **Where**: `libraries/chain/include/hive/chain/detail/state/recurrent_transfer_object.hpp:26-29`.
-  Empirically asserted in `tests/unit/tests/operation_tests.cpp:9930, 9943, 9959, 9970`
+  Empirically asserted in `tests/unit/tests/operation_tests.cpp:10003, 10016, 10032, 10043`
   (a transfer deferred by one block still has `trigger_date == creation + days(1)`, identical
   to the on-time transfers).
 - **Impact**: Predictable cadence; backlog does not cause schedule slippage. (Contrast
-  `set_recurrence_trigger_date()` at `:42-48`, used by the *update* path, which re-anchors to
-  `head_block_time + recurrence` **only if** `recurrence` changed.)
+  `set_recurrence_trigger_date()` at `recurrent_transfer_object.hpp:42-48`, used by the *update*
+  path, which re-anchors to `head_block_time + recurrence` **only if** `recurrence` changed.)
 
-### 3. `executions >= 2` is enforced in `validate()` on every path, including delete
-- **What**: `validate()` unconditionally requires `executions >= 2` and
-  `recurrence >= HIVE_MIN_RECURRENT_TRANSFERS_RECURRENCE` (24h on mainnet) — with **no**
-  branch on `amount`. Because deletion is expressed as `amount == 0`, a *delete* operation
-  must still carry `executions >= 2` and `recurrence >= 24` to pass protocol validation.
-- **Where**: `libraries/protocol/hive_operations.cpp:807-825` (executions check at `:819-823`,
-  recurrence at `:815`).
-- **Impact**: You cannot reduce a transfer to a single final execution, nor cancel one while
-  setting `executions = 1`. A *future* commit (`8d435f016`, **not** an ancestor of this SHA)
-  moves these checks to the evaluator and lets `executions == 1` on modify/delete once
-  `HIVE_HARDFORK_1_29_ALLOW_MODIFY_LAST_RECURRENT_TRANSFER` activates — that constant does not
-  exist at this SHA. See *Discoveries* §9 and *Open Questions*.
+### 3. On mainnet `executions >= 2` is enforced on every path, including delete; since 1.28.8 by the evaluator, not `validate()`
+- **What**: `validate()` unconditionally requires
+  `recurrence >= HIVE_MIN_RECURRENT_TRANSFERS_RECURRENCE` (24h on mainnet), with **no** branch
+  on `amount`, but since 1.28.8 it rejects only `executions == 0` (at 1.28.7 it required
+  `executions >= 2` on every path). The minimum of 2 is an evaluator rule since 1.28.8: create
+  always requires `executions >= 2`; delete (`amount == 0`) and modify require it until
+  `HIVE_HARDFORK_1_29_ALLOW_MODIFY_LAST_RECURRENT_TRANSFER` (HF29) is active. HF29 is defined in
+  1.28.8 but inactive on mainnet, so a mainnet node rejects `executions == 1` on every path, as
+  at 1.28.7. A *delete* operation must therefore still carry `recurrence >= 24` (protocol
+  validation) and, on mainnet, `executions >= 2` (evaluator).
+- **Where**: `libraries/protocol/hive_operations.cpp:807-826` (recurrence `:813`, executions `:820-824`);
+  evaluator `libraries/chain/hive_evaluator_transfer.cpp:976-978` (create),
+  `hive_evaluator_transfer.cpp:991-996` (delete) and `:1011-1016` (modify), both behind the HF29
+  switch defined at `libraries/protocol/hardfork.d/1_29.hf:21-22`.
+- **Impact**: On mainnet you cannot reduce a transfer to a single final execution, nor cancel
+  one while setting `executions = 1`. Since 1.28.8 the rejection is a chain limit assertion in
+  the evaluator, so a client that runs only `validate()` accepts `executions == 1` and the node
+  then rejects the transaction. Under HF29, modify and delete accept `executions == 1` (modify
+  sets `remaining_executions = 1`, so the amount or memo of the last payment can be edited; that
+  execution then runs once and the object is removed); create still requires 2. Commits
+  `f0b297431` and `73d5bb936`; see *Hardfork-conditional behavior* and Discrepancy 2.
 
 ### 4. RC state cost scales with the transfer's whole lifetime (`recurrence × executions`)
 - **What**: The RC state-byte charge is
@@ -75,7 +88,7 @@ on **every** path including deletion, a restriction that a *future* HF29 (absent
   plus `processing_time × op.executions`. The op is counted as a market operation.
 - **Where**: `libraries/chain/rc/resource_count.cpp:517-527` (lifetime at `:521`); sizes at
   `libraries/chain/rc/resource_sizes.cpp:156-160` (base = `SIZE(node,200) × TEMPORARY_STATE_BYTE`,
-  per-char = `TEMPORARY_STATE_BYTE`) and `:225-226` (times).
+  per-char = `TEMPORARY_STATE_BYTE`) and `resource_sizes.cpp:225-226` (times).
 - **Impact**: Longer/denser schedules cost proportionally more RC up front; the `TEMPORARY`
   byte class reflects that state is reclaimed when the transfer completes or is removed.
 
@@ -86,9 +99,11 @@ on **every** path including deletion, a restriction that a *future* HF29 (absent
   **never reads them** — the evaluator and processor use the compile-time `HIVE_*` macros
   directly. The dgpo fields are only copied into `condenser_api`/`database_api` responses.
 - **Where**: fields at
-  `libraries/chain/include/hive/chain/detail/state/global_property_object.hpp:166-169`;
-  all readers are API constructors only (`database_api_objects_constructors.cpp:184-187`,
-  `condenser_api.hpp:317-320`) — no consensus reader exists (verified by exhaustive grep).
+  `libraries/chain/include/hive/chain/detail/state/global_property_object.hpp:287-290`
+  (private since 1.28.8, behind getters at `global_property_object.hpp:175-178`; the setters at
+  `global_property_object.hpp:193-196` are never called);
+  the only reader is the database_api object's constructor (`database_api_objects_constructors.cpp:182-185`);
+  condenser copies that object's values (`condenser_api.hpp:276`, `condenser_api.hpp:315-318`); no consensus reader exists (verified by exhaustive grep).
 - **Impact**: These fields are a client-facing convenience; they are not (and cannot be) tuned
   at runtime to change behavior. The source of truth is the constants.
 
@@ -96,8 +111,8 @@ on **every** path including deletion, a restriction that a *future* HF29 (absent
 - **What**: A successful fire sets `consecutive_failures = 0`; a failed fire increments it. The
   evaluator's *update* path rewrites `amount`, `memo`, `recurrence`, `remaining_executions`
   but leaves `consecutive_failures` untouched.
-- **Where**: reset on success `database_dhf.cpp:90`; increment on failure `:113`; update path
-  `hive_evaluator_transfer.cpp:947-953` (no failure-counter write).
+- **Where**: reset on success `database_dhf.cpp:91`; increment on failure `:114`; update path
+  `hive_evaluator_transfer.cpp:1018-1024` (no failure-counter write).
 - **Impact**: Editing a transfer that has been failing does not clear its strike count; only a
   funded execution does. After `HIVE_MAX_CONSECUTIVE_RECURRENT_TRANSFER_FAILURES` (10) in a
   row, the object is deleted.
@@ -107,7 +122,7 @@ on **every** path including deletion, a restriction that a *future* HF29 (absent
   (`const auto remaining_executions = current.remaining_executions - 1;`) and written back in
   **both** the success and the keep-after-failure branches. A failed fire is not retried; it
   burns a scheduled slot and reschedules to the next grid point.
-- **Where**: `database_dhf.cpp:66` (decrement), `:92` (success writeback), `:115` (failure
+- **Where**: `database_dhf.cpp:66` (decrement), `:93` (success writeback), `:116` (failure
   writeback). Comment confirms: "failed transfers are not automatically repeated"
   (`hive_virtual_operations.hpp:646`).
 - **Impact**: Insufficient funds shorten the effective number of *successful* payments; the
@@ -119,7 +134,7 @@ on **every** path including deletion, a restriction that a *future* HF29 (absent
   `HIVE_MAX_RECURRENT_TRANSFERS_PER_BLOCK` (1000) executions in a block; remaining due
   transfers (earliest `trigger_date`, then lowest `id`) are processed in subsequent blocks.
 - **Where**: `database_dhf.cpp:53-57`; ordering via the `by_trigger_date` index `:43`.
-  Empirically: `operation_tests.cpp:9876-9975` creates 1004 due transfers and asserts exactly
+  Empirically: `operation_tests.cpp:9946-10048` creates 1004 due transfers and asserts exactly
   1000 fire in the first block and 4 in the second.
 - **Impact**: A single block's transfer-processing cost is capped regardless of how many are
   due; combined with grid-anchoring (§2), short deferrals do not perturb the schedule.
@@ -131,7 +146,7 @@ on **every** path including deletion, a restriction that a *future* HF29 (absent
   `fill_*` vops). The loop guard `result.size() <= DATABASE_API_SINGLE_QUERY_LIMIT` (1000) is
   inclusive, so up to **1001** objects can be returned.
 - **Where**: `libraries/plugins/apis/database_api/database_api_financial.cpp:736-754`
-  (`by_from_id` at `:743`, `<=` guard at `:746`); limit macro
+  (`by_from_id` at `:743`, `<=` guard at `database_api_financial.cpp:746`); limit macro
   `database_api_args.hpp:11` (`DATABASE_API_SINGLE_QUERY_LIMIT 1000`).
 - **Impact**: Off-by-one over-return (minor, non-consensus); and a real coverage gap for
   recipient-side discovery. See *Discrepancies* §3.
@@ -140,7 +155,7 @@ on **every** path including deletion, a restriction that a *future* HF29 (absent
 
 ### Operation: `recurrent_transfer_operation` (regular op #49)
 `libraries/protocol/include/hive/protocol/hive_operations.hpp:1013-1039`,
-reflected at `:1219`.
+reflected at `hive_operations.hpp:1219`.
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -149,17 +164,17 @@ reflected at `:1219`.
 | `amount` | `asset` | liquid (HIVE/HBD), non-vesting, non-negative; `amount == 0` ⇒ delete |
 | `memo` | `string` | ≤ `HIVE_MAX_MEMO_SIZE - 1` (2047), UTF-8 |
 | `recurrence` | `uint16_t` (hrs) | ≥ 24 (mainnet) |
-| `executions` | `uint16_t` | ≥ 2 (this SHA, all paths) |
+| `executions` | `uint16_t` | >= 1 in `validate()` since 1.28.8; the evaluator requires >= 2 to create, and to modify or delete before HF29 (so always on mainnet) |
 | `extensions` | `flat_set<recurrent_transfer_extension>` | only `recurrent_transfer_pair_id` supported |
 
 `get_pair_id()` walks the extensions via `recurrent_transfer_extension_visitor`, returning the
 `pair_id` (default 0) and optionally whether it was explicitly set (`was_pair_id`); the
 evaluator call site passes `explicitValue = nullptr` so `was_pair_id` is discarded.
-`hive_operations.cpp:832-864`.
+`hive_operations.cpp:833-865`.
 
 ### Extension: `recurrent_transfer_pair_id`
-`libraries/protocol/include/hive/protocol/types.hpp:151-161` (a `static_variant<void_t,
-recurrent_transfer_pair_id>`, with `uint8_t pair_id = 0`), reflected at `:187`.
+`libraries/protocol/include/hive/protocol/types.hpp:146-156` (a `static_variant<void_t,
+recurrent_transfer_pair_id>`, with `uint8_t pair_id = 0`), reflected at `:182`.
 
 ### State object: `recurrent_transfer_object`
 `libraries/chain/include/hive/chain/detail/state/recurrent_transfer_object.hpp:11-78`.
@@ -194,7 +209,7 @@ There is **no** by-`to` index.
 ### Account counter
 `account_object.open_recurrent_transfers` (`uint16_t`, max 255) tracks the number of live
 objects an account sends; incremented on create, decremented on delete/removal.
-`libraries/chain/include/hive/chain/detail/state/account_object.hpp:248`.
+`libraries/chain/include/hive/chain/detail/state/account_object.hpp:273`.
 
 ### Virtual operations
 - `fill_recurrent_transfer_operation` — emitted on each successful fire; carries
@@ -202,29 +217,29 @@ objects an account sends; incremented on create, decremented on delete/removal.
   `hive_virtual_operations.hpp:627-641`.
 - `failed_recurrent_transfer_operation` — emitted when funds are insufficient; adds
   `consecutive_failures` and `deleted` (true iff the object was removed this attempt).
-  `:650-666`.
+  `hive_virtual_operations.hpp:650-666`.
 
 Both are virtual ops (`operations.hpp:113-114`, `last_regular + 34 / + 35`), consistent with
 the KB's 50-regular + 43-virtual count.
 
 ## Preconditions / Side Effects / Postconditions (evaluator)
 
-`recurrent_transfer_evaluator::do_apply` — `hive_evaluator_transfer.cpp:906-957`.
+`recurrent_transfer_evaluator::do_apply` — `hive_evaluator_transfer.cpp:952-1028`.
 
 **Preconditions (all paths):**
-- `has_hardfork(HIVE_HARDFORK_1_25)` (`:908`).
-- `from` and `to` accounts exist (`:910-911`).
+- `has_hardfork(HIVE_HARDFORK_1_25)` (`:954`).
+- `from` and `to` accounts exist (`:956-957`).
 - Sender's liquid balance in `amount.symbol` ≥ `amount` — the "first transfer" affordability
-  check (`:913-914`). NB this checks affordability of *one* installment at submission time, not
-  the whole schedule.
+  check (`hive_evaluator_transfer.cpp:959-960`). NB this checks affordability of *one*
+  installment at submission time, not the whole schedule.
 
 **Branch by `(existing object?, amount)`:**
 
 | Case | Condition | Effect |
 |------|-----------|--------|
-| **Create** | no object for `(from,to,pair_id)` | assert `open_recurrent_transfers < 255` (`:923`); assert `amount != 0` (`:925`); create object with `trigger_date = head_block_time` (`:926`); assert `get_final_trigger_date() ≤ head_block_time + 730 days` (`:927-928`); `open_recurrent_transfers++` (`:930-933`) |
-| **Delete** | object exists, `amount == 0` | remove object (`:937`); assert counter `> 0` then `--` (`:938-942`) |
-| **Update** | object exists, `amount != 0` | overwrite `amount`, `memo`, `set_recurrence_trigger_date()`, `remaining_executions = op.executions` (`:947-953`); re-assert end-date ≤ 730 days (`:954-955`) |
+| **Create** | no object for `(from,to,pair_id)` | assert `open_recurrent_transfers < 255` (`:969`); assert `amount != 0` (`:971`); assert `executions >= 2` (`:976-978`; in `validate()` at 1.28.7); create object with `trigger_date = head_block_time` (`:979`); assert `get_final_trigger_date() <= head_block_time + 730 days` (`:980-981`); `open_recurrent_transfers++` (`:983-986`) |
+| **Delete** | object exists, `amount == 0` | before HF29 (so always on mainnet) assert `executions >= 2` (`hive_evaluator_transfer.cpp:991-996`; in `validate()` at 1.28.7); remove object (`:997`); assert counter `> 0` then `--` (`:998-1002`) |
+| **Update** | object exists, `amount != 0` | before HF29 (so always on mainnet) assert `executions > 1` (`hive_evaluator_transfer.cpp:1011-1016`; in `validate()` at 1.28.7); overwrite `amount`, `memo`, `set_recurrence_trigger_date()`, `remaining_executions = op.executions` (`:1018-1024`); re-assert end-date <= 730 days (`:1025-1026`) |
 
 **Postconditions of note:** create sets the first `trigger_date` to *now*, so the first
 installment fires on the next block that runs processing (the transfer "executes immediately").
@@ -233,54 +248,58 @@ and only moves `trigger_date` if `recurrence` changed.
 
 ## Block processing state machine
 
-`database::process_recurrent_transfers()` — `database_dhf.cpp:37-144`, called from
-`apply_block` (`database.cpp:2354`) after most other periodic processes.
+`database::process_recurrent_transfers()` — `database_dhf.cpp:37-145`, called from
+`database::_apply_block` (`database.cpp:2368`; `apply_block` calls it) after most other periodic processes.
 
 ```
 if !has_hardfork(HF25): return
 now = head_block_time()
 itr = index<by_trigger_date>.begin()
 while itr != end() && itr->trigger_date <= now:
-    if processed >= 1000: break                      # per-block cap (:53)
-    cur = *itr;  ++itr                               # advance BEFORE mutating (:59-60)
-    assert cur.remaining_executions > 0              # (:65)
-    rem = cur.remaining_executions - 1               # decrement once (:66)
-    if balance(from, amount.symbol) >= cur.amount:   # success (:76)
-        adjust_balance(from, -amount); adjust_balance(to, +amount)   # (:78-79)
+    if processed >= 1000: break                      # per-block cap (database_dhf.cpp:53)
+    cur = *itr;  ++itr                               # advance BEFORE mutating (database_dhf.cpp:59-60)
+    assert cur.remaining_executions > 0              # (database_dhf.cpp:65)
+    rem = cur.remaining_executions - 1               # decrement once (database_dhf.cpp:66)
+    if balance(from, amount.symbol) >= cur.amount:   # success (database_dhf.cpp:76)
+        adjust_balance(from, -amount); adjust_balance(to, +amount)   # via a temp_balance (database_dhf.cpp:78-80)
         if rem == 0: remove_flag = true
         else: modify{ consecutive_failures = 0; trigger_date += recurrence; remaining = rem }
-        emit fill_recurrent_transfer(... rem ...)     # (:96)
-    else:                                            # insufficient funds (:98)
+        emit fill_recurrent_transfer(... rem ...)     # (database_dhf.cpp:97)
+    else:                                            # insufficient funds (database_dhf.cpp:99)
         cf = cur.consecutive_failures + 1
         if cf < 10:
             if rem == 0: remove_flag = true
             else: modify{ ++consecutive_failures; trigger_date += recurrence; remaining = rem }
-            emit failed_recurrent_transfer(... cf, rem, deleted=remove_flag ...)   # (:119)
-        else:                                        # 10th failure → kill (:121-127)
+            emit failed_recurrent_transfer(... cf, rem, deleted=remove_flag ...)   # (database_dhf.cpp:120)
+        else:                                        # 10th failure -> kill (database_dhf.cpp:122-128)
             remove_flag = true
             emit failed_recurrent_transfer(... cf, rem, deleted=true ...)
-    if remove_flag: remove(cur); from.open_recurrent_transfers-- (assert >0)       # (:130-138)
+    if remove_flag: remove(cur); from.open_recurrent_transfers-- (assert >0)       # (database_dhf.cpp:131-139)
     processed++
 ```
 
-Key invariants enforced here: `remaining_executions > 0` for any persisted object (`:65`); the
-sender counter never underflows (`FC_ASSERT(open_recurrent_transfers > 0)` at `:135`). The
-`++itr` before mutation (`:60`) avoids iterator invalidation when `modify` relocates the object
+Key invariants enforced here: `remaining_executions > 0` for any persisted object
+(`database_dhf.cpp:65`); the sender counter never underflows
+(`FC_ASSERT(open_recurrent_transfers > 0)` at `database_dhf.cpp:136`). The `++itr` before
+mutation (`database_dhf.cpp:60`) avoids iterator invalidation when `modify` relocates the object
 in the `by_trigger_date` ordering.
 
 ## Hardfork-conditional behavior (verified evolution)
 
-At the pinned SHA the **only** runtime hardfork condition in the entire flow is HF25. The
-following version-gated branches existed earlier and were removed as post-HF28 cleanup. All
-three commits below were confirmed ancestors of `1584099c30` via `git merge-base --is-ancestor`.
+At the pinned SHA the **only** runtime hardfork condition active on mainnet in the entire flow
+is HF25; the two HF29 gates the evaluator carries since 1.28.8 are inactive there (last row and
+the HF29 paragraph below). The table lists the version-gated behavior of the flow: branches removed as
+post-HF28 cleanup, checks still active, a fixed virtual-operation flag and the HF29 gate added in 1.28.8. Every commit named in this section was checked against `274384a8ad` with
+`git merge-base --is-ancestor`: all are ancestors except the two named as such below.
 
 | Behavior | History | At this SHA |
 |----------|---------|-------------|
-| Feature enablement | added HF25 | **active** (`hive_evaluator_transfer.cpp:908`, `database_dhf.cpp:39`) |
+| Feature enablement | added HF25 | **active** (`hive_evaluator_transfer.cpp:954`, `database_dhf.cpp:39`) |
 | `pair_id` extension | gated by `has_hardfork(HF28)` inside the visitor (`ae10dd10f`, 2023), moved to evaluator (`8ab354b9c`), then **removed** (`b155eb62e`) | **no gate** — accepted whenever HF25 active |
 | End-date limit (pre-HF28) | "Legacy faulty validation, issue #456": `recurrence × executions hours < 730 days`, gated `!has_hardfork(HF28)`; **removed** by `b155eb62e` | gone — only the post-HF28 absolute check remains |
-| End-date limit (post-HF28) | `get_final_trigger_date() ≤ head_block_time + 730 days` | **active** (`:927-928`, `:954-955`) |
-| `failed_*` vop `deleted` flag | issue #769 (`19a89e7a9`): once hard-coded `false`, fixed to report real removal | **fixed** (`database_dhf.cpp:119`) |
+| End-date limit (post-HF28) | `get_final_trigger_date() <= head_block_time + 730 days` | **active** (`hive_evaluator_transfer.cpp:980-981`, `:1025-1026`) |
+| `failed_*` vop `deleted` flag | issue #769 (`19a89e7a9`): once hard-coded `false`, fixed to report real removal | **fixed** (`database_dhf.cpp:120`) |
+| `executions == 1` on modify / delete | `validate()` required `executions >= 2` on every path through 1.28.7; since 1.28.8 the evaluator enforces the minimum and, for modify and delete, gates it on `HIVE_HARDFORK_1_29_ALLOW_MODIFY_LAST_RECURRENT_TRANSFER` (`f0b297431`, `73d5bb936`, issue #786) | **defined, inactive on mainnet** (`hive_evaluator_transfer.cpp:991`, `:1011`): mainnet still rejects `executions == 1` |
 
 The two pre-HF28 formulas differed: the old check used `recurrence × executions` strictly `<`
 730 days; the new one uses `recurrence × (executions − 1)` (the span to the final fire) `≤`
@@ -288,28 +307,39 @@ The two pre-HF28 formulas differed: the old check used `recurrence × executions
 a hardfork. Removing the old branch is replay-safe because any op that would differ between the
 two was rejected pre-HF28 and so cannot appear in a pre-HF28 block.
 
-**Not present at this SHA (future work):** `HIVE_HARDFORK_1_29_ALLOW_MODIFY_LAST_RECURRENT_TRANSFER`
-and the commits that introduce it (`8d435f016`, `2b42e9f48`) — verified **not** ancestors.
-That future work moves the `executions` minimum into the evaluator and permits `executions == 1`
-when modifying/deleting an existing transfer (issue #786), so a user can edit the last remaining
-installment. Today that is impossible (see *Discoveries* §3).
+**HF29 (defined in 1.28.8, inactive on mainnet):** `HIVE_HARDFORK_1_29_ALLOW_MODIFY_LAST_RECURRENT_TRANSFER`
+(`libraries/protocol/hardfork.d/1_29.hf:21-22`, defined by commit `d38106508f`) is used by commits `f0b297431` and `73d5bb936`;
+all three are ancestors of this SHA. The patches of the last two are identical (`git patch-id`) to those of `8d435f016`
+and `2b42e9f48`, the hashes the 1.28.7 version of this part named as future work; those two are
+still not ancestors. `f0b297431` and `73d5bb936` move the `executions` minimum into the evaluator and, once HF29
+is active, permit `executions == 1` when modifying or deleting an existing transfer (issue #786),
+so a user can edit the last remaining installment. `73d5bb936` adds the pre-HF29 delete guard:
+with `f0b297431` alone a node would accept, before HF29, a delete with `executions == 1` that
+1.28.7 nodes reject (test comment `tests/unit/tests/hf29_tests.cpp:450-452`). A 1.28.8 mainnet
+build cannot activate HF29: `HIVE_NUM_HARDFORKS` is 28 there (`libraries/protocol/hardfork.d/0-preamble.hf:15-20`),
+HF29 is registered only under `USE_ALTERNATE_CHAIN_ID` (`libraries/chain/database_hardfork.cpp:112-116`),
+and every `apply_hardfork()` call is capped at `HIVE_NUM_HARDFORKS` (`database_hardfork.cpp:131, 140, 165`),
+so `has_hardfork()` (`database_hardfork.cpp:151-154`) never reports HF29 there. On mainnet,
+editing the last installment therefore remains impossible (see Discovery 3). Tests:
+`tests/unit/tests/hf29_tests.cpp:297-392` (modify) and `:394-476` (delete), each run at HF28 and
+at HF29.
 
 ## Constants
 
 All from `libraries/protocol/include/hive/protocol/config.hpp`. The end-date / per-block /
-min-recurrence trio is defined twice — once in the testnet branch (`:123-125`, where
+min-recurrence trio is defined twice - once in the testnet branch (`config.hpp:122-124`, where
 `HIVE_MIN_RECURRENT_TRANSFERS_RECURRENCE` is runtime-configurable via
 `configuration_data.get_hive_min_recurrent_transfers_recurrence()`) and once in the live branch
-(`:204-206`, hard-coded `24`). The two account/failure caps sit after the `#endif` and are
+(`config.hpp:200-202`, hard-coded `24`). The two account/failure caps sit after the `#endif` and are
 common to both networks.
 
 | Constant | Value (mainnet) | Where |
 |----------|-----------------|-------|
-| `HIVE_MAX_RECURRENT_TRANSFER_END_DATE` | 730 (days) | `config.hpp:204` |
-| `HIVE_MAX_RECURRENT_TRANSFERS_PER_BLOCK` | 1000 | `config.hpp:205` |
-| `HIVE_MIN_RECURRENT_TRANSFERS_RECURRENCE` | 24 (hours) | `config.hpp:206` |
-| `HIVE_MAX_OPEN_RECURRENT_TRANSFERS` | 255 | `config.hpp:241` |
-| `HIVE_MAX_CONSECUTIVE_RECURRENT_TRANSFER_FAILURES` | 10 | `config.hpp:242` |
+| `HIVE_MAX_RECURRENT_TRANSFER_END_DATE` | 730 (days) | `config.hpp:200` |
+| `HIVE_MAX_RECURRENT_TRANSFERS_PER_BLOCK` | 1000 | `config.hpp:201` |
+| `HIVE_MIN_RECURRENT_TRANSFERS_RECURRENCE` | 24 (hours) | `config.hpp:202` |
+| `HIVE_MAX_OPEN_RECURRENT_TRANSFERS` | 255 | `config.hpp:237` |
+| `HIVE_MAX_CONSECUTIVE_RECURRENT_TRANSFER_FAILURES` | 10 | `config.hpp:238` |
 
 Testnet default for min-recurrence is also 24h, adjustable via
 `set_min_recurrent_transfers_recurrence()` (`testnet_blockchain_configuration.hpp:51,200-202`).
@@ -323,8 +353,8 @@ Testnet default for min-recurrence is also 24h, adjustable via
   `args[0]`, delegating to the database_api method (`condenser_api.cpp:1074-1078`).
 - **`api_recurrent_transfer_object`** fields: `id, trigger_date, from, to, amount, memo,
   recurrence, consecutive_failures, remaining_executions, pair_id`
-  (`database_api_objects.hpp:589-603`, reflected `:874`; constructor maps `from_id/to_id` →
-  names and `get_trigger_date()` → `trigger_date`, `database_api_objects_constructors.cpp:444-455`).
+  (`database_api_objects.hpp:587-601`, reflected `:871`; the caller looks up the `from`/`to` names
+  (`database_api_financial.cpp:748-749`) and the constructor copies them and maps `get_trigger_date()` to `trigger_date`, `database_api_objects_constructors.cpp:442-453`).
 - The `cli_wallet` exposes a `recurrent_transfer` helper (`libraries/wallet/wallet.cpp`,
   declared in `wallet.hpp`) — convenience only, no consensus role.
 
@@ -334,62 +364,74 @@ For the operation and both virtual ops, account-history impact records **both** 
 `to`, with `from` as the owner — so a recurrent transfer appears in both parties' histories
 (`forward_impacted.cpp:281-287` op, `:578-584` fill, `:586-592` failed). The balance-tracking
 visitor records the fund movement only for the **fill** vop (`to += amount`, `from -= amount`,
-`:857-861`); `failed_*` is intentionally absent there because a failed attempt moves no funds.
+`forward_impacted.cpp:857-861`); `failed_*` is intentionally absent there because a failed
+attempt moves no funds.
 
 ## Code References
 
 | Component | File | Line | Purpose |
 |-----------|------|------|---------|
 | Operation struct | `libraries/protocol/include/hive/protocol/hive_operations.hpp` | 1013-1039 | field definitions, `get_pair_id` decls |
-| Operation reflection | `…/hive_operations.hpp` | 1219 | FC_REFLECT |
-| Extension type | `libraries/protocol/include/hive/protocol/types.hpp` | 151-161 | `recurrent_transfer_pair_id`, variant |
-| `validate()` | `libraries/protocol/hive_operations.cpp` | 807-825 | protocol checks (incl. executions≥2 all-paths) |
-| `get_pair_id` / visitor | `…/hive_operations.cpp` | 832-864 | extension parsing |
-| State object | `…/detail/state/recurrent_transfer_object.hpp` | 11-78 | fields + trigger-date methods |
-| `update_next_trigger_date` | `…/recurrent_transfer_object.hpp` | 26-29 | grid-anchored `+= recurrence` |
-| `get_final_trigger_date` | `…/recurrent_transfer_object.hpp` | 36-39 | end-date computation |
-| `set_recurrence_trigger_date` | `…/recurrent_transfer_object.hpp` | 42-48 | re-anchor on recurrence change |
-| Indices | `…/recurrent_transfer_object_multiindex.hpp` | 9-36 | by_id / by_trigger_date / by_from_id / by_from_to_id |
-| Account counter | `…/detail/state/account_object.hpp` | 248 | `open_recurrent_transfers` |
-| Evaluator | `libraries/chain/hive_evaluator_transfer.cpp` | 906-957 | create/delete/update CRUD |
-| Block processing | `libraries/chain/database_dhf.cpp` | 37-144 | due-transfer execution loop |
-| Processing call site | `libraries/chain/database.cpp` | 2351 | invoked per block in `apply_block` |
+| Operation reflection | `.../hive_operations.hpp` | 1219 | FC_REFLECT |
+| Extension type | `libraries/protocol/include/hive/protocol/types.hpp` | 146-156 | `recurrent_transfer_pair_id`, variant |
+| `validate()` | `libraries/protocol/hive_operations.cpp` | 807-826 | protocol checks (`recurrence >= 24` on all paths; `executions >= 1` since 1.28.8) |
+| `get_pair_id` / visitor | `.../hive_operations.cpp` | 833-865 | extension parsing |
+| State object | `.../detail/state/recurrent_transfer_object.hpp` | 11-78 | fields + trigger-date methods |
+| `update_next_trigger_date` | `.../recurrent_transfer_object.hpp` | 26-29 | grid-anchored `+= recurrence` |
+| `get_final_trigger_date` | `.../recurrent_transfer_object.hpp` | 36-39 | end-date computation |
+| `set_recurrence_trigger_date` | `.../recurrent_transfer_object.hpp` | 42-48 | re-anchor on recurrence change |
+| Indices | `.../recurrent_transfer_object_multiindex.hpp` | 9-36 | by_id / by_trigger_date / by_from_id / by_from_to_id |
+| Account counter | `.../detail/state/account_object.hpp` | 273 | `open_recurrent_transfers` |
+| Evaluator | `libraries/chain/hive_evaluator_transfer.cpp` | 952-1028 | create/delete/update CRUD, per-path `executions` minimum |
+| Block processing | `libraries/chain/database_dhf.cpp` | 37-145 | due-transfer execution loop |
+| Processing call site | `libraries/chain/database.cpp` | 2368 | invoked per block in `database::_apply_block` (which `apply_block` calls) |
 | Virtual ops | `libraries/protocol/include/hive/protocol/hive_virtual_operations.hpp` | 627-666 | fill / failed |
 | Op registration | `libraries/protocol/include/hive/protocol/operations.hpp` | 74,113-114 | regular #49, virtual +34/+35 |
 | RC cost | `libraries/chain/rc/resource_count.cpp` | 517-527 | lifetime-scaled state + exec time |
 | RC sizes | `libraries/chain/rc/resource_sizes.cpp` | 156-160, 225-226 | byte/time coefficients |
-| dgpo mirror fields | `…/detail/state/global_property_object.hpp` | 166-169 | informational only |
+| dgpo mirror fields | `.../detail/state/global_property_object.hpp` | 287-290 | informational only |
 | Impacted accounts | `libraries/protocol/forward_impacted.cpp` | 281-287, 578-592, 857-861 | account-history + balance impact |
-| database_api impl | `…/database_api/database_api_financial.cpp` | 736-754 | `find_recurrent_transfers` |
-| api object | `…/database_api/include/.../database_api_objects.hpp` | 589-603 | response struct |
-| Constants | `libraries/protocol/include/hive/protocol/config.hpp` | 204-206, 241-242 | mainnet limits |
-| Unit test (per-block + no-drift) | `tests/unit/tests/operation_tests.cpp` | 9876-9975 | cap + grid-anchoring proof |
-| Unit tests (suite) | `tests/unit/tests/operation_tests.cpp` | 9562-10443 | validate/apply/hbd/max-open/pair_id/edit |
-| Unit test (expiration) | `tests/unit/tests/operation_time_tests.cpp` | 3112 | lifecycle end |
+| database_api impl | `.../database_api/database_api_financial.cpp` | 736-754 | `find_recurrent_transfers` |
+| api object | `.../database_api/include/.../database_api_objects.hpp` | 587-601 | response struct |
+| Constants | `libraries/protocol/include/hive/protocol/config.hpp` | 200-202, 237-238 | mainnet limits |
+| HF29 switch | `libraries/protocol/hardfork.d/1_29.hf` | 21-22 | `ALLOW_MODIFY_LAST_RECURRENT_TRANSFER` (defined, inactive on mainnet) |
+| Unit test (per-block + no-drift) | `tests/unit/tests/operation_tests.cpp` | 9946-10048 | cap + grid-anchoring proof |
+| Unit tests (suite) | `tests/unit/tests/operation_tests.cpp` | 9629-10518 | validate/apply/hbd/max-open/pair_id/edit |
+| Unit tests (HF29) | `tests/unit/tests/hf29_tests.cpp` | 297-476 | modify / delete with `executions == 1` at HF28 and HF29 |
+| Unit test (expiration) | `tests/unit/tests/operation_time_tests.cpp` | 3097 | lifecycle end |
 
 ## Cross-references to existing parts
 
 - **Part 02 (operations-catalog)** — *complements*: lists `recurrent_transfer_operation` (#49)
   and the two vops; this zoom adds the full field semantics and the `pair_id` extension parsing.
-- **Part 03 (operation-validation)** — *deepens / refines*: Part 03 (`:603-616`) states
-  recurrence≥24, executions≥2, and that chain limits are enforced at the evaluator. This zoom
-  adds (a) that executions≥2 applies even to deletes, (b) that the end-date check is the
-  post-HF28 absolute form and the pre-HF28 duration form was removed, and (c) that the `pair_id`
-  extension has no evaluator HF gate at this SHA. No contradiction — Part 03's line cites
-  (`hive_evaluator_transfer.cpp:923-928, 954-955`) still hold.
-- **Part 04 (chain-evaluators)** — *deepens*: Part 04 (`§2.11`, `:1205-1217`) summarizes the
-  evaluator and `process_recurrent_transfers`. This zoom supplies the full state machine,
-  grid-anchoring, failure accounting, and the iterator-safety detail.
-- **Part 05 (state-objects)** — *deepens*: confirms `recurrent_transfer_object` lifecycle
-  (`:1754`); adds index roles and the private-`trigger_date` accessor pattern.
-- **Part 07 / Part 08 (economics / RC)** — *confirms*: Part 08 (`:139`) already gives
-  `(200 + memo) × TEMPORARY × recurrence × executions`; this zoom verifies the exact code and
-  the `amount > 0` gating and market-op flag.
-- **Part 09 (hardfork-history)** — *deepens*: Part 09 (`:332-335,415`) attributes recurrent
-  transfers to HF25. This zoom documents the HF28 `pair_id` era and its *removal* at this SHA,
-  plus the (future, absent) HF29 single-execution relaxation — material not in Part 09.
-- **Part 10 (api-layer)** — *deepens*: Part 10 (`:237,351`) lists `find_recurrent_transfers`;
-  this zoom adds the by-sender-only limitation, the absent by-`to` index, and the `<=` off-by-one.
+- **Part 03 (operation-validation)** - *deepens / refines*: Part 03 (section
+  recurrent_transfer_operation (ID 49)) gives the `validate()` checks (recurrence >= 24 and the
+  `executions` minimum) and states that chain limits are enforced at the evaluator. This zoom
+  adds (a) that on mainnet `executions >= 2` applies even to deletes (an evaluator rule since
+  1.28.8, which HF29, inactive on mainnet, relaxes for delete and modify), (b) that the end-date
+  check is the post-HF28 absolute form and the pre-HF28 duration form was removed, and (c) that
+  the `pair_id` extension has no evaluator HF gate at this SHA. The evaluator code Part 03 points
+  to (create-path limits and the two end-date asserts) is at
+  `hive_evaluator_transfer.cpp:969-981, 1025-1026` at this SHA.
+- **Part 04 (chain-evaluators)** - *deepens*: Part 04 (sections 2.11 Recurrent Transfer Helpers
+  and 5.1 Transfer Evaluators, `recurrent_transfer_evaluator`) summarizes the evaluator and
+  `process_recurrent_transfers`. This zoom supplies the full state machine, grid-anchoring,
+  failure accounting, and the iterator-safety detail.
+- **Part 05 (state-objects)** - *deepens*: Part 05 (section recurrent_transfer_object) lists the
+  fields and indices of `recurrent_transfer_object`; this zoom confirms its lifecycle as given in
+  Part 04's section 7 (State Object Modification Map) and adds index roles and the
+  private-`trigger_date` accessor pattern.
+- **Part 07 / Part 08 (economics / RC)** - *confirms*: Part 08 (section Resource Measurement
+  Details, `state_bytes` table) already gives `(200 + memo) * TEMPORARY * recurrence * executions`;
+  this zoom verifies the exact code and the `amount > 0` gating and market-op flag.
+- **Part 09 (hardfork-history)** - *deepens*: Part 09 (section HF25, Recurrent Transfers & Linear
+  Rewards, and the Hardfork-Conditional Code Map) attributes recurrent transfers to HF25. This zoom
+  documents the HF28 `pair_id` era and its *removal* at this SHA (material not in Part 09), plus
+  the per-path detail of the HF29 single-execution relaxation (defined in 1.28.8, inactive on
+  mainnet).
+- **Part 10 (api-layer)** - *deepens*: Part 10 (section API Reference: the condenser_api table and
+  the database_api table, Recurrent Transfers) lists `find_recurrent_transfers`; this zoom adds the
+  by-sender-only limitation, the absent by-`to` index, and the `<=` off-by-one.
 
 ## Discrepancies and Potential Issues
 
@@ -403,13 +445,15 @@ visitor records the fund movement only for the **fill** vop (`to += amount`, `fr
    **non-mainnet / alternative** history that *did* contain a pre-HF28 `pair_id` op would
    diverge from a pre-`b155eb62e` node. Flagged for awareness, not as a mainnet bug.
 
-2. **`executions >= 2` blocks editing/cancelling the last installment.** Once
+2. **`executions >= 2` blocks editing/cancelling the last installment (on mainnet).** Once
    `remaining_executions` reaches 1, the holder cannot change the amount/memo of that final
    payment without resetting `executions ≥ 2` (which extends the schedule), and cannot delete
-   with `executions = 1`. The future HF29 (`8d435f016`, not present here) treats this as a bug
-   (issue #786) and relaxes it. At this SHA it is a real, if minor, UX limitation; the
-   `recurrence ≥ 24` and `executions ≥ 2` requirements also apply to delete operations, which is
-   surprising for an `amount == 0` "cancel".
+   with `executions = 1`. HF29 (`f0b297431`, `73d5bb936`; defined in 1.28.8, inactive on
+   mainnet) treats this as a bug (issue #786) and relaxes it for modify and delete. On mainnet
+   at this SHA it is still a real, if minor, UX limitation, enforced since 1.28.8 by the
+   evaluator instead of `validate()`; the `recurrence >= 24` (`validate()`) and
+   `executions >= 2` (evaluator, before HF29) requirements also apply to delete operations,
+   which is surprising for an `amount == 0` "cancel".
 
 3. **No recipient-side state query.** `find_recurrent_transfers` and the indices only support
    lookup by sender. A recipient cannot enumerate incoming recurrent transfers from chain state
@@ -418,8 +462,9 @@ visitor records the fund movement only for the **fill** vop (`to += amount`, `fr
    improvement (a `by_to` index / `find_recurrent_transfers_by_to`). Non-consensus.
 
 4. **Affordability is checked for one installment, at submission only.** The evaluator verifies
-   the sender can afford a single `amount` at create/update time (`:913-914`); there is no check
-   that the sender can fund the whole schedule. Subsequent shortfalls are handled at execution
+   the sender can afford a single `amount` at create/update time
+   (`hive_evaluator_transfer.cpp:959-960`); there is no check that the sender can fund the whole
+   schedule. Subsequent shortfalls are handled at execution
    time via the failure/`consecutive_failures` machinery. This is by design but easy to
    misread as a full-schedule guarantee.
 
@@ -450,9 +495,9 @@ STATUS: COMPLETE
 OUTPUT_FILES:
 - research/hive-core/findings/12-recurrent-transfers.md
 KEY_FINDINGS:
-- Only HF25 is an active gate at 1.28.7: the HF28 pair_id guard and a pre-HF28 "faulty" end-date check were both removed as replay-safe cleanup (commit b155eb62e, an ancestor); HF29 single-execution relaxation is NOT present (verified non-ancestor).
-- Scheduling is grid-anchored, not drifting — update_next_trigger_date() does `trigger_date += recurrence` from the prior value, so per-block-cap deferrals never shift the schedule (empirically asserted by operation_tests.cpp:9876-9975).
-- validate() enforces executions>=2 (and recurrence>=24) on EVERY path including delete (amount==0); failed fires consume a remaining_execution and are never retried; consecutive_failures resets only on a funded fire, not on user update.
+- Only HF25 is a gate active on mainnet at 1.28.8: the HF28 pair_id guard and a pre-HF28 "faulty" end-date check were both removed as replay-safe cleanup (commit b155eb62e, an ancestor); the HF29 single-execution relaxation is defined in 1.28.8 (f0b297431, 73d5bb936, ancestors) but HF29 is inactive on mainnet.
+- Scheduling is grid-anchored, not drifting — update_next_trigger_date() does `trigger_date += recurrence` from the prior value, so per-block-cap deferrals never shift the schedule (empirically asserted by operation_tests.cpp:9946-10048).
+- On mainnet executions>=2 applies on EVERY path including delete (amount==0): since 1.28.8 the evaluator enforces it (validate() rejects only executions==0 and still enforces recurrence>=24), and HF29 (inactive on mainnet) relaxes it to 1 for modify/delete; failed fires consume a remaining_execution and are never retried; consecutive_failures resets only on a funded fire, not on user update.
 - RC state cost scales with lifetime = recurrence × executions (charged only when amount>0); the dgpo "limit" fields are informational mirrors never read by consensus.
 - API enumerates by sender only (no by_to index) and the loop guard is an inclusive `<=` (returns up to 1001).
 CROSS_REFS:

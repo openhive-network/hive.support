@@ -7,7 +7,7 @@ flow including the RC differential-usage hook (§1.7) and the out-of-band `witne
 fast-confirm path (§1.8), every balance/vesting/market/governance helper (§2), three deep-dives
 that resolve prior open questions — delayed voting (§2.14), DHF proposal payout (§2.15), and the
 reward-curve catalog (§2.16) — and a per-evaluator reference for all 50 registered evaluators
-(§5). Verified against hive-core `1584099c30` (release 1.28.7).
+(section 5). Verified against hive-core `274384a8a` (release 1.28.8).
 
 ---
 
@@ -54,8 +54,8 @@ The `HIVE_DEFINE_EVALUATOR(X)` macro (`evaluator.hpp:57-68`) generates `class X_
 public evaluator_impl<X_evaluator>` with `typedef X_operation operation_type;`, a constructor
 forwarding `database&` to the base, and a **declaration** of `void do_apply(const X_operation&
 o);`. The body is written by hand in the corresponding `hive_evaluator_*.cpp`. A second macro,
-`HIVE_DEFINE_PLUGIN_EVALUATOR` (`evaluator.hpp:70-84`), additionally stores a `PLUGIN*` for
-plugin-defined operations (not used by the 50 consensus evaluators).
+`HIVE_DEFINE_PLUGIN_EVALUATOR` (`evaluator.hpp:70-84`), additionally stores a `PLUGIN*`; it is not
+used by the 50 consensus evaluators, and its only use at 1.28.8 is the chain's own `delegate_rc` evaluator of the `"rc"` custom operation, with `PLUGIN = void` (`rc/rc_utility.hpp:187`).
 
 ### 1.2 Registration
 
@@ -84,9 +84,9 @@ evaluator with `new EvaluatorType(_db, args...)` and `reset`s it into slot
 `operation::tag<EvaluatorType::operation_type>::value` (`evaluator_registry.hpp:18-22`).
 
 Two lookups exist (`evaluator_registry.hpp:64-72`): `get_evaluator(op)` dereferences the slot
-and **asserts** (`assert(...false)`) on a negative tag, out-of-range tag, or null slot — i.e.
-an unregistered operation in a block aborts the node. `is_evaluator(op)` is the non-asserting
-form (returns `nullptr` instead) used to test registration without crashing. The dispatcher
+after `assert()` checks on a negative tag, an out-of-range tag or a null slot (in `get_evaluator_impl`,
+`evaluator_registry.hpp:25-60`). `is_evaluator(op)` is the non-asserting
+form (returns `false` instead); nothing in the tree calls it at 1.28.8. The dispatcher
 in `apply_operation` always uses `get_evaluator` (a malformed operation should never reach it,
 having passed deserialization and validation).
 
@@ -217,7 +217,7 @@ Plugins register interpreters via `database::register_custom_operation_interpret
 
 Between `notify_pre_apply_operation` and the evaluator's `apply()`, the dispatcher calls
 `rc().handle_operation_discount<operation>(op)` — but **only after HF20**
-(`database.cpp:2740-2741`). This is the only RC hook that runs *inside* the evaluator path;
+(`database.cpp:2754-2755`). Besides this dispatch hook, some evaluators call RC directly (`withdraw_vesting_evaluator` regenerates and updates the account's RC mana, `hive_evaluator_transfer.cpp:357`, `:399`; the `delegate_rc` evaluator calls `handle_operation_discount` itself, `rc/rc_utility.cpp:46`);
 the rest of RC accounting (mana regeneration, the actual charge) happens inside vesting
 helpers and in `rc().finalize_transaction()` after all ops apply.
 
@@ -244,35 +244,40 @@ no discount, `resource_count.cpp:131`):
 
 **Scoping** (`resource_count.cpp:149-158`): differential usage is **per-transaction** (reset
 in pre-apply-transaction), not per-block, but the hook fires in pre-apply-*operation* so that
-intra-transaction interactions are visible (e.g. an account created earlier in the same tx
-exists by the time a later `account_update` runs). It is acceptable for one operation's usage
+intra-transaction interactions are visible (e.g. a second `witness_update` in the same tx; the
+code comment's first example, an account created and then updated in one tx, cannot be a valid
+transaction, as the comment itself adds). It is acceptable for one operation's usage
 to go negative and effectively *subsidize* another op in the same transaction; a final safety
-check prevents the whole transaction's usage from going negative. RC remains non-consensus
-(mempool/production enforcement only) — see Part 08 — but the *accounting* still runs during
-replay to keep RC state deterministic.
+check prevents the whole transaction's usage from going negative. Until HF29 RC remains
+non-consensus (see Part 08), but the *accounting* still runs during replay to keep RC state
+deterministic. HF29 (defined in 1.28.8, inactive on mainnet) makes the RC payer and balance
+checks assert in every mode, which makes RC part of consensus; before HF29 they assert only
+when the node is in control, the balance check also when it re-applies its pending
+transactions (`rc/rc_utility.cpp:507-508`, `:567`; Part 01, section HF29 (Defined in 1.28.8,
+Inactive on Mainnet)).
 
 ### 1.8 Out-of-Band Operation Handling (`witness_block_approve`)
 
 One consensus operation never flows through the evaluator dispatch at all:
 `witness_block_approve_operation`. Its evaluator's `do_apply` is an unconditional
 `HIVE_CHAIN_UNREACHABLE_CODE_ASSERT(false, "Operation excluded from blocks.")`
-(`hive_evaluator.cpp:623-628`) — the op may not appear in a block.
+(`hive_evaluator.cpp:615-620`) — the op may not appear in a block.
 
 Instead it travels as a stand-alone **fast-confirmation transaction** (HF26+,
 `HIVE_HARDFORK_1_26_FAST_CONFIRMATION`). `is_fast_confirm_transaction` recognizes a
-transaction with exactly one operation of this type (`database.cpp:540`), and the chain plugin
-routes it to `database::process_fast_confirm_transaction()` (`database.cpp:2902-2957`) rather
+transaction with exactly one operation of this type (`database.cpp:546`), and the chain plugin
+routes it to `database::process_fast_confirm_transaction()` (`database.cpp:2936-2991`) rather
 than `apply_transaction`. That handler:
-1. Asserts HF26 and that the trx really is a fast-confirm (`database.cpp:2905-2910`).
+1. Asserts HF26 and that the trx really is a fast-confirm (`database.cpp:2939-2944`).
 2. Validates the transaction with `skip_tapos_check` — the approving witness may be on a
-   different fork whose TaPoS references a block we don't have (`database.cpp:2914-2918`).
+   different fork whose TaPoS references a block we don't have (`database.cpp:2948-2952`).
 3. Verifies the witness is on the current irreversibility schedule
    (`get_witness_schedule_object_for_irreversibility`); ignores it otherwise
-   (`database.cpp:2923-2933`).
+   (`database.cpp:2957-2967`).
 4. Enforces monotonicity per witness via `_last_fast_approved_block_by_witness` — a newer
-   approval for an older/equal block number is dropped (`database.cpp:2935-2949`).
+   approval for an older/equal block number is dropped (`database.cpp:2969-2983`).
 5. Recomputes the last irreversible block (`update_last_irreversible_block`) and migrates
-   irreversible state (`database.cpp:2954-2956`).
+   irreversible state (`database.cpp:2988-2990`).
 
 So `witness_block_approve` is the transport for **one-block irreversibility / fast confirms**:
 witnesses signal block approval out-of-band to advance LIB faster than the normal "2/3 of
@@ -287,72 +292,89 @@ These are the methods evaluators call to mutate state. Organized by domain.
 
 ### 2.1 Balance Helpers (database.cpp)
 
-#### `adjust_balance(const account_object& a, const asset& delta)`
-- **Dispatches** to the HIVE or HBD overload based on `delta.symbol`.
+Since 1.28.8 every balance helper moves funds between a temporary balance supplied by the caller
+(`temp_balance`, `temp_HIVE_balance`, `temp_HBD_balance`) and the account: a positive delta
+moves funds from the temporary balance into the account, a negative delta moves them out of the
+account into the temporary balance. Funds held in chain objects are balance classes that change
+only through such transfers, and every transfer asserts that neither side ends negative
+("balance underflow", `util/balance.hpp:194-260`; Part 01, section tiny_asset and tiny_price).
+Objects that hold balances must be empty when removed (`check_on_remove()`; Part 05, section
+State Objects Reference), so helpers that remove such objects first move their funds out.
 
-#### `adjust_balance(const account_object& a, const HIVE_asset& delta)`
-- **Modifies**: `account_object.balance` (liquid HIVE)
-- **Checks**: Balance cannot go negative.
+#### `adjust_balance(const account_object& a, temp_balance& any_balance, const asset& delta)`
+- **Dispatches** to the HIVE or HBD overload based on `delta.symbol`; any other symbol fails with
+  "invalid symbol" (`database.cpp:3179-3198`).
+
+#### `adjust_balance(const account_object& a, temp_HIVE_balance& hive_balance, const HIVE_asset& delta)`
+- **Modifies**: `account_object.hive_balance` (liquid HIVE; named `balance` at 1.28.7)
+- **Checks**: A negative delta must be covered by the balance ("does not have sufficient funds
+  for balance adjustment", `database.cpp:3202-3207`); the transfer cannot leave either side
+  negative.
 - **Virtual ops**: None.
 
-#### `adjust_balance(const account_object& a, const HBD_asset& delta)`
+#### `adjust_balance(const account_object& a, temp_HBD_balance& hbd_balance, const HBD_asset& delta)`
 - **Modifies**: `account_object.hbd_balance`, `account_object.hbd_seconds`,
   `account_object.hbd_seconds_last_update`, `account_object.hbd_last_interest_payment`
+- **Checks**: Same as the HIVE overload (`database.cpp:3229-3234`).
 - **Side effect (pre-HF25)**: Calculates and pays accrued HBD interest on the account's
   liquid HBD balance. Interest is compounded at `HIVE_HBD_INTEREST_COMPOUND_INTERVAL_SEC`
   intervals.
 - **Modifies (if interest paid)**: `dynamic_global_property_object.current_hbd_supply`,
-  `dynamic_global_property_object.virtual_supply`
+  `dynamic_global_property_object.virtual_supply` (through the dgpo's `issue_HBD`,
+  `database.cpp:3256-3259`)
 - **Virtual ops**: `interest_operation(account, interest_paid, true)` if interest > 0
   (the `true` flag indicates liquid balance, not savings).
 
-#### `adjust_savings_balance(const account_object& a, const asset& delta)`
+#### `adjust_savings_balance(const account_object& a, temp_balance& any_balance, const asset& delta)`
 - **Dispatches** to the HIVE or HBD overload.
 
-#### `adjust_savings_balance(const account_object& a, const HIVE_asset& delta)`
-- **Modifies**: `account_object.savings_balance`
-- **Checks**: Savings HIVE cannot go negative.
+#### `adjust_savings_balance(const account_object& a, temp_HIVE_balance& hive_balance, const HIVE_asset& delta)`
+- **Modifies**: `account_object.savings_hive_balance` (named `savings_balance` at 1.28.7)
+- **Checks**: Savings HIVE cannot go negative (asserted by the transfer; there is no pre-check,
+  `database.cpp:3304-3310`).
 - **Virtual ops**: None.
 
-#### `adjust_savings_balance(const account_object& a, const HBD_asset& delta)`
+#### `adjust_savings_balance(const account_object& a, temp_HBD_balance& hbd_balance, const HBD_asset& delta)`
 - **Modifies**: `account_object.savings_hbd_balance`, `account_object.savings_hbd_seconds`,
   `account_object.savings_hbd_seconds_last_update`, `account_object.savings_hbd_last_interest_payment`
 - **Side effect**: Calculates and pays accrued HBD interest on the savings HBD balance
   (same compound interval as liquid HBD).
 - **Modifies (if interest paid)**: `dynamic_global_property_object.current_hbd_supply`,
-  `dynamic_global_property_object.virtual_supply`
+  `dynamic_global_property_object.virtual_supply` (through the dgpo's `issue_HBD`,
+  `database.cpp:3331-3334`)
 - **Virtual ops**: `interest_operation(account, interest_paid, false)` if interest > 0
   (`false` flag = savings balance).
 
-#### `adjust_reward_balance(const account_object& a, const asset& value_delta, const asset& share_delta)`
-- **Dispatches** to typed overloads based on symbol. Routes to one of three:
-
-#### `adjust_reward_balance(const account_object& a, const HIVE_asset& value_delta)`
+#### `adjust_reward_balance(const account_object& a, temp_HIVE_balance& hive_balance, const HIVE_asset& value_delta)`
 - **Modifies**: `account_object.reward_hive_balance`
 - **Checks**: Cannot go negative.
 
-#### `adjust_reward_balance(const account_object& a, const HIVE_asset& value_delta, const VEST_asset& share_delta)`
-- **Modifies**: `account_object.reward_vesting_hive`, `account_object.reward_vesting_balance`
-- **Checks**: reward VESTS cannot go negative.
-
-#### `adjust_reward_balance(const account_object& a, const HBD_asset& value_delta)`
+#### `adjust_reward_balance(const account_object& a, temp_HBD_balance& hbd_balance, const HBD_asset& value_delta)`
 - **Modifies**: `account_object.reward_hbd_balance`
 - **Checks**: Cannot go negative.
 
-#### `adjust_supply(const asset& delta, bool adjust_vesting = false)`
-- **Dispatches** to HIVE or HBD overload.
+Since 1.28.8 these two are the only `adjust_reward_balance` overloads (`database.cpp:3347-3361`):
+the `(asset, asset)` dispatcher, the `(HIVE_asset, VEST_asset)` overload, which credited
+`reward_vesting_hive` and `reward_vesting_balance`, and the name-based variants were removed;
+reward VESTS are credited by `adjust_account_vesting_balance` (section 2.2).
 
-#### `adjust_supply(const HIVE_asset& delta, bool adjust_vesting = false)`
-- **Modifies**: `dynamic_global_property_object.current_supply`, `.virtual_supply`,
-  `.total_vesting_fund_hive`
-- **Special**: If `adjust_vesting` is true AND `delta > 0` AND block > 7 days,
-  adds `delta * 9` as new vesting (early inflation mechanism, pre-HF16).
-- **Checks**: `current_supply` cannot go negative.
+#### Supply changes (`adjust_supply` removed in 1.28.8)
+- `database::adjust_supply` (three overloads) no longer exists: HIVE and HBD are issued, burned
+  and converted only through the dgpo's methods, which hand out or take in temporary balances
+  (`global_property_object.hpp:295-396`; Part 05, section dynamic_global_property_object
+  (Singleton)): `issue_HIVE` / `burn_HIVE` (`current_supply`, `virtual_supply`), `issue_HBD` /
+  `burn_HBD` (`current_hbd_supply`, `virtual_supply`), `convert_HIVE_to_HBD` (`current_supply`,
+  `current_hbd_supply`, and `virtual_supply` only when its third argument is true, the default), and `issue_VESTS` / `burn_VESTS`,
+  `convert_HIVE_to_VESTS`, `convert_VESTS_to_HIVE` (the vesting pools).
+- `update_virtual_supply()` still recomputes `virtual_supply` directly (section 2.13).
 
-#### `adjust_supply(const HBD_asset& delta)`
-- **Modifies**: `dynamic_global_property_object.current_hbd_supply`, `.virtual_supply`
-- **Recalculates**: `virtual_supply = hbd_supply * median_price + current_supply`
-- **Checks**: `current_hbd_supply` cannot go negative.
+#### `issue_mining_reward(const HIVE_asset& reward)`
+- **Replaces** `adjust_supply(reward, true)` for the liquidity and PoW rewards
+  (`database.cpp:3363-3377`; callers `database_vesting.cpp:47`, `hive_evaluator.cpp:481`, `:589`).
+- Issues `reward` and, if `reward > 0` and the head block number is at least
+  `HIVE_BLOCKS_PER_DAY * 7`, another `reward * 9` straight into `total_vesting_fund_hive`
+  (early inflation mechanism, pre-HF16).
+- **Returns**: the `reward` as a `temp_HIVE_balance` for the caller to credit.
 
 #### `get_balance(const account_object& a, asset_symbol_type symbol) const`
 - **Read-only**: Returns liquid HIVE or HBD balance.
@@ -362,43 +384,50 @@ These are the methods evaluators call to mutate state. Organized by domain.
 
 ### 2.2 Vesting Helpers (database.cpp + database_vesting_helpers.hpp)
 
-#### `create_vesting(const account_object& to, const HIVE_asset& liquid, bool to_reward_balance = false)`
-- **Convenience wrapper**: Calls `create_vesting2()` with an empty callback.
+#### `create_vesting(const account_object& to, temp_HIVE_balance& liquid, bool is_reward = false)`
+- **Convenience wrapper**: Calls `create_vesting2()` with an empty callback; `liquid` is fully
+  consumed (`database.cpp:1046-1053`).
 
-#### `create_vesting2(database& db, const account_object& to, const HIVE_asset& liquid, bool to_reward_balance, Before&& callback)`
-- **Template function** (in `database_vesting_helpers.hpp`).
-- Calls `adjust_account_vesting_balance()` which:
-  1. Calculates new VESTS: `liquid * vesting_share_price` (reward or regular price)
+#### `create_vesting2(database& db, const account_object& to, temp_HIVE_balance& liquid, bool is_reward, Before&& callback)`
+- **Template function** (`database_vesting_helpers.hpp:12-22`).
+- Calls `adjust_account_vesting_balance()` (`database.cpp:1007-1044`) which:
+  1. Computes the new VESTS from `liquid` with the dgpo's `convert_HIVE_to_VESTS` at the reward
+     or regular vesting share price, which updates `dynamic_global_property_object`:
+     - Reward: `pending_rewarded_vesting_shares += new_vesting`, `pending_rewarded_vesting_hive += liquid`
+     - Regular: `total_vesting_fund_hive += liquid` (the HIVE moves into it), `total_vesting_shares += new_vesting`
   2. Invokes `callback(new_vesting)` (used for pre-notification of virtual ops)
-  3. If `to_reward_balance`: calls `adjust_reward_balance(to, liquid, new_vesting)`
+  3. If `is_reward`: credits `new_vesting` to `account_object.reward_vesting_balance` and the
+     HIVE to `account_object.reward_vesting_hive`
   4. If regular balance:
-     - Updates manabar (`util::update_manabar`) [HF20+]
      - Regenerates RC mana [HF20+]
+     - Updates manabar (`util::update_manabar`) [HF20+]
      - `account_object.vesting_shares += new_vesting`
      - Updates RC after vest change [HF20+]
-  5. Updates `dynamic_global_property_object`:
-     - Reward: `pending_rewarded_vesting_shares += new_vesting`, `pending_rewarded_vesting_hive += liquid`
-     - Regular: `total_vesting_fund_hive += liquid`, `total_vesting_shares += new_vesting`
-- If not reward balance: calls `adjust_proxied_witness_votes(to, new_vesting.amount)`
-- **Returns**: `VEST_asset` — the amount of new vesting shares created.
+- If not `is_reward`: calls `adjust_proxied_witness_votes(to, new_vesting.amount)`
+- **Returns**: `VEST_asset` - the amount of new vesting shares created.
 
-#### `calculate_vesting(database& db, const HIVE_asset& liquid, bool to_reward_balance)`
-- **Pure calculation** (inline in header): `liquid * price` using reward or regular vesting share price.
+#### `calculate_vesting(database& db, const HIVE_asset& liquid, bool to_reward_balance)` (removed in 1.28.8)
+- At 1.28.7 an inline helper in `database_vesting_helpers.hpp` that computed `liquid * price`
+  with the reward or regular vesting share price; since 1.28.8 the dgpo's `convert_HIVE_to_VESTS`
+  picks the price and computes the VESTS (`global_property_object.hpp:371-386`).
 
 ### 2.3 HBD Creation Helper (database.cpp)
 
-#### `create_hbd(const account_object& to, const HIVE_asset& hive, bool to_reward_balance = false)`
-- **Purpose**: Converts HIVE into HBD at the current median price, respecting the
-  `hbd_print_rate` (which throttles HBD creation when HBD is near its market cap limit).
+#### `award_hbd(const account_object& to, temp_HIVE_balance& hive_balance, bool is_reward)`
+- **Purpose** (`database.cpp:957-1005`; named `create_hbd`, taking `const HIVE_asset& hive` and
+  `bool to_reward_balance = false`, at 1.28.7): Converts HIVE into HBD at the current median
+  price, respecting the `hbd_print_rate` (which throttles HBD creation when HBD is near its
+  market cap limit).
 - **Logic**:
-  1. `to_hbd = (hbd_print_rate * hive) / 100%` — portion that becomes HBD
-  2. `to_hive = hive - to_hbd` — remainder stays as HIVE
-  3. `hbd = to_hbd * median_price` — actual HBD amount
-  4. Credits both `hbd` and `to_hive` to the account (via `adjust_balance` or `adjust_reward_balance`)
-  5. `adjust_supply(-to_hbd)` — removes the converted HIVE from supply
-  6. `adjust_supply(hbd)` — adds the new HBD to supply
-- **Returns**: `pair<HBD_asset, HIVE_asset>` — (HBD paid, HIVE paid)
-- **Fallback**: If median price is null, credits all as HIVE.
+  1. `to_hbd = (hbd_print_rate * hive) / 100%` - portion that becomes HBD, moved out of
+     `hive_balance` into its own temporary balance
+  2. `to_hive = hive - to_hbd` - remainder stays as HIVE
+  3. The dgpo's `convert_HIVE_to_HBD` burns `to_hbd` and issues `hbd = to_hbd * median_price`
+     (`current_supply`, `current_hbd_supply`, `virtual_supply`; `database.cpp:977-980`)
+  4. Credits `hbd` and `to_hive` to the reward balances if `is_reward`, else to the liquid
+     balances (`adjust_reward_balance` / `adjust_balance`, `database.cpp:985-994`)
+- **Returns**: `pair<HBD_asset, HIVE_asset>` - (HBD paid, HIVE paid)
+- **Fallback**: If median price is null, credits all as liquid HIVE (`database.cpp:996-1000`).
 
 ### 2.4 Witness Vote Helpers (database.cpp)
 
@@ -431,7 +460,12 @@ These are the methods evaluators call to mutate state. Organized by domain.
 
 #### `lock_account(const account_object& account)`
 - **Purpose**: Locks an account by clearing all authority keys and setting thresholds.
-- **Modifies**: `account_authority_object` — clears owner/active/posting keys, sets thresholds to 1.
+- **Modifies**: `account_authority_object` (created if missing): owner, active and posting become
+  an authority with threshold 1 and no keys or accounts. Since 1.28.8, when the object exists, the owner is written
+  through `set_owner()`, which also moves `last_owner_update` into `previous_owner_update` and
+  sets `last_owner_update` to the head block time (`database.cpp:1400-1417`,
+  `account_object.hpp:390-395`); a newly created object starts with both times at
+  `time_point_sec::min()` (`account_object.hpp:374`).
 - **Modifies**: `account_object` — sets recovery account to self, clears memo key.
 - **Removes**: Any `account_recovery_request_object` and `change_recovery_account_request_object`.
 
@@ -457,38 +491,56 @@ These are the methods evaluators call to mutate state. Organized by domain.
 #### `find_comment_cashout_ex(comment_id_type id) const`
 - **Read-only**: Returns `comment_cashout_ex_object*` (pre-HF19 only).
 
-#### `pay_curators(const comment_object& comment, const comment_cashout_object& cashout, HIVE_asset& max_rewards)`
+#### `pay_curators(const comment_object& comment, const comment_cashout_object& cashout, HIVE_asset& max_rewards, VEST_asset& total_paid_reward, temp_HIVE_balance& reward_balance)`
 - **Purpose**: Distributes curation rewards to voters proportional to their vote weight.
 - **For each voter** with positive weight:
   - Calculates claim: `(max_rewards * weight) / total_weight`
-  - Calls `create_vesting2()` to convert HIVE claim to VESTS for the voter.
+  - Moves the claim out of `reward_balance` (the temporary balance holding the reward fund's
+    HIVE, see `process_comment_cashout()`) and calls `create_vesting2()` to convert it to VESTS
+    for the voter; since 1.28.8 those VESTS are added to `total_paid_reward`, which the caller
+    reports as `curators_vesting_payout` in `author_reward_operation`
+    (`database_comment.cpp:162-177`).
   - **Modifies**: Voter's `account_object.curation_rewards += claim`
   - **Virtual ops**: `curation_reward_operation` for each curator.
-- **Returns**: Unclaimed rewards (rounding dust).
+- **Returns**: Unclaimed rewards: the rounding dust, or all of `max_rewards` when no vote has
+  curation weight. `max_rewards` is reduced to the amount paid; when the comment disallows
+  curation rewards, both it and the return value are 0
+  (`database_comment.cpp:137-143`, `:187-189`).
 
-#### `cashout_comment_helper(ctx, comment, cashout, cashout_ex, forward_curation_remainder)`
-- **Purpose**: Master comment payout function. Orchestrates the full payout.
-- **Calls**: `pay_curators()`, `create_vesting2()`, `create_hbd()`.
+#### `cashout_comment_helper(ctx, reward_balance, comment, cashout, cashout_ex, forward_curation_remainder)`
+- **Purpose**: Master comment payout function. Orchestrates the full payout. Since 1.28.8 each
+  payout (curator claims, beneficiary shares, the author share) is moved out of `reward_balance`,
+  the temporary balance holding the reward fund's HIVE (`database_comment.cpp:193-376`).
+- **Calls**: `pay_curators()`, `create_vesting2()`, `award_hbd()`.
 - **Processes beneficiaries**: For each beneficiary, splits their share into HBD/VESTS.
-  Special handling for treasury beneficiary (converts to HBD directly).
+  Special handling for treasury beneficiary (converts to HBD directly through the dgpo's
+  `convert_HIVE_to_HBD`, HF21+, `database_comment.cpp:252-262`).
 - **Modifies**: Author's `account_object.posting_rewards`.
 - **Virtual ops**: `author_reward_operation`, `comment_benefactor_reward_operation`,
   `comment_reward_operation`, `comment_payout_update_operation`.
-- Post-HF19: Removes the `comment_cashout_object` after payout.
 - Removes all `comment_vote_object` entries for the comment.
 
 #### `process_comment_cashout()`
 - **Called by**: `_apply_block()` end-of-block processing.
 - **Purpose**: Processes all comments whose cashout time has arrived.
-- Decays `recent_claims` on each `reward_fund_object`.
+- Uses the single reward fund (`get_reward_fund()`): decays its `recent_claims` (HF17+) and,
+  since 1.28.8 before and after HF17, moves its whole `reward_balance` into the temporary
+  balance the payouts draw from (`database_comment.cpp:390-427`).
 - Pre-calculates total rshares being cashed out (HF17+).
-- For each eligible comment: calls `cashout_comment_helper()`.
-- Updates `reward_fund_object.reward_balance` and `.recent_claims`.
+- For each eligible comment: calls `cashout_comment_helper()`; post-HF19 then removes the
+  `comment_cashout_object` (`database_comment.cpp:471-475`).
+- Writes back `reward_fund_object.recent_claims` (HF17+) and returns the unspent rest of the
+  temporary balance to `reward_fund_object.reward_balance` (`database_comment.cpp:503-509`;
+  Part 07, section Cashout Process).
 
 #### `perform_vesting_share_split(uint32_t magnitude)`
-- **Purpose**: Historical vesting share split (hardfork operation).
+- **Purpose**: Historical vesting share split (hardfork operation: HF1, magnitude 1,000,000,
+  `database_hardfork.cpp:194-195`).
 - **Modifies**: Every `account_object` (multiplies vesting shares, withdrawn, to_withdraw, etc.),
-  every `comment_cashout_object` (multiplies rshares), `dynamic_global_property_object`.
+  every `comment_cashout_object` (multiplies rshares), `dynamic_global_property_object` (the new
+  VESTS are issued with `issue_VESTS`), and the pre-HF17 rshares2 total, which is reset and
+  rebuilt from the multiplied rshares with `adjust_rshares2` (the reward fund's `recent_claims`
+  since 1.28.8, the dgpo's `total_reward_shares2` at 1.28.7; `database_comment.cpp:595-657`).
 - **Virtual ops**: `vesting_shares_split_operation` for each account with changed vests.
 
 ### 2.7 Market/DEX Helpers (database_market.cpp)
@@ -500,12 +552,15 @@ These are the methods evaluators call to mutate state. Organized by domain.
 - **Called by**: `_apply_block()` end-of-block processing.
 - **Purpose**: Returns funds from unapproved escrows past their deadline.
 - **Modifies**: Restores HIVE, HBD, and fee to `escrow.from` via `adjust_balance()`.
-  Decrements `account_object.pending_escrow_transfers`. Removes `escrow_object`.
+  Decrements `account_object.pending_escrow_transfers`. Removes `escrow_object`. Since 1.28.8
+  this is `remove_escrow()` (`database_market.cpp:58-89`, called at `:101`), which escrow
+  rejection (`hive_evaluator_transfer.cpp:165`) and `remove_pending_escrows()` also use.
 - **Virtual ops**: `escrow_rejected_operation`.
 
 #### `remove_pending_escrows(const account_object& account, name)`
 - **Purpose**: Used during HF23 account clearing — returns all escrow balances.
-- Same pattern as `expire_escrow_ratification()` but for a specific account.
+- Same pattern as `expire_escrow_ratification()` (the same `remove_escrow()`) but for a specific
+  account, and without the `escrow_rejected_operation` (`database_market.cpp:105-116`).
 
 #### `find_savings_withdraw(owner, request_id) const` / `get_savings_withdraw(owner, request_id) const`
 - **Read-only**: Lookups for `savings_withdraw_object`.
@@ -533,17 +588,21 @@ These are the methods evaluators call to mutate state. Organized by domain.
 - Calculates fill amounts based on the match price.
 - Pre-HF12: calls `adjust_liquidity_reward()` for liquidity mining.
 - **Virtual ops**: `fill_order_operation`.
-- Calls `fill_order()` for both sides.
+- Calls `fill_order()` for both sides; since 1.28.8 it first moves each side's payment out of
+  its order's `for_sale` into a temporary balance, which becomes the other side's `receives`
+  (`database_market.cpp:346-359`).
 - **Returns**: Bitmask (bit 0 = new order filled, bit 1 = old order filled).
 
-#### `fill_order(const limit_order_object& order, const asset& pays, const asset& receives)`
+#### `fill_order(const limit_order_object& order, const asset& pays, temp_balance&& receives)`
 - **Modifies**: Credits `receives` to `order.seller` via `adjust_balance()`.
-- If fully filled: removes the `limit_order_object`.
-- If partially filled: reduces `for_sale`. If remaining `amount_to_receive` is zero
-  (rounding to dust), calls `cancel_order()`.
+- If fully filled (`match()` has drained the order's `for_sale` to zero): removes the
+  `limit_order_object`.
+- If partially filled: if the remaining `amount_to_receive` is zero (rounding to dust), calls
+  `cancel_order()` (`database_market.cpp:370-406`).
 
 #### `cancel_order(const limit_order_object& order, bool suppress_vop = false)`
-- **Modifies**: Returns `amount_for_sale` to seller via `adjust_balance()`.
+- **Modifies**: Returns `amount_for_sale` to seller via `adjust_balance()`, after moving it out
+  of the order into a temporary balance (`database_market.cpp:408-423`).
   Removes the `limit_order_object`.
 - **Virtual ops**: `limit_order_cancelled_operation` (unless suppressed).
 
@@ -556,7 +615,8 @@ These are the methods evaluators call to mutate state. Organized by domain.
 #### `pay_liquidity_reward()`
 - **Called by**: `_apply_block()` every `HIVE_LIQUIDITY_REWARD_BLOCKS` blocks.
 - **Purpose**: Pays liquidity reward to the top volume-weighted market maker.
-- **Modifies**: Adjusts supply (`adjust_supply(reward, true)`), credits reward to
+- **Modifies**: Issues the reward with `issue_mining_reward()` (`database_vesting.cpp:47`;
+  `adjust_supply(reward, true)` at 1.28.7), credits it to
   winner via `adjust_balance()`, resets winner's `liquidity_reward_balance_object`.
 - **Virtual ops**: `liquidity_reward_operation`.
 
@@ -573,17 +633,18 @@ These are the methods evaluators call to mutate state. Organized by domain.
   2. Processes withdraw routes: for each route, either deposits VESTS (auto-vest)
      or converts to HIVE (non-auto-vest).
   3. Remainder goes to the withdrawing account as HIVE.
-  4. Updates `account_object`: decreases `vesting_shares`, increases `balance`,
-     updates `withdrawn`, resets schedule if complete.
+  4. Updates `account_object`: decreases `vesting_shares`, increases `hive_balance` (named
+     `balance` at 1.28.7), updates `withdrawn`, resets schedule if complete.
   5. Updates `dynamic_global_property_object`: decreases `total_vesting_fund_hive`
-     and `total_vesting_shares` for HIVE conversions.
+     and `total_vesting_shares` for HIVE conversions (the dgpo's `convert_VESTS_to_HIVE`,
+     `database_vesting.cpp:186-189`, `:240-243`).
   6. Adjusts governance weight. Pre-HF24: `adjust_proxied_witness_votes(-to_withdraw)` directly
-     (`database_vesting.cpp:294-297`). HF24+: cancels the withdrawer's *buffered* delayed votes
-     first and only removes the matured **leftover** from the proxy chain (`:284-292`, see §2.14
-     leftover rule); auto-vest recipients get their delayed votes increased.
+     (`database_vesting.cpp:298-301`). HF24+: cancels the withdrawer's *buffered* delayed votes
+     first and only removes the matured **leftover** from the proxy chain (`database_vesting.cpp:288-296`,
+     see section 2.14 leftover rule); auto-vest recipients get their delayed votes increased.
 - **Virtual ops**: `fill_vesting_withdraw_operation` for each route and the remainder (emitted
   even when the converted remainder is zero, because `from_account`'s VESTS still change — issue
-  #337, `database_vesting.cpp:242-243`).
+  #337, `database_vesting.cpp:248-249`).
 
 ### 2.9 Conversion Helpers (database_conversion.cpp)
 
@@ -601,8 +662,13 @@ These are the methods evaluators call to mutate state. Organized by domain.
   - If collateral insufficient: emits `system_warning_operation`, uses all collateral.
   - Removes `collateralized_convert_request_object`.
   - **Virtual ops**: `fill_collateralized_convert_request_operation`.
-- **Corrects global supply**: Adjusts `current_supply` and `current_hbd_supply` for
-  net changes.
+- **Corrects global supply**: Adjusts `current_supply`, `current_hbd_supply` and `virtual_supply`
+  for net changes, once per run, through the dgpo's methods (`burn_HBD` for the collected HBD,
+  `issue_HIVE` or `burn_HIVE` for the net HIVE, `database_conversion.cpp:137-159`). Since 1.28.8
+  the run first collects every due request (amounts and vops computed, request balances
+  drained, objects removed), then corrects the supply, and only then credits the owners and
+  emits the vops, regular requests first (`database_conversion.cpp:55-135`, `:161-195`; Part 07,
+  section HBD -> HIVE (Regular Conversion)).
 
 #### `remove_pending_conversion_requests(const account_object& account)`
 - **Purpose**: HF23 cleanup — returns pending conversion balances.
@@ -645,7 +711,7 @@ The `database_delegation.cpp` file only contains index initialization for
 - **Called by**: `_apply_block()` end-of-block processing.
 - **Purpose**: Processes accounts that requested to decline voting rights.
 - For each matured `decline_voting_rights_request_object`:
-  - Removes DHF proposal votes [HF28+: with threshold guard].
+  - HF28+: removes the account's DHF proposal votes, with a threshold guard; before HF28 they are kept (`database_dhf.cpp:224`). The HF28 migration gave every proposal voter that had already declined its voting rights a request effective at once, so their votes are removed here too (`remove_proposal_votes_for_accounts_without_voting_rights()`, `database_dhf.cpp:147-206`, called at `database_hardfork.cpp:507`).
   - Calls `nullify_proxied_witness_votes()` and `clear_witness_votes()`.
   - Sets `account_object.can_vote = false`, clears proxy.
   - Removes the request object.
@@ -655,26 +721,40 @@ The `database_delegation.cpp` file only contains index initialization for
 - **Called by**: `_apply_block()` end-of-block processing.
 - **Purpose**: Removes witness and proposal votes that have expired based on governance
   vote expiration time.
+- **Virtual ops** (HF25+, `database.cpp:3502-3545`): `proxy_cleared_operation` (if the account had a
+  proxy), `expired_account_notification_operation`.
 
 ### 2.13 Other End-of-Block Processing Methods
 
 #### `clear_null_account_balance()`
 - **Purpose**: Burns any funds sent to `@null` by zeroing its balances and reducing global supply.
 - **Modifies**: `account_object` (null account — zeroes all balances), `dynamic_global_property_object`
-  (reduces supply).
+  (reduces supply: VESTS, including reward VESTS, are converted to HIVE first, then the dgpo's
+  `burn_HIVE` and `burn_HBD`; `database.cpp:1234-1291`).
 - **Virtual ops**: `clear_null_account_balance_operation`.
 
 #### `consolidate_treasury_balance()`
-- **Purpose**: HF24+ — merges old treasury (`steem.dao`) into new treasury (`hive.fund`).
+- **Purpose**: HF24+ (treasury rename): moves every balance of the old treasury (`steem.dao`) to
+  the new treasury (`hive.fund`); VESTS, including reward VESTS, are converted to HIVE first
+  (`database.cpp:1296-1398`).
+- **Virtual ops**: `consolidate_treasury_balance_operation`.
 
 #### `process_funds()`
 - **Purpose**: Per-block inflation distribution.
-- Calculates: `new_hive = virtual_supply * inflation_rate / (100% * blocks_per_year)`
+- Calculates: `new_hive = virtual_supply * inflation_rate / (100% * blocks_per_year)` (since
+  HF28 without the treasury's HBD in `virtual_supply`; Part 07, section Virtual Supply Basis
+  (HF28 change)).
 - Splits into: `content_reward`, `vesting_reward`, `dhf_new_funds`, `witness_reward`.
 - Witness reward scaled by schedule type (elected/timeshare/miner) and weight.
-- DHF funds: converted to HBD via `create_hbd`-like logic, credited to treasury.
+- DHF funds: converted in full to HBD at the median price by the dgpo's `convert_HIVE_to_HBD`
+  (no `hbd_print_rate` split), added to `dhf_interval_ledger` and credited to the treasury
+  (`database.cpp:1785-1802`).
+- Content reward: moved into `reward_fund_object.reward_balance` by `pay_reward_funds()`
+  (`database.cpp:1953-1975`), since 1.28.8 in both inflation branches (`:1799`, `:1836`); at
+  1.28.7 the content reward went to the dgpo's `total_reward_fund_hive` before HF17.
 - Witness reward: converted to VESTS via `create_vesting2()`.
-- **Modifies**: `dynamic_global_property_object` (supply, vesting, reward fund, dhf ledger).
+- **Modifies**: `dynamic_global_property_object` (supply, vesting fund, dhf ledger),
+  `reward_fund_object.reward_balance`, the treasury's HBD balance.
 - **Virtual ops**: `producer_reward_operation`.
 
 #### `process_subsidized_accounts()`
@@ -682,7 +762,10 @@ The `database_delegation.cpp` file only contains index initialization for
 - **Modifies**: `dynamic_global_property_object.available_account_subsidies`.
 
 #### `account_recovery_processing()`
-- **Purpose**: Clears expired account recovery requests.
+- **Purpose**: Clears expired account recovery requests, removes owner-authority history
+  entries whose last valid time is more than `HIVE_OWNER_AUTH_RECOVERY_PERIOD` in the past,
+  and applies due `change_recovery_account` requests (`database.cpp:1987-2030`).
+- **Virtual ops**: `changed_recovery_account_operation` (per applied change).
 
 #### `update_median_feed()`
 - **Called every**: `HIVE_FEED_INTERVAL_BLOCKS` blocks.
@@ -717,23 +800,24 @@ find mature accounts cheaply.
 - Appends `val` to the account's newest bucket (one bucket per day) via
   `delayed_voting_processor::add`. Capped at **30 buckets** because
   `HIVE_DELAYED_VOTING_TOTAL_INTERVAL_SECONDS / HIVE_DELAYED_VOTING_INTERVAL_SECONDS = 30 days
-  / 1 day = 30` (`util/delayed_voting.cpp:101-109`; constants `config.hpp:182-183`).
-- Called by `transfer_to_vesting_evaluator` (`hive_evaluator_transfer.cpp:315-316`) after the
-  immediate `adjust_account_vesting_balance`.
+  / 1 day = 30` (`util/delayed_voting.cpp:101-109`; constants `protocol/config.hpp:178-179`).
+- Called by `transfer_to_vesting_evaluator` (`hive_evaluator_transfer.cpp:326-327`) after the
+  immediate `adjust_account_vesting_balance`, and by `update_votes` for the auto-vest recipients
+  of a power-down (`util/delayed_voting.cpp:61-62`).
 
 #### `delayed_voting::erase_delayed_value` / `add_votes` / `update_votes`
 - Used during **power-down** (`process_vesting_withdrawals`). As VESTS leave an account, any
   *still-buffered* (not-yet-matured) delayed votes must be cancelled before reducing real
   governance weight. `add_votes` accumulates per-account deltas across all withdraw routes
   (positive for auto-vest recipients, negative for the withdrawer)
-  (`database_vesting.cpp:210-211, 252-253`); `update_votes` then applies them
-  (`util/delayed_voting.cpp:44-77`, called at `database_vesting.cpp:288`).
-- **Leftover rule** (`database_vesting.cpp:288-291`): a withdrawal first eats the withdrawer's
+  (`database_vesting.cpp:216`, `:257`); `update_votes` then applies them
+  (`util/delayed_voting.cpp:44-77`, called at `database_vesting.cpp:292`).
+- **Leftover rule** (`database_vesting.cpp:292-295`): a withdrawal first eats the withdrawer's
   buffered delayed votes; only the portion exceeding `sum_delayed_votes` (already-matured
   governance weight) is removed from the live proxy chain via `adjust_proxied_witness_votes`.
 
 #### `delayed_voting::run(head_time)` / `database::process_delayed_voting(note)`
-- `process_delayed_voting` runs at end-of-block (HF24+ guard, `database.cpp:1654-1661`) and
+- `process_delayed_voting` runs at end-of-block (HF24+ guard, `database.cpp:1678-1685`) and
   delegates to `delayed_voting::run` (`util/delayed_voting.cpp:79-120`).
 - Walks the `by_delayed_voting` index; for every account whose oldest bucket is older than
   `HIVE_DELAYED_VOTING_TOTAL_INTERVAL_SECONDS` (30 days):
@@ -746,15 +830,16 @@ find mature accounts cheaply.
 `claim_reward_balance_evaluator` updates `vesting_shares` inline (not via
 `adjust_account_vesting_balance`) and applies governance weight **immediately** —
 `adjust_proxied_witness_votes(acnt, op_reward_vests.amount)` with no `delayed_voting` buffering
-(`hive_evaluator_transfer.cpp:674`). Only `transfer_to_vesting` buffers; reward VESTS were
-already "earned" stake and are not treated as a takeover vector.
+(`hive_evaluator_transfer.cpp:720`). Only `transfer_to_vesting` and the VESTS that a power-down
+auto-vest route moves to another account are buffered (`database_vesting.cpp:213-217`, section
+2.8); reward VESTS were already "earned" stake and are not treated as a takeover vector.
 
 ### 2.15 DHF Proposal Processing (util/dhf_processor.cpp)
 
 The DHF (Decentralized Hive Fund / "treasury") *evaluators* only create, edit, vote on, and
 remove `proposal_object`s — they never move treasury funds. All payout, funding, and
 conversion happens here, driven by `database::process_proposals(note)` which (HF21+ guard,
-`database.cpp:1645-1652`) constructs a `dhf_processor` and calls `run`.
+`database.cpp:1669-1676`) constructs a `dhf_processor` and calls `run`.
 
 #### `dhf_processor::run(note)` (`util/dhf_processor.cpp:298-304`)
 Four phases, in order: `remove_old_proposals` → `record_funding` → `convert_funds` →
@@ -768,17 +853,19 @@ Four phases, in order: `remove_old_proposals` → `record_funding` → `convert_
 
 #### `record_funding` (`util/dhf_processor.cpp:306-323`)
 - Runs only in the maintenance period (`next_maintenance_time` reached, hourly on mainnet —
-  `HIVE_PROPOSAL_MAINTENANCE_PERIOD`, `config.hpp:172`).
+  `HIVE_PROPOSAL_MAINTENANCE_PERIOD`, `protocol/config.hpp:168`).
 - Drains `dynamic_global_property_object.dhf_interval_ledger` (HBD accumulated by
   `process_funds` from the proposal share of inflation), emitting
   `dhf_funding_operation(treasury, funds)` and zeroing the ledger.
 
-#### `convert_funds` (`util/dhf_processor.cpp:325-360`) — HF24+
+#### `convert_funds` (`util/dhf_processor.cpp:325-364`) - HF24+
 - Runs only in the *daily* maintenance period (`next_daily_maintenance_time`,
   `HIVE_DAILY_PROPOSAL_MAINTENANCE_PERIOD` = 1 day; HF24 guard at
   `util/dhf_processor.cpp:36-38`).
-- Converts `HIVE_PROPOSAL_CONVERSION_RATE` (5 basis points = 0.05%, `config.hpp:469`) of the
-  treasury's *liquid HIVE* balance to HBD at the current median, adjusting supply both ways.
+- Converts `HIVE_PROPOSAL_CONVERSION_RATE` (5 basis points = 0.05%, `config.hpp:468`) of the
+  treasury's *liquid HIVE* balance to HBD at the current median through the dgpo's
+  `convert_HIVE_to_HBD` (`current_supply`, `current_hbd_supply`, `virtual_supply`;
+  `util/dhf_processor.cpp:353-360`).
   Skips if the result would be below `HIVE_MIN_PAYOUT_HBD`. The treasury is meant to hold HBD;
   this drains any HIVE that lands there.
 - **Virtual ops**: `dhf_conversion_operation(treasury, hive_in, hbd_out)` — the **same vop
@@ -786,28 +873,28 @@ Four phases, in order: `remove_old_proposals` → `record_funding` → `convert_
 
 #### `make_payments` (`util/dhf_processor.cpp:238-286`)
 - Runs only in the (hourly) maintenance period. Steps:
-  1. `find_proposals` (`:71-86`) — partitions proposals into *active* (`start_date ≤ now ≤
-     end_date`) and not-yet-active.
+  1. `find_proposals` (`:71-86`): collects the *active* proposals (`start_date <= now <=
+     end_date`) and the not-yet-active ones; proposals past their `end_date` go into neither list.
   2. `calculate_votes` (`:88-124`) — for each active proposal, `total_votes` = Σ
      `get_governance_vote_power()` over all its voters **excluding voters who set a proxy**
-     (`:99-104`).
+     (`util/dhf_processor.cpp:99-104`).
   3. `sort_by_votes` (`:126-136`) — descending by `total_votes`, ties broken by lower
      `proposal_id`.
   4. `calculate_maintenance_budget` (`:145-159`) — daily budget = treasury HBD balance /
      `total_amount_divider` (**=100, i.e. 1% per day**, `dhf_processor.hpp:25`), pro-rated by
      the seconds elapsed since `last_budget_time`.
-  5. `transfer_payments` (`:161-212`) — walks the sorted list paying each proposal its
+  5. `transfer_payments` (`util/dhf_processor.cpp:161-213`) - walks the sorted list paying each proposal its
      `period_pay` (`daily_pay` pro-rated by elapsed seconds; HF25 simplified the rounding,
-     `:191-199`), decrementing the remaining budget, until the budget is exhausted or the first
-     proposal with `total_votes == 0` is reached (`:187-188`, which ends the loop). Each payment
+     `util/dhf_processor.cpp:192-200`), decrementing the remaining budget, until the budget is exhausted or the first
+     proposal with `total_votes == 0` is reached (`util/dhf_processor.cpp:188-189`, which ends the loop). Each payment
      emits `proposal_pay_operation` and moves HBD treasury→receiver via `adjust_balance`
-     (`:174-179`). This top-down-by-votes ordering is what makes the well-known **"return
+     (`util/dhf_processor.cpp:174-180`). This top-down-by-votes ordering is what makes the well-known **"return
      proposal"** work as a spending threshold: it is an ordinary proposal whose receiver is the
      treasury itself, so voters who back it (and rank it high) cause the budget to be consumed
      by a pay-back-to-treasury entry, starving every lower-ranked proposal of remaining budget.
      The threshold is *emergent* from vote rank + budget exhaustion, not a hard-coded special
      case.
-  6. `update_settings` (`:214-223`) — sets `next_maintenance_time = now +
+  6. `update_settings` (`util/dhf_processor.cpp:215-223`) - sets `next_maintenance_time = now +
      HIVE_PROPOSAL_MAINTENANCE_PERIOD` and `last_budget_time = now`.
 - **Virtual ops**: `proposal_pay_operation` (per funded proposal).
 
@@ -830,20 +917,28 @@ curves exist (`protocol::curve_id`, `misc_utilities.hpp:13-21`); with `s` = `con
 | `convergent_square_root` | `R / √(R + 2s)` | HF21 curation curve |
 
 **Curve timeline** (set in `database_hardfork.cpp`; defaults from
-`reward_fund_object.hpp:30-34`):
-- **HF17** (reward fund created, `database_hardfork.cpp:278`): defaults — author=`quadratic`,
-  curation=`bounded_curation`, `content_constant = HIVE_CONTENT_CONSTANT_HF0`, curation share 25%.
-- **HF19** (`database_hardfork.cpp:306-313`): author=`linear`, curation=`square_root`.
-- **HF21** (`database_hardfork.cpp:440-449`): author=`convergent_linear`,
+`reward_fund_object.hpp:66-70`):
+- **HF17**: payouts and votes start reading their curves, content constant and curation share
+  from the reward fund, which still holds its defaults: author=`quadratic`,
+  curation=`bounded_curation`, `content_constant = HIVE_CONTENT_CONSTANT_HF0`, curation share 25%
+  (`database_comment.cpp:210-215`, `hive_evaluator_social.cpp:521-528`, `database.cpp:1945-1946`); until HF19, votes on comments created in the 7 days before HF19 used `square_root` instead (`hive_evaluator_social.cpp:524-525`).
+  Since 1.28.8 the fund exists from genesis with these defaults (`database_init.cpp:258-262`)
+  and HF17 only sets its `last_update` and, outside testnet builds, seeds `recent_claims`
+  (`database_hardfork.cpp:281-287`); at 1.28.7 HF17 created the fund.
+- **HF19** (`database_hardfork.cpp:301-308`): author=`linear`, curation=`square_root`.
+- **HF21** (`database_hardfork.cpp:435-444`): author=`convergent_linear`,
   curation=`convergent_square_root`, `content_constant = HIVE_CONTENT_CONSTANT_HF21`, curation
   share 50%.
-- **HF25** (`database_hardfork.cpp:481-487`): author=`linear` **and** curation=`linear` — the
+- **HF25** (`database_hardfork.cpp:476-482`): author=`linear` **and** curation=`linear` - the
   current mainnet configuration. Curation differentiation is now done by the time-phase
   multiplier in the vote evaluator (§5.3), not the curve shape.
 
-`adjust_rshares2` paths (`database_comment.cpp:328,662`) call `evaluate_reward_curve` with the
-default `quadratic`/`HIVE_CONTENT_CONSTANT_HF0` to maintain the legacy `total_reward_shares2`
-invariant (pre-HF17 accounting kept alive for compatibility).
+`adjust_rshares2` paths (`database_comment.cpp:327,652`) call `evaluate_reward_curve` with the
+default `quadratic`/`HIVE_CONTENT_CONSTANT_HF0` to maintain the pre-HF17 running total of
+rshares2 that pre-HF17 payouts are computed against: since 1.28.8 the reward fund's
+`recent_claims` (`database.cpp:1687-1699`), at 1.28.7 the dgpo's `total_reward_shares2`. All
+callers run only before HF17 or in the HF1 share split (`hive_evaluator_social.cpp:596-602`,
+`database_comment.cpp:326-327`; Part 05, section reward_fund_object (Singleton)).
 
 ---
 
@@ -912,11 +1007,14 @@ process_hardforks()                       // hardfork activation
 | `pay_liquidity_reward` | `liquidity_reward_operation` |
 | `process_funds` | `producer_reward_operation`, `system_warning_operation` |
 | `clear_null_account_balance` | `clear_null_account_balance_operation` |
+| `consolidate_treasury_balance` | `consolidate_treasury_balance_operation` |
 | `restore_accounts` | `hardfork_hive_restore_operation` |
 | `clear_account` | `hardfork_hive_operation` |
 | `process_recurrent_transfers` | `fill_recurrent_transfer_operation`, `failed_recurrent_transfer_operation` |
 | `process_decline_voting_rights` | `proxy_cleared_operation`, `declined_voting_rights_operation` |
+| `remove_expired_governance_votes` | `proxy_cleared_operation`, `expired_account_notification_operation` (HF25+) |
 | `update_median_feed` | `system_warning_operation` (price correction) |
+| `account_recovery_processing` | `changed_recovery_account_operation` |
 | `perform_vesting_share_split` | `vesting_shares_split_operation` |
 | `delayed_voting::run` (process_delayed_voting) | `delayed_voting_operation` |
 | `dhf_processor::make_payments` (process_proposals) | `proposal_pay_operation` |
@@ -931,27 +1029,35 @@ All 50 registered evaluators, organized by source file. For each: state objects
 read/modified/created/removed, chain-state assertions, virtual operations generated,
 hardfork-conditional behavior, and key business logic.
 
+Since 1.28.8 funds are held in balance classes (section 2.1): an evaluator moves an amount from one
+balance to another, usually through a temporary balance, and changes the HIVE or HBD supply only
+through the dgpo's issue, burn and convert methods. Funds that an evaluator takes from an account for
+an escrow, a limit order, a savings withdrawal or a conversion request move into that object, which
+holds them as a balance (for example `escrow_transfer`, `hive_evaluator_transfer.cpp:104-117`);
+every path that removes such an object first moves its funds out, because removal asserts that its
+balances are empty (`check_on_remove()`; Part 05, section State Objects Reference).
+
 ### 5.1 Transfer Evaluators (hive_evaluator_transfer.cpp)
 
 ---
 
 #### transfer_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:260-290`
+- **Source**: `hive_evaluator_transfer.cpp:268-300`
 - **Reads**: `feed_history` (HIVE-to-treasury path), `is_treasury(o.to)`
-- **Modifies**: sender balance (`adjust_balance -amount`), recipient balance (`adjust_balance +amount`)
+- **Modifies**: sender balance (`adjust_balance -amount`), recipient balance (`adjust_balance +amount`); HIVE to treasury: `dynamic_global_property_object` (`current_supply`, `current_hbd_supply` and, when the converted HBD is positive, `virtual_supply`)
 - **Creates**: —
 - **Removes**: —
 - **Virtual Ops**: `dhf_conversion_operation` (when HIVE sent to treasury, HF24+)
 - **Chain-State Checks**:
   - HF21-HF24: only HBD can be sent to treasury
   - HF24+: HIVE to treasury requires non-null price feed
-- **Business Logic**: Three paths: (1) HF24+ HIVE to treasury: converts HIVE to HBD at median price, burns HIVE supply, credits HBD to treasury. (2) HF21+ to treasury: HBD only. (3) Normal: simple balance transfer.
+- **Business Logic**: Three paths: (1) HF24+ HIVE to treasury: converts the HIVE to HBD at the median price through the dgpo's `convert_HIVE_to_HBD` (the HIVE is burned, the HBD issued) and credits the HBD to the treasury (`hive_evaluator_transfer.cpp:279-286`). (2) HF21+ to treasury: HBD only. (3) Normal: simple balance transfer.
 - **Hardfork Notes**: HF21 (treasury restrictions), HF24 (HIVE-to-treasury auto-conversion)
 
 ---
 
 #### transfer_to_vesting_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:292-325`
+- **Source**: `hive_evaluator_transfer.cpp:302-336`
 - **Reads**: `from` account, `to` account, `is_treasury(o.to)`
 - **Modifies**: sender HIVE balance (deducted), recipient VESTS (increased), `dynamic_global_property_object` (vesting totals). HF24+: creates delayed voting record (30-day governance delay).
 - **Creates**: —
@@ -961,16 +1067,16 @@ hardfork-conditional behavior, and key business logic.
 - **Business Logic**: Converts HIVE to VESTS (Hive Power). HF24+ splits the effect: VESTS are
   added to `vesting_shares` immediately (`adjust_account_vesting_balance`, RC/curation see them
   at once), but governance weight is buffered for 30 days via `delayed_voting::add_delayed_value`
-  (`hive_evaluator_transfer.cpp:311-317`; full mechanism in §2.14). Pre-HF24 used
+  (`hive_evaluator_transfer.cpp:322-328`; full mechanism in section 2.14). Pre-HF24 used
   `create_vesting` with no delay. The `transfer_to_vesting_completed_operation` vop is emitted
   **unconditionally** because the VESTS balance changed now, independent of the deferred
-  governance activation (`:323-324`).
+  governance activation (`hive_evaluator_transfer.cpp:334-335`).
 - **Hardfork Notes**: HF21 (treasury restriction), HF24 (delayed voting — see §2.14)
 
 ---
 
 #### withdraw_vesting_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:327-389`
+- **Source**: `hive_evaluator_transfer.cpp:338-400`
 - **Reads**: account object
 - **Modifies**: `account_object` (vesting_withdraw_rate, next_vesting_withdrawal, to_withdraw, withdrawn). RC mana regenerated (HF20+).
 - **Creates**: —
@@ -986,7 +1092,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### set_withdraw_vesting_route_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:391-455`
+- **Source**: `hive_evaluator_transfer.cpp:402-466`
 - **Reads**: from/to accounts, existing route
 - **Modifies**: `withdraw_vesting_route_object` (create/modify/remove), `account_object.withdraw_routes` counter
 - **Creates**: `withdraw_vesting_route_object` (new route with percent > 0)
@@ -1002,7 +1108,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### convert_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:457-471`
+- **Source**: `hive_evaluator_transfer.cpp:468-484`
 - **Reads**: account, `feed_history`
 - **Modifies**: account HBD balance (deducted immediately)
 - **Creates**: `convert_request_object` (time-delayed)
@@ -1015,9 +1121,9 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### collateralized_convert_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:473-520`
+- **Source**: `hive_evaluator_transfer.cpp:486-533`
 - **Reads**: account, `feed_history` (median + min), `dynamic_global_property_object` (hbd_print_rate, hbd_stop_percent)
-- **Modifies**: account HIVE balance (deducted), account HBD balance (credited immediately), `dynamic_global_property_object` (current_hbd_supply, virtual_supply)
+- **Modifies**: account HIVE balance (deducted), account HBD balance (credited immediately), `dynamic_global_property_object` (`current_hbd_supply`, `virtual_supply`; through the dgpo's `issue_HBD`, `hive_evaluator_transfer.cpp:514-519`)
 - **Creates**: `collateralized_convert_request_object`
 - **Removes**: —
 - **Virtual Ops**: `collateralized_convert_immediate_conversion_operation` (always)
@@ -1027,13 +1133,13 @@ hardfork-conditional behavior, and key business logic.
   - `hbd_print_rate > 0` (HBD creation not blocked)
   - Converted amount > 0
   - New HBD doesn't violate global `hbd_stop_percent` cap
-- **Business Logic**: HIVE->HBD with 2x overcollateralization. Immediate HBD payout at `current_min_history` price minus fee. Excess collateral returned after `HIVE_COLLATERALIZED_CONVERSION_DELAY` at median price.
+- **Business Logic**: HIVE->HBD with 2x overcollateralization. Immediate HBD payout at `current_min_history` price minus fee. After `HIVE_COLLATERALIZED_CONVERSION_DELAY` the collateral beyond the HIVE that the issued HBD is worth at the market median price (`market_median_history`) plus the fee is returned (`database_conversion.cpp:109-117`; Part 07, section HIVE -> HBD (Collateralized Conversion)).
 - **Hardfork Notes**: HF25 (introduced)
 
 ---
 
 #### limit_order_create_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:522-547`
+- **Source**: `hive_evaluator_transfer.cpp:535-571`
 - **Reads**: `head_block_time()`, `head_block_id()` (pre-HF20)
 - **Modifies**: seller balance (deducted), potentially other orders and balances via `apply_order()`
 - **Creates**: `limit_order_object`
@@ -1043,26 +1149,32 @@ hardfork-conditional behavior, and key business logic.
   - Expiration must be in future
   - HF20+: max 28-day expiration
   - Fill-or-kill: must be fully filled or transaction reverts
+  - HF29 switch `HIVE_HARDFORK_1_29_FIX_LIMIT_ORDER_ASSETS` (defined in 1.28.8, inactive on mainnet):
+    `limit_order_create` and `limit_order_create2` accept only the HIVE:HBD market
+    (`hive_evaluator_transfer.cpp:540-546`, `:578-584`). A 1.28.8 node already rejects other markets
+    in new transactions submitted to it and in blocks it produces (Part 01, section HF29 (Defined in
+    1.28.8, Inactive on Mainnet); Part 02, section SMT residue in limit-order validation (resolves
+    open question)).
 - **Business Logic**: Creates DEX limit order. Deducts sell amount, calls `apply_order()` to match against book. Pre-HF20: expiration clamped with pseudorandom offset from `head_block_id`.
-- **Hardfork Notes**: HF20 (28-day max expiration)
+- **Hardfork Notes**: HF20 (28-day max expiration), HF29 (market check, see Chain-State Checks)
 
 ---
 
 #### limit_order_create2_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:549-571`
+- **Source**: `hive_evaluator_transfer.cpp:573-606`
 - **Reads**: `head_block_time()`
 - **Modifies**: Same as limit_order_create
 - **Creates**: `limit_order_object`
 - **Removes**: — (via `apply_order()`)
 - **Virtual Ops**: — (via `apply_order()`)
 - **Chain-State Checks**: Same as limit_order_create
-- **Business Logic**: Same as `limit_order_create` but takes explicit `exchange_rate` instead of deriving from `min_to_receive / amount_to_sell`.
-- **Hardfork Notes**: HF20 (28-day max expiration)
+- **Business Logic**: Same as `limit_order_create` but takes explicit `exchange_rate` instead of deriving from `min_to_receive / amount_to_sell`; before HF20 the expiration is clamped without the pseudorandom offset (`hive_evaluator_transfer.cpp:591-594`).
+- **Hardfork Notes**: HF20 (28-day max expiration), HF29 (market check, see limit_order_create)
 
 ---
 
 #### limit_order_cancel_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:573-576`
+- **Source**: `hive_evaluator_transfer.cpp:608-611`
 - **Reads**: `limit_order_object` by owner+orderid
 - **Modifies**: seller balance (returned via `cancel_order()`)
 - **Creates**: —
@@ -1074,7 +1186,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### escrow_transfer_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:75-106`
+- **Source**: `hive_evaluator_transfer.cpp:75-124`
 - **Reads**: from/to/agent accounts
 - **Modifies**: sender balance (HIVE + HBD deducted including fee), `account_object.pending_escrow_transfers++`
 - **Creates**: `escrow_object`
@@ -1088,9 +1200,9 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### escrow_approve_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:108-175`
+- **Source**: `hive_evaluator_transfer.cpp:126-181`
 - **Reads**: `escrow_object`, from account (on rejection)
-- **Modifies**: `escrow_object` (to_approved/agent_approved flags, pending_fee). On rejection: restores all funds to sender. On full approval: pays fee to agent.
+- **Modifies**: `escrow_object` (to_approved/agent_approved flags, pending_fee). On rejection: through `remove_escrow()` (since 1.28.8; section 2.7, `hive_evaluator_transfer.cpp:163-166`), restores all funds to the sender and decrements its `pending_escrow_transfers`. On full approval: pays fee to agent.
 - **Creates**: —
 - **Removes**: `escrow_object` (on rejection)
 - **Virtual Ops**: `escrow_rejected_operation` (on rejection), `escrow_approved_operation` (when both approve)
@@ -1103,7 +1215,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### escrow_dispute_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:177-196`
+- **Source**: `hive_evaluator_transfer.cpp:183-202`
 - **Reads**: from account, `escrow_object`
 - **Modifies**: `escrow_object` (disputed = true)
 - **Creates**: —
@@ -1115,7 +1227,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### escrow_release_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:198-258`
+- **Source**: `hive_evaluator_transfer.cpp:204-266`
 - **Reads**: from account, `escrow_object`
 - **Modifies**: receiver balance (credited), `escrow_object` (balances reduced). If emptied: `pending_escrow_transfers--`
 - **Creates**: —
@@ -1133,7 +1245,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### transfer_to_savings_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:578-587`
+- **Source**: `hive_evaluator_transfer.cpp:613-623`
 - **Reads**: from/to accounts, `is_treasury(to)`
 - **Modifies**: sender liquid balance (deducted), recipient savings balance (credited)
 - **Creates**: —
@@ -1145,7 +1257,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### transfer_from_savings_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:589-606`
+- **Source**: `hive_evaluator_transfer.cpp:625-645`
 - **Reads**: from/to accounts, savings balance, `is_treasury(to)`
 - **Modifies**: savings balance (deducted), `account_object.savings_withdraw_requests++`
 - **Creates**: `savings_withdraw_object` (3-day delay)
@@ -1160,7 +1272,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### cancel_transfer_from_savings_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:608-619`
+- **Source**: `hive_evaluator_transfer.cpp:647-665`
 - **Reads**: `savings_withdraw_object`, from account
 - **Modifies**: savings balance (restored), `account_object.savings_withdraw_requests--`
 - **Creates**: —
@@ -1172,7 +1284,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### claim_reward_balance_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:621-675`
+- **Source**: `hive_evaluator_transfer.cpp:667-721`
 - **Reads**: account, `dynamic_global_property_object`
 - **Modifies**: account reward balances (deducted), account liquid/vesting balances (credited), `dynamic_global_property_object` (moves VESTS from pending-reward to active pool), governance vote weight (via `adjust_proxied_witness_votes`)
 - **Creates**: —
@@ -1185,7 +1297,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### delegate_vesting_shares_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:677-903`
+- **Source**: `hive_evaluator_transfer.cpp:723-950`
 - **Reads**: delegator/delegatee accounts, existing `vesting_delegation_object`, `dynamic_global_property_object`, `witness_schedule_object`
 - **Modifies**: delegator (delegated_vesting_shares, voting/downvote manabars), delegatee (received_vesting_shares, voting/downvote manabars), RC mana (HF20+)
 - **Creates**: `vesting_delegation_object` (new delegation), `vesting_delegation_expiration_object` (on decrease — delayed return)
@@ -1203,19 +1315,27 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### recurrent_transfer_evaluator
-- **Source**: `hive_evaluator_transfer.cpp:906-957`
+- **Source**: `hive_evaluator_transfer.cpp:952-1028`
 - **Reads**: from/to accounts, balance, existing `recurrent_transfer_object`
-- **Modifies**: `account_object.open_recurrent_transfers` (increment/decrement)
+- **Modifies**: `account_object.open_recurrent_transfers` (increment/decrement), the existing `recurrent_transfer_object` (update)
 - **Creates**: `recurrent_transfer_object` (new)
 - **Removes**: `recurrent_transfer_object` (when amount == 0)
 - **Virtual Ops**: — (periodic execution emits `fill_recurrent_transfer_operation` / `failed_recurrent_transfer_operation` later)
 - **Chain-State Checks**:
   - HF25+ only
   - Sufficient balance for first execution
-  - `open_recurrent_transfers < HIVE_MAX_OPEN_RECURRENT_TRANSFERS`
+  - Create: `open_recurrent_transfers < HIVE_MAX_OPEN_RECURRENT_TRANSFERS` and a non-zero `amount` (deleting a transfer that does not exist fails)
   - Total duration ≤ `HIVE_MAX_RECURRENT_TRANSFER_END_DATE` days
+  - `executions >= 2`: since 1.28.8 an evaluator check (`validate()` rejects only `executions == 0`,
+    `hive_operations.cpp:820-824`; at 1.28.7 it required at least 2). HF29 switch
+    `HIVE_HARDFORK_1_29_ALLOW_MODIFY_LAST_RECURRENT_TRANSFER` (defined in 1.28.8, inactive on
+    mainnet): a recurrent transfer may be modified or deleted with `executions == 1`; before HF29 the
+    evaluator requires at least 2 on every path, and creation always does
+    (`hive_evaluator_transfer.cpp:976-978`, `:991-996`, `:1011-1016`; Part 01, section HF29 (Defined
+    in 1.28.8, Inactive on Mainnet); Part 12, section Hardfork-conditional behavior (verified
+    evolution)).
 - **Business Logic**: Three cases: create (amount > 0, no existing), delete (amount == 0, existing), update (amount > 0, existing). `pair_id` allows multiple recurrent transfers between same accounts.
-- **Hardfork Notes**: HF25 (introduced)
+- **Hardfork Notes**: HF25 (introduced), HF29 (`executions`, see Chain-State Checks)
 
 ---
 
@@ -1224,7 +1344,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### account_create_evaluator
-- **Source**: `hive_evaluator_account.cpp:156-208`
+- **Source**: `hive_evaluator_account.cpp:156-203`
 - **Reads**: creator account, `dynamic_global_property_object`, `witness_schedule_object` (median fee), null account (HF20+)
 - **Modifies**: creator balance (deducted). Pre-HF20: fee converted to VESTS for new account. HF20+: fee sent to null (burned).
 - **Creates**: `account_object` (via `create_account()` helper), `account_authority_object`
@@ -1241,7 +1361,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### account_create_with_delegation_evaluator
-- **Source**: `hive_evaluator_account.cpp:210-283`
+- **Source**: `hive_evaluator_account.cpp:205-273`
 - **Reads**: creator account, `dynamic_global_property_object`, `witness_schedule_object`, null account (HF20+)
 - **Modifies**: creator balance (deducted), creator delegated_vesting_shares (increased)
 - **Creates**: `account_object`, `account_authority_object`, `vesting_delegation_object` (if delegation > 0 or pre-HF19)
@@ -1251,13 +1371,14 @@ hardfork-conditional behavior, and key business logic.
   - **DISABLED after HF20** — asserts `!has_hardfork(HF20)`
   - Sufficient HIVE balance and available vesting for delegation
   - Combined fee+delegation meets minimum threshold
+  - Fee >= the median `account_creation_fee`; referenced accounts in authorities must exist (`hive_evaluator_account.cpp:231-236`)
 - **Business Logic**: Deprecated at HF20. Created accounts with HIVE fee + VESTS delegation combination. Delegation has `HIVE_CREATE_ACCOUNT_DELEGATION_TIME` (30-day) minimum lifetime.
 - **Hardfork Notes**: HF20 (disabled)
 
 ---
 
 #### account_update_evaluator
-- **Source**: `hive_evaluator_account.cpp:286-358`
+- **Source**: `hive_evaluator_account.cpp:276-350`
 - **Reads**: account, `account_authority_object`
 - **Modifies**: `account_object` (memo_key, last_account_update), `account_authority_object` (active, posting). Owner via `update_owner_authority()` (creates `owner_authority_history_object`).
 - **Creates**: `owner_authority_history_object` (if owner changed, via helper)
@@ -1274,20 +1395,20 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### account_update2_evaluator
-- **Source**: `hive_evaluator_account.cpp:360-400`
+- **Source**: `hive_evaluator_account.cpp:352-392`
 - **Reads**: account, `account_authority_object`
 - **Modifies**: Same as account_update
 - **Creates**: `owner_authority_history_object` (if owner changed)
 - **Removes**: —
 - **Virtual Ops**: —
-- **Chain-State Checks**: HF21+ only. Same as account_update (minus pre-HF15 leniency).
+- **Chain-State Checks**: HF21+ only. Same as account_update (minus pre-HF15 leniency), except that the authority size check is done by the operation's `validate()` (`hive_operations.cpp:105-114`), not by the evaluator.
 - **Business Logic**: Nearly identical to `account_update` but `memo_key` is optional (can omit entirely). Introduced HF21.
 - **Hardfork Notes**: HF21 (introduced), HF26 (2x/hour owner update)
 
 ---
 
 #### claim_account_evaluator
-- **Source**: `hive_evaluator_account.cpp:402-462`
+- **Source**: `hive_evaluator_account.cpp:394-453`
 - **Reads**: creator account, `witness_schedule_object`, `dynamic_global_property_object`, current block witness (fee=0 path), null account
 - **Modifies**: creator balance (deducted if fee > 0), null account (receives fee), `account_object.pending_claimed_accounts++`, witness subsidies (if fee=0), global subsidies (if fee=0)
 - **Creates**: —
@@ -1304,7 +1425,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### create_claimed_account_evaluator
-- **Source**: `hive_evaluator_account.cpp:464-497`
+- **Source**: `hive_evaluator_account.cpp:455-479`
 - **Reads**: creator account, `dynamic_global_property_object`, `witness_schedule_object`
 - **Modifies**: `account_object.pending_claimed_accounts--`
 - **Creates**: `account_object`, `account_authority_object`
@@ -1317,7 +1438,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### request_account_recovery_evaluator
-- **Source**: `hive_evaluator_account.cpp:499-552`
+- **Source**: `hive_evaluator_account.cpp:481-538`
 - **Reads**: target account, recovery agent account, top-voted witness (fallback), existing recovery requests
 - **Modifies**: existing `account_recovery_request_object` (update authority + reset timer)
 - **Creates**: `account_recovery_request_object` (new request, expires in `HIVE_ACCOUNT_RECOVERY_REQUEST_EXPIRATION_PERIOD`)
@@ -1327,12 +1448,20 @@ hardfork-conditional behavior, and key business logic.
   - Recovery account must match the target's configured recovery partner
   - If no recovery partner set: top-voted witness is the default
   - Authority must not be impossible or open (zero threshold)
-- **Business Logic**: Three branches: create, cancel (weight_threshold == 0), update (existing request). **Known bug**: `validate_auth_size` only called on new requests, not modifications — marked for HF29 fix.
+  - Accounts referenced in the new authority must exist (create, update)
+  - HF29 switch `HIVE_HARDFORK_1_29_FIX_ENFORCEMENT_OF_AUTHORITY_SIZE_ON_RECOVERY_REQUEST` (defined
+    in 1.28.8, inactive on mainnet; it replaces the `FC_TODO` and its HF29 comment in the 1.28.7 code):
+    `request_account_recovery` checks the size of the new owner authority on every request path
+    (`hive_evaluator_account.cpp:500-506`). A 1.28.8 node already applies this check to new
+    transactions submitted to it (API or P2P) and to blocks it produces (`is_in_control()`,
+    `database.hpp:176`; Part 01, section HF29 (Defined in 1.28.8, Inactive on Mainnet)).
+- **Business Logic**: Three branches: create, cancel (weight_threshold == 0), update (existing request).
+- **Hardfork Notes**: HF29 (authority size, see Chain-State Checks)
 
 ---
 
 #### recover_account_evaluator
-- **Source**: `hive_evaluator_account.cpp:554-587`
+- **Source**: `hive_evaluator_account.cpp:540-573`
 - **Reads**: target account, active recovery request, `owner_authority_history_index`
 - **Modifies**: owner authority (via `update_owner_authority()`), `account_object` (last_account_recovery_time, block_last_account_recovery_time)
 - **Creates**: `owner_authority_history_object` (via helper)
@@ -1348,7 +1477,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### change_recovery_account_evaluator
-- **Source**: `hive_evaluator_account.cpp:589-615`
+- **Source**: `hive_evaluator_account.cpp:575-601`
 - **Reads**: new recovery account, target account, existing change requests
 - **Modifies**: existing `change_recovery_account_request_object` (update target + reset timer)
 - **Creates**: `change_recovery_account_request_object` (effective after `HIVE_OWNER_AUTH_RECOVERY_PERIOD` = 30 days)
@@ -1360,7 +1489,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### decline_voting_rights_evaluator
-- **Source**: `hive_evaluator_account.cpp:617-643`
+- **Source**: `hive_evaluator_account.cpp:603-629`
 - **Reads**: account, existing decline request
 - **Modifies**: —
 - **Creates**: `decline_voting_rights_request_object` (when declining, effective after `HIVE_OWNER_AUTH_RECOVERY_PERIOD` = 30 days)
@@ -1376,14 +1505,14 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### reset_account_evaluator
-- **Source**: `hive_evaluator_account.cpp:645-651`
+- **Source**: `hive_evaluator_account.cpp:631-637`
 - **PERMANENTLY DISABLED**: Always asserts `false` — "Reset Account Operation is currently disabled."
 - **Business Logic**: Never used. Related to abandoned feature (steem issue #240).
 
 ---
 
 #### set_reset_account_evaluator
-- **Source**: `hive_evaluator_account.cpp:653-657`
+- **Source**: `hive_evaluator_account.cpp:639-643`
 - **PERMANENTLY DISABLED**: Always asserts `false` — "Set Reset Account Operation is currently disabled."
 - **Business Logic**: Same abandoned feature as reset_account.
 
@@ -1394,7 +1523,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### comment_evaluator
-- **Source**: `hive_evaluator_social.cpp:174-312`
+- **Source**: `hive_evaluator_social.cpp:175-313`
 - **Reads**: author account, existing comment (for edits), parent comment (for replies), parent cashout (for reply count)
 - **Modifies**: `account_object` — new: `last_root_post`, `post_bandwidth`, `last_post`, `last_post_edit`, `post_count++`. Edit: only `last_post_edit`. Parent's `comment_cashout_object` — `on_reply()` increments reply count (new replies only).
 - **Creates**: `comment_object`, `comment_cashout_object`, `comment_cashout_ex_object` (pre-HF19 only)
@@ -1402,14 +1531,14 @@ hardfork-conditional behavior, and key business logic.
 - **Virtual Ops**: —
 - **Chain-State Checks**:
   - **New comment**: depth limit (255 soft cap, 64K hard cap after HF17; strict `HIVE_MAX_COMMENT_DEPTH_PRE_HF17` before), UTF-8 json_metadata, frozen discussion check (HF12-HF17), posting frequency (pre-HF6: 1/min; HF6+: root every 5 min, reply every 3 sec), valid permlink (HF1+)
-  - **Edit**: HF21+ edit interval (one per block), cannot change parent, era-dependent restrictions on editing after payout/archival
-- **Business Logic**: Two paths: new comment vs edit. HF12-HF17: `reward_weight` penalizes frequent posting via post-bandwidth formula. Cashout time: HF17+ always `now + 7 days`; pre-HF17: replies had infinite cashout, roots had separate window.
+  - **Edit**: the same depth limit and UTF-8 json_metadata checks (both run before the new/edit branch, `hive_evaluator_social.cpp:183-193`), HF21+ edit interval (one per block), cannot change parent, era-dependent restrictions on editing after payout/archival
+- **Business Logic**: Two paths: new comment vs edit. HF12-HF17: `reward_weight` penalizes frequent root posting via the post-bandwidth formula (`hive_evaluator_social.cpp:220-226`). Cashout time: HF17+ always `now + 7 days`, fixed at creation; before HF17 it was not fixed at creation: from HF12 a new root post started 12 hours ahead, earlier posts and all replies started with none (`maximum()`, `:249-254`), and votes re-averaged it (see vote_evaluator; Part 07, section Cashout Process).
 - **Hardfork Notes**: HF1 (permlink validation), HF6 (posting intervals), HF10 (24h edit limit), HF12 (reward bandwidth), HF14 (archived check), HF17 (depth limit change, cashout unification), HF19 (cashout_ex removed), HF21 (edit interval, stricter parent change)
 
 ---
 
 #### comment_options_evaluator
-- **Source**: `hive_evaluator_social.cpp:108-172`
+- **Source**: `hive_evaluator_social.cpp:109-173`
 - **Reads**: comment, `comment_cashout_object`, beneficiary accounts
 - **Modifies**: `comment_cashout_object` — `configure_options()` for percent_hbd/max_payout/allow_votes/allow_curation. `add_beneficiary()` for each beneficiary.
 - **Creates**: —
@@ -1426,7 +1555,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### delete_comment_evaluator
-- **Source**: `hive_evaluator_social.cpp:55-106`
+- **Source**: `hive_evaluator_social.cpp:56-107`
 - **Reads**: `comment_object`, `comment_cashout_object`, all `comment_vote_object` for comment, parent cashout
 - **Modifies**: parent's `comment_cashout_object` (`on_reply(true)` — decrements reply count)
 - **Creates**: —
@@ -1442,39 +1571,41 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### vote_evaluator
-- **Source**: `hive_evaluator_social.cpp:854-864` (dispatcher), `pre_hf20_vote_evaluator:314-603`, `hf20_vote_evaluator:605-852`
+- **Source**: `hive_evaluator_social.cpp:856-866` (dispatcher), `:315-605` (`pre_hf20_vote_evaluator`), `:607-854` (`hf20_vote_evaluator`)
 - **Reads**: comment, `comment_cashout_object`, voter account, `dynamic_global_property_object`, existing `comment_vote_object`, `reward_fund_object` (HF17+), curation rewards percent
-- **Modifies**: `account_object` (voting mana deducted, last_vote_time). `comment_cashout_object` (net_rshares, vote_weight, total_vote_weight). `comment_vote_object` (on edit). Pre-HF17: root `comment_cashout_object` and `comment_cashout_ex_object` (cashout time recalculation, abs_rshares), `dynamic_global_property_object` (rshares2).
+- **Modifies**: `account_object` (voting mana deducted, last_vote_time). `comment_cashout_object` (net_rshares, vote_weight, total_vote_weight). `comment_vote_object` (on edit). Pre-HF17: root `comment_cashout_object` and `comment_cashout_ex_object` (cashout time recalculation, abs_rshares), `reward_fund_object` (`recent_claims`, the pre-HF17 rshares2 total, through `adjust_rshares2`, `hive_evaluator_social.cpp:596-602`; the dgpo's `total_reward_shares2` at 1.28.7).
 - **Creates**: `comment_vote_object` (new vote)
 - **Removes**: —
-- **Paid-out comments**: `hf20_vote_evaluator` returns at `hive_evaluator_social.cpp:620-623` (`return; // comment already paid`) when there is no `comment_cashout_object` or the payout time is `maximum()` - before `update_manabar` (`:651-654`), before any mana math or mana assert (`:657-702`), before the vote object create/modify (`:839-848`) and before the virtual op (`:851`). Since HF19 the cashout object is removed at payout (`database_comment.cpp:477-481`, together with every `comment_vote_object`, `:366-373`), so on mainnet every vote on a paid-out comment succeeds as a consensus no-op; RC is still charged because RC counts the vote by operation type (`rc_utility.cpp:799-820`, `resource_count.cpp:331-335`). Answers the common "do votes on old posts consume mana?" question: no.
+- **Paid-out comments**: `hf20_vote_evaluator` returns at `hive_evaluator_social.cpp:622-625` (`return; // comment already paid`) when there is no `comment_cashout_object` or the payout time is `maximum()` - before `update_manabar` (`:653-656`), before any mana math or mana assert (`:659-704`), before the vote object create/modify (`:841-850`) and before the virtual op (`:853`). Since HF19 the cashout object is removed at payout (`database_comment.cpp:471-475`, together with every `comment_vote_object`, `:365-372`), so on mainnet every vote on a paid-out comment by an account that has not declined its voting rights succeeds as a consensus no-op; RC is still charged because RC counts the vote by operation type (`rc_utility.cpp:830-851`, `resource_count.cpp:331-335`). Answers the common "do votes on old posts consume mana?" question: no.
 - **Virtual Ops**: `effective_comment_vote_operation` (on every vote that reaches the comment, including unvotes; none for votes on paid-out comments - see above)
 - **Chain-State Checks**:
   - Voter has not declined voting rights
   - (positive vote) Comment allows votes
   - Sufficient voting mana/power
-  - Pre-HF20 only (HF14+): rshares above `HIVE_VOTE_DUST_THRESHOLD` asserted (`pre_hf20_vote_evaluator`, `hive_evaluator_social.cpp:369`, HF13 form at `:373`); the HF20+ evaluator subtracts the threshold instead (`:704-707`), so a dust vote succeeds with 0 rshares and still consumes its full `used_mana`
-  - Upvote lockout: HF7 (1 min before payout), HF17+ (12 hours before payout, linear attenuation in HF20+). The `Comment is actively being rewarded. Cannot vote on comment.` assert (`:625-626`) is dead on HF19+ mainnet: during transaction evaluation `head_block_time()` is still the previous block's timestamp (`dgp.time` is written in `update_global_dynamic_data`, `database.cpp:2832`, called at `:2317` after the transaction loop `:2295-2305`), and `process_comment_cashout` (`:2340`) removed every cashout object with `cashout_time <= that time` at the end of that block (`database_comment.cpp:432,464`), so any surviving cashout object has `cashout_time > _now`
-  - New vote: weight != 0, rshares > 0
+  - Pre-HF20 only (HF14+): rshares above `HIVE_VOTE_DUST_THRESHOLD` asserted for votes with non-zero weight, unvotes are exempt (`pre_hf20_vote_evaluator`, `hive_evaluator_social.cpp:370`, HF13 form at `:374`); the HF20+ evaluator subtracts the threshold instead (`:706-709`), so a dust vote succeeds with 0 rshares and still consumes its full `used_mana`
+  - Upvote lockout (pre-HF20 evaluator, for a vote that raises the voter's rshares on the comment): HF7 (1 min before payout), HF17+ (12 hours before payout) (`hive_evaluator_social.cpp:384-390`). The HF20+ evaluator has no lockout: it scales every vote, downvotes included, linearly down to 0 over the last 12 hours before payout (`:711-716`). The `Comment is actively being rewarded. Cannot vote on comment.` assert (`:627-628`) is dead on HF19+ mainnet: during transaction evaluation `head_block_time()` is still the previous block's timestamp (`dgp.time` is written in `update_global_dynamic_data` through `set_new_head_block`, `database.cpp:2866`, called at `:2331` after the transaction loop `:2309-2319`), and `process_comment_cashout` (`:2354`) removed every cashout object with `cashout_time <= that time` at the end of that block (`database_comment.cpp:436,459`), so any surviving cashout object has `cashout_time > _now`
+  - New vote: weight != 0; before HF20 also non-zero rshares (`abs_rshares > 0`, `hive_evaluator_social.cpp:458-459`; HF20+ `:640`)
   - Vote edit: weight must differ from previous
-  - HF21+ downvotes (the downvote branches are gated on `dgpo.downvote_pool_percent`, default 0 at `include/hive/chain/detail/state/global_property_object.hpp:160`, set to `HIVE_DOWNVOTE_POOL_PERCENT_HF21` only by the HF21 migration at `database_hardfork.cpp:424`): strict `voting_mana + downvote_mana > used_mana` (`:692`) versus the upvote `has_mana` (`>=`) gate (`:699`), so a zero-stake account can upvote with 0 rshares but cannot downvote (code comment `:689-691`; `tests/unit/tests/hf28_tests.cpp:1893-1907`)
+  - HF21+ downvotes (the downvote branches are gated on `dgpo.get_downvote_pool_percent()`, default 0 at `include/hive/chain/detail/state/global_property_object.hpp:281`, set to `HIVE_DOWNVOTE_POOL_PERCENT_HF21` only by the HF21 migration at `database_hardfork.cpp:419`): strict `voting_mana + downvote_mana > used_mana` (`hive_evaluator_social.cpp:694`) versus the upvote `has_mana` (`>=`) gate (`:701`), so a zero-stake account can upvote with 0 rshares but cannot downvote (code comment `:691-693`; `tests/unit/tests/hf28_tests.cpp:1896-1910`)
 - **Business Logic — Vote Power (Pre-HF20)**: Mana regeneration over `HIVE_VOTING_MANA_REGENERATION_SECONDS`. `used_power = current_power * |weight| * 86400 / (100% * vote_power_reserve_rate * regen_seconds)`. `rshares = effective_vesting_shares * used_power / 100%`.
-- **Business Logic — Mana (HF20+)**: Three mana eras: (1) HF28+: `used_mana = effective_vesting_shares * |weight| * 86400 / 100%` (stake-based, not current-mana-based; `:659-662`). After the `max_vote_denom` round-up (`:686`) a 100% vote costs ceil(E/50) = 2% of max mana for upvotes and downvotes alike, so only 49 full votes fit in one block from a full bar unless E is divisible by 50 (code comment `:698`; `hf28_tests.cpp:1810-1819`); the downvote pool holds 12.5 full downvotes and the 13th spills into upvote mana (`hf28_tests.cpp:1841-1848`). (2) HF21..HF27 downvotes: mana scaled by downvote_pool_percent (`:663-677`, dead after HF28). (3) Pre-HF28 upvotes: `used_mana = voting_mana * |weight| * 86400 / 100%`. Dust threshold subtracted directly: `rshares = used_mana - HIVE_VOTE_DUST_THRESHOLD`.
+- **Business Logic - Mana (HF20+)**: Three mana eras: (1) HF28+: `used_mana = effective_vesting_shares * |weight| * 86400 / 100%` (stake-based, not current-mana-based; `hive_evaluator_social.cpp:661-664`). After the `max_vote_denom` round-up (`:688`) a 100% vote costs ceil(E/50) = 2% of max mana for upvotes and downvotes alike, so only 49 full votes fit in one block from a full bar unless E is divisible by 50 (code comment `:700`; `hf28_tests.cpp:1813-1822`); the downvote pool holds 12.5 full downvotes and the 13th spills into upvote mana (`hf28_tests.cpp:1844-1851`). (2) HF21..HF27 downvotes: mana scaled by downvote_pool_percent (`hive_evaluator_social.cpp:665-679`, dead after HF28). (3) Pre-HF28 upvotes: `used_mana = voting_mana * |weight| * 86400 / 100%`. Dust threshold subtracted directly: `rshares = used_mana - HIVE_VOTE_DUST_THRESHOLD`.
 - **Business Logic — Curation Weight**: The incremental curation weight of a vote is
   `vote_weight = W(comment.vote_rshares_after) − W(comment.vote_rshares_before)` where `W` =
   `evaluate_reward_curve(rshares, curation_reward_curve, content_constant)` (HF20+ path
-  `hive_evaluator_social.cpp:787-789`; see §2.16 for the curve formulas and timeline). Pre-HF17
+  `hive_evaluator_social.cpp:789-791`; see section 2.16 for the curve formulas and timeline). Pre-HF17
   the curve was hard-coded `W(R) = MAX_UINT64 * R / (2S + R)`; HF17+ reads it from the reward
-  fund. A **time-of-vote multiplier** then scales `vote_weight` (`:797-826`), and the two
+  fund. A **time-of-vote multiplier** then scales `vote_weight` (`hive_evaluator_social.cpp:799-828`), and the two
   regimes are mutually exclusive, selected by whether `dgpo.reverse_auction_seconds` is zero:
   - **Pre-HF25 reverse auction** (`reverse_auction_seconds > 0`): votes cast within the window
     are linearly discounted — `vote_weight * min(seconds, reverse_auction_seconds) /
-    reverse_auction_seconds` (`:798-809`). Voting at t=0 yields ~0 curation; the forgone
-    weight returns to the author.
+    reverse_auction_seconds` (`hive_evaluator_social.cpp:800-811`). Voting at t=0 yields ~0 curation; the forgone
+    weight went to the author before HF20 and stays in the reward fund since HF20
+    (`forward_curation_remainder`, `database_comment.cpp:446`, `:234-235`; Part 07, section Curation
+    Reward Distribution).
   - **HF25+ three phases** (`reverse_auction_seconds` zeroed; uses `early_voting_seconds` /
-    `mid_voting_seconds`, `:810-822`): early window = full weight; mid window
+    `mid_voting_seconds`, `hive_evaluator_social.cpp:812-824`): early window = full weight; mid window
     (`early ≤ t < early+mid`) = `÷2`; late window (`t ≥ early+mid`) = `÷8` (the `÷2`/`÷8`
-    "phase factors" are hard-coded at `:813-814`).
+    "phase factors" are hard-coded at `hive_evaluator_social.cpp:815-816`).
   - **HF26+ vote edits**: edits now recompute and receive curation weight; before HF26 an edit
     set `vote_weight = 0` (no curation for changed votes).
 - **Hardfork Notes**: HF1 (scaling), HF6 (duplicate vote check), HF7 (lockout), HF13 (dust threshold), HF14 (dust rounding), HF17 (lockout 12h, reward fund curve, cashout unification), HF19 (sqrt curve override), HF20 (mana system, dust threshold subtracted instead of asserted, lockout attenuation), HF21 (separate downvote pool, 25%), HF22 (uint128 downvote fix), HF25 (early/mid/late phases), HF26 (vote edit curation), HF28 (stake-based vote)
@@ -1567,7 +1698,7 @@ hardfork-conditional behavior, and key business logic.
 - **Removes**: —
 - **Virtual Ops**: Depends on interpreter
 - **Chain-State Checks**: HF26+: JSON size ≤ `HIVE_CUSTOM_OP_DATA_MAX_LENGTH` (8192 bytes)
-- **Business Logic**: Looks up interpreter by `id` string. If none registered, silently returns. In control mode (producing/validating): interpreter exceptions propagate. During replay: fc::exceptions swallowed, non-fc logged. Evaluator's responsibility to undo changes on exception.
+- **Business Logic**: Looks up interpreter by `id` string. If none registered, silently returns. An `fc::exception` from the interpreter propagates when the node is in control (producing a block or validating a new transaction, `is_in_control()`) and is swallowed otherwise (replay, applying a block from the network, re-applying pending transactions); any other exception is logged and swallowed in every mode (`hive_evaluator.cpp:361-372`). Evaluator's responsibility to undo changes on exception.
 - **Hardfork Notes**: HF26 (JSON size limit solidified)
 
 ---
@@ -1580,10 +1711,10 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### pow_evaluator
-- **Source**: `hive_evaluator.cpp:402-505`
+- **Source**: `hive_evaluator.cpp:402-502`
 - **DISABLED after HF13**: Asserts `!has_hardfork(HF13)` — "pow is deprecated. Use pow2 instead"
 - **Reads**: `dynamic_global_property_object`, existing witness, worker account, PoW difficulty target
-- **Modifies**: `dynamic_global_property_object` (total_pow, num_pow_witnesses), witness (pow_worker, last_work), supply (reward)
+- **Modifies**: `dynamic_global_property_object` (total_pow, num_pow_witnesses), witness (pow_worker, last_work), supply (reward, issued with `issue_mining_reward()` since 1.28.8, `hive_evaluator.cpp:481`; `adjust_supply(reward, true)` at 1.28.7; section 2.1)
 - **Creates**: `account_object` (mined account if new), `account_authority_object`, `witness_object` (if new)
 - **Removes**: —
 - **Virtual Ops**: `account_created_operation` (new account), `pow_reward_operation` (block producer reward)
@@ -1594,10 +1725,10 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### pow2_evaluator
-- **Source**: `hive_evaluator.cpp:508-603`
+- **Source**: `hive_evaluator.cpp:505-595`
 - **DISABLED after HF17**: Asserts `!has_hardfork(HF17)` — "mining is now disabled"
 - **Reads**: `dynamic_global_property_object`, PoW difficulty target, worker account, existing witness
-- **Modifies**: Same pattern as pow. `dynamic_global_property_object` (total_pow, num_pow_witnesses). Block producer reward (VESTS, only pre-HF16).
+- **Modifies**: Same pattern as pow. `dynamic_global_property_object` (total_pow, num_pow_witnesses). Block producer reward (VESTS, only pre-HF16; issued with `issue_mining_reward()` since 1.28.8, `hive_evaluator.cpp:589`; `adjust_supply(reward, true)` at 1.28.7).
 - **Creates**: `account_object` (if new), `account_authority_object`, `witness_object` (for new accounts)
 - **Removes**: —
 - **Virtual Ops**: `account_created_operation` (new account), `pow_reward_operation` (pre-HF16 only)
@@ -1608,7 +1739,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### feed_publish_evaluator
-- **Source**: `hive_evaluator.cpp:605-621`
+- **Source**: `hive_evaluator.cpp:597-613`
 - **Reads**: `witness_object` by publisher name
 - **Modifies**: `witness_object` (hbd_exchange_rate, last_hbd_exchange_update)
 - **Creates**: —
@@ -1621,7 +1752,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### witness_block_approve_evaluator
-- **Source**: `hive_evaluator.cpp:623-628`
+- **Source**: `hive_evaluator.cpp:615-620`
 - **PERMANENTLY DISABLED**: Always asserts `false` (`HIVE_CHAIN_UNREACHABLE_CODE_ASSERT`) —
   "Operation excluded from blocks."
 - **Business Logic**: Travels as a stand-alone HF26+ *fast-confirmation transaction*, handled by
@@ -1635,7 +1766,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### create_proposal_evaluator
-- **Source**: `dhf_evaluator.cpp:32-101`
+- **Source**: `dhf_evaluator.cpp:31-101`
 - **Reads**: treasury account, creator account, receiver account, comment by creator or receiver
 - **Modifies**: creator balance (deducted), treasury balance (credited)
 - **Creates**: `proposal_object`
@@ -1687,7 +1818,7 @@ hardfork-conditional behavior, and key business logic.
 ---
 
 #### remove_proposal_evaluator
-- **Source**: `dhf_evaluator.cpp:213-252`
+- **Source**: `dhf_evaluator.cpp:213-272`
 - **Reads**: proposal index
 - **Modifies**: `proposal_object` (removed=true, end_date backdated)
 - **Creates**: —
@@ -1697,8 +1828,12 @@ hardfork-conditional behavior, and key business logic.
   - HF21+ only
   - Only creator can remove own proposals
   - HF28+: removing nonexistent proposal is hard error
-- **Business Logic**: Two-phase removal. Phase 1: physical removal of proposals + votes via `dhf_helper::remove_proposals()` with per-block threshold. Phase 2: marks remaining with `removed=true` and backdated `end_date` (1 day in past) for maintenance cleanup.
-- **Hardfork Notes**: HF21 (introduced), HF28 (strict nonexistent proposal check)
+  - HF29 switch `HIVE_HARDFORK_1_29_VALIDATE_ALL_PROPOSAL_IDS` (defined in 1.28.8, inactive on mainnet):
+    stricter validation of the proposal ids listed in `remove_proposal`; a proposal already flagged for
+    removal counts as nonexistent (`hardfork.d/1_29.hf:29-30`; Part 01, section HF29 (Defined in 1.28.8,
+    Inactive on Mainnet)).
+- **Business Logic**: Two-phase removal. Phase 1: physical removal of proposals + votes via `dhf_helper::remove_proposal()` (`dhf_helper.hpp:23-28`; `dhf_helper::remove_proposals()` at 1.28.7) up to a removal threshold. Phase 2: marks remaining with `removed=true` and backdated `end_date` (1 day in past) for maintenance cleanup.
+- **Hardfork Notes**: HF21 (introduced), HF28 (strict nonexistent proposal check), HF29 (`VALIDATE_ALL_PROPOSAL_IDS`, see Chain-State Checks)
 
 ---
 
@@ -1717,10 +1852,10 @@ hardfork-conditional behavior, and key business logic.
 | pow2 | `account_created_operation` | New account created |
 | pow2 | `pow_reward_operation` | Pre-HF16 only |
 | delete_comment | `ineffective_delete_comment_operation` | Pre-HF19, net_rshares > 0 |
-| vote | `effective_comment_vote_operation` | Always |
+| vote | `effective_comment_vote_operation` | Every vote except on a paid-out comment (section 5.3) |
 | witness_update | `system_warning_operation` | Pre-HF14, non-canonical fee |
 | account_witness_proxy | `proxy_cleared_operation` | When switching or clearing proxy |
-| escrow_approve | `escrow_rejected_operation` | On rejection |
+| escrow_approve | `escrow_rejected_operation` | On rejection (since 1.28.8 pushed inside `remove_escrow()`, section 2.7) |
 | escrow_approve | `escrow_approved_operation` | When both parties approve |
 | create_proposal | `proposal_fee_operation` | Always |
 
@@ -1730,18 +1865,18 @@ hardfork-conditional behavior, and key business logic.
 
 | Object | Created By | Modified By | Removed By |
 |--------|-----------|-------------|------------|
-| `account_object` | account_create, create_with_delegation, create_claimed_account, pow, pow2 | transfer, transfer_to_vesting, withdraw_vesting, claim_account, create_claimed_account, account_update, account_update2, recover_account, claim_reward_balance, delegate_vesting_shares, vote, comment, escrow_transfer/approve/release, transfer_to/from_savings, cancel_transfer_from_savings, recurrent_transfer, set_withdraw_vesting_route, decline_voting_rights, account_witness_vote, account_witness_proxy, update_proposal_votes | — |
+| `account_object` | account_create, create_with_delegation, create_claimed_account, pow, pow2 | transfer, transfer_to_vesting, withdraw_vesting, claim_account, create_claimed_account, account_update, account_update2, recover_account, claim_reward_balance, delegate_vesting_shares, vote, comment, escrow_transfer/approve/release, transfer_to/from_savings, cancel_transfer_from_savings, recurrent_transfer, set_withdraw_vesting_route, decline_voting_rights (once effective, through `process_decline_voting_rights`), account_witness_vote, account_witness_proxy, update_proposal_votes, convert, collateralized_convert, limit_order_create/create2/cancel, create_proposal (fee), account_create and create_with_delegation (the creator), pow and pow2 (the PoW reward to the current witness), custom_json (the `rc` interpreter's `delegate_rc`, HF26+, `rc/rc_utility.cpp:38-122`) | - |
 | `account_authority_object` | account_create, create_with_delegation, create_claimed_account, pow, pow2 | account_update, account_update2 | — |
 | `owner_authority_history_object` | account_update (via helper), account_update2, recover_account | — | — |
 | `witness_object` | witness_update, pow, pow2 | witness_update, witness_set_properties, feed_publish, account_witness_vote, claim_account (subsidies), pow, pow2 | — |
 | `witness_vote_object` | account_witness_vote (approve) | — | account_witness_vote (unapprove) |
 | `comment_object` | comment | — | delete_comment |
-| `comment_cashout_object` | comment | comment, comment_options, vote | delete_comment |
-| `comment_cashout_ex_object` | comment (pre-HF19) | vote (pre-HF17) | delete_comment (pre-HF19) |
-| `comment_vote_object` | vote | vote (edit) | delete_comment (all) |
+| `comment_cashout_object` | comment | comment, comment_options, vote, delete_comment (the parent's reply count) | delete_comment, process_comment_cashout (HF19+, at payout, `database_comment.cpp:471-475`), the HF19 migration (already-paid comments, `database_comment.cpp:100-112`) |
+| `comment_cashout_ex_object` | comment (pre-HF19) | vote (pre-HF17) | delete_comment (pre-HF19), the HF19 migration (whole index, `database_comment.cpp:96-98`) |
+| `comment_vote_object` | vote | vote (edit) | delete_comment (all), process_comment_cashout (all votes of the paid comment, `database_comment.cpp:365-372`) |
 | `convert_request_object` | convert | — | — (removed by process_conversions) |
 | `collateralized_convert_request_object` | collateralized_convert | — | — (removed by process_conversions) |
-| `limit_order_object` | limit_order_create, limit_order_create2 | apply_order/fill_order (partial fill) | limit_order_cancel, apply_order (full fill), clear_expired_orders |
+| `limit_order_object` | limit_order_create, limit_order_create2 | apply_order/match (partial fill; since 1.28.8 `match()` moves the paid amounts out of `for_sale`, `database_market.cpp:346-356`, which `fill_order` did at 1.28.7) | limit_order_cancel, apply_order (full fill), clear_expired_orders |
 | `escrow_object` | escrow_transfer | escrow_approve, escrow_dispute, escrow_release | escrow_approve (rejection), escrow_release (emptied), expire_escrow_ratification |
 | `savings_withdraw_object` | transfer_from_savings | — | cancel_transfer_from_savings, process_savings_withdraws |
 | `vesting_delegation_object` | delegate_vesting_shares, account_create_with_delegation | delegate_vesting_shares (increase) | delegate_vesting_shares (zero) |
@@ -1749,12 +1884,12 @@ hardfork-conditional behavior, and key business logic.
 | `withdraw_vesting_route_object` | set_withdraw_vesting_route | set_withdraw_vesting_route (update) | set_withdraw_vesting_route (percent=0) |
 | `account_recovery_request_object` | request_account_recovery | request_account_recovery (update) | request_account_recovery (cancel), recover_account |
 | `change_recovery_account_request_object` | change_recovery_account | change_recovery_account (update) | change_recovery_account (cancel) |
-| `decline_voting_rights_request_object` | decline_voting_rights | — | decline_voting_rights (cancel), process_decline_voting_rights |
+| `decline_voting_rights_request_object` | decline_voting_rights, the HF28 migration (once, `database_dhf.cpp:147-206`) | - (the HF28 migration resets `effective_date` of an existing request) | decline_voting_rights (cancel), process_decline_voting_rights |
 | `proposal_object` | create_proposal | update_proposal, remove_proposal (marks removed) | remove_proposal (via helper) |
 | `proposal_vote_object` | update_proposal_votes | — | update_proposal_votes, remove_proposal (via helper) |
 | `recurrent_transfer_object` | recurrent_transfer | recurrent_transfer (update) | recurrent_transfer (amount=0), process_recurrent_transfers |
-| `dynamic_global_property_object` | — | collateralized_convert, claim_reward_balance, claim_account, pow, pow2, vote (pre-HF17 rshares2) | — |
-| `reward_fund_object` | — | — (read by vote evaluator; modified by process_comment_cashout) | — |
+| `dynamic_global_property_object` | - | transfer (HIVE to the treasury, HF24+), transfer_to_vesting, collateralized_convert, claim_reward_balance, claim_account, account_create and account_create_with_delegation (fee vested, pre-HF20), pow, pow2; also, through HBD interest that the dgpo issues when it is due, transfer_to_savings, transfer_from_savings and cancel_transfer_from_savings with HBD (`adjust_savings_balance`, `database.cpp:3331-3334`) and, before HF25, every evaluator that moves liquid HBD (`adjust_balance`, `:3256-3259`) | - |
+| `reward_fund_object` | - (created at genesis since 1.28.8, `database_init.cpp:258-262`; at HF17 at 1.28.7) | vote (pre-HF17 `recent_claims`, through `adjust_rshares2`); read by the vote evaluator (HF17+); also modified by `process_funds` (`pay_reward_funds`), `process_comment_cashout` and the HF1 (share split), HF17, HF19, HF21 and HF25 cases | - |
 | `feed_history_object` | — | — (modified by update_median_feed) | — |
 
 ---
@@ -1773,25 +1908,25 @@ hardfork-conditional behavior, and key business logic.
 
 6. **Collateralized conversion** (HF25) enforces two separate HBD supply caps: `hbd_print_rate > 0` AND `percent_hbd <= hbd_stop_percent`.
 
-7. **Known bug in request_account_recovery**: `validate_auth_size` is only called on new requests, not modifications. Editing an existing request can introduce an oversized authority. Code comment marks this for HF29 fix.
+7. **Authority size in request_account_recovery**: HF29 switch `HIVE_HARDFORK_1_29_FIX_ENFORCEMENT_OF_AUTHORITY_SIZE_ON_RECOVERY_REQUEST` (defined in 1.28.8, inactive on mainnet): `request_account_recovery` checks the size of the new owner authority on every request path (`hive_evaluator_account.cpp:500-506`). A 1.28.8 node already applies this check to new transactions submitted to it (API or P2P) and to blocks it produces (`is_in_control()`, `database.hpp:176`; Part 01, section HF29 (Defined in 1.28.8, Inactive on Mainnet)).
 
-8. **Recovery account rate limit asymmetry**: `recover_account` uses the simple 1-hour check (two-argument `owner_update_limit_mgr::check`) even after HF26, unlike `account_update`/`account_update2` which use the three-argument version (2x/hour).
+8. **Recovery account rate limit asymmetry**: `recover_account` uses the simple 1-hour check (two-argument `owner_update_limit_mgr::check`) even after HF26, unlike `account_update`/`account_update2` which use the four-argument version (2x/hour).
 
-9. **HIVE-to-treasury auto-conversion** (HF24): when HIVE is sent to the treasury via transfer, it is automatically converted to HBD at median price and the HIVE is burned. This makes the treasury HBD-only.
+9. **HIVE-to-treasury auto-conversion** (HF24): when HIVE is sent to the treasury via transfer, it is automatically converted to HBD at median price and the HIVE is burned (since 1.28.8 through the dgpo's `convert_HIVE_to_HBD`, `hive_evaluator_transfer.cpp:279-286`). From HF21 to HF24 such a transfer was rejected, so since HF21 a transfer credits the treasury only with HBD.
 
 10. **Proposal removal is two-phase**: first physically removes up to a threshold (votes + proposals), then marks remaining with `removed=true` and backdated end_date for maintenance cleanup.
 
 11. **30-step end-of-block processing order** is critical: the sequence matters because each step may depend on state changes from prior steps (e.g., `update_median_feed()` before `process_conversions()`; `update_virtual_supply()` runs twice — before and after major state changes).
 
-12. **HBD interest accrual hidden in adjust_balance**: calling `adjust_balance()` with an HBD delta triggers interest calculation as a side effect, generating `interest_operation` virtual ops. This non-obvious behavior means any HBD balance modification may alter the account's balance beyond the stated delta.
+12. **HBD interest accrual hidden in the balance helpers**: calling `adjust_savings_balance()` with an HBD delta (before HF25 also `adjust_balance()` with an HBD delta) triggers interest calculation as a side effect, generating `interest_operation` virtual ops (section 2.1; `database.cpp:3317`, `:3242`). This non-obvious behavior means an HBD savings balance modification (before HF25 also a liquid HBD one) may alter the account's balance beyond the stated delta.
 
-13. **custom_json exception handling differs by mode**: during block production/validation, interpreter exceptions propagate (transaction rejected). During replay, exceptions are swallowed to avoid chain divergence from non-deterministic interpreter bugs.
+13. **custom_json exception handling differs by mode**: when the node is in control (producing a block, or validating a new transaction; `is_in_control()`), an `fc::exception` from the interpreter propagates (transaction rejected). Otherwise (replay, applying a block from the network, re-applying pending transactions) it is swallowed (`hive_evaluator.cpp:361-368`), so a failing interpreter does not make a block invalid.
 
-14. **RC differential usage runs inside the dispatch path** (HF20+, `database.cpp:2740-2741`): `handle_operation_discount` charges only the *delta* in persistent state for five operations (`witness_update`, `account_update`, `account_update2`, `recover_account`, `delegate_rc`), so swapping one key for another costs nearly nothing. It is per-transaction and a negative usage from one op can subsidize another op in the same tx. Account metadata is deliberately excluded to keep RC deterministic across nodes with/without a metadata plugin.
+14. **RC differential usage runs inside the dispatch path** (HF20+, `database.cpp:2754-2755`): `handle_operation_discount` charges only the *delta* in persistent state for five operations (`witness_update`, `account_update`, `account_update2`, `recover_account`, `delegate_rc`), so swapping one key for another costs nearly nothing. It is per-transaction and a negative usage from one op can subsidize another op in the same tx. Account metadata is deliberately excluded to keep RC deterministic across nodes with/without a metadata plugin.
 
 15. **Delayed voting decouples VESTS from governance for 30 days** (HF24+): `transfer_to_vesting` adds VESTS immediately but buffers governance weight in up to 30 daily `delayed_votes` buckets; `get_governance_vote_power()` subtracts `sum_delayed_votes`. `process_delayed_voting` matures buckets ≥30 days old via `adjust_proxied_witness_votes` and emits `delayed_voting_operation`. Power-down cancels buffered votes first and only removes the matured *leftover* from the live vote chain. Reward-VESTS claims are **not** buffered.
 
-16. **DHF payout machinery lives entirely outside the evaluators** (`util/dhf_processor.cpp`, via `process_proposals`): hourly `make_payments` sorts active proposals by summed `get_governance_vote_power()` (proxied voters excluded) and pays a **1%-of-treasury-per-day** budget (`total_amount_divider = 100`) top-down until exhausted. The first proposal with zero votes stops the loop — this is the mechanism by which the "return proposal" #0 acts as a spending threshold. Payout = `proposal_pay_operation`; inflation intake = `dhf_funding_operation`; daily treasury HIVE→HBD = `dhf_conversion_operation` (HF24+).
+16. **DHF payout machinery lives entirely outside the evaluators** (`util/dhf_processor.cpp`, via `process_proposals`): hourly `make_payments` sorts active proposals by summed `get_governance_vote_power()` (proxied voters excluded) and pays a **1%-of-treasury-per-day** budget (`total_amount_divider = 100`) top-down until exhausted (`util/dhf_processor.cpp:202-206`); the loop also stops at the first proposal with zero votes (`:188-189`). The "return proposal" #0 acts as a spending threshold through vote rank and budget exhaustion: it pays the treasury itself, so the budget it takes is withheld from every lower-ranked proposal (section 2.15). Payout = `proposal_pay_operation`; inflation intake = `dhf_funding_operation`; daily treasury HIVE->HBD = `dhf_conversion_operation` (HF24+).
 
 17. **Reward curves are reward-fund state, switched at hardforks**: `evaluate_reward_curve` implements six curves; the active author/curation curves moved `quadratic`/`bounded_curation` (HF17) → `linear`/`square_root` (HF19) → `convergent_linear`/`convergent_square_root` (HF21) → `linear`/`linear` (HF25, current). Since HF25 curation differentiation is purely the time-phase multiplier (early/÷2/÷8), not curve shape.
 
@@ -1801,19 +1936,19 @@ hardfork-conditional behavior, and key business logic.
 
 ## 9. Discrepancies and Potential Issues
 
-1. **validate_auth_size gap in request_account_recovery**: Existing request modification skips authority size validation. Marked in code as FC_TODO for HF29.
+1. **Authority size in request_account_recovery**: HF29 switch `HIVE_HARDFORK_1_29_FIX_ENFORCEMENT_OF_AUTHORITY_SIZE_ON_RECOVERY_REQUEST` (defined in 1.28.8, inactive on mainnet): `request_account_recovery` checks the size of the new owner authority on every request path (`hive_evaluator_account.cpp:500-506`). A 1.28.8 node already applies this check to new transactions submitted to it (API or P2P) and to blocks it produces (`is_in_control()`, `database.hpp:176`; Part 01, section HF29 (Defined in 1.28.8, Inactive on Mainnet)).
 
 2. **Recovery rate limit inconsistency**: `recover_account` uses simpler rate limit check than `account_update`/`account_update2` after HF26. May be intentional (recovery is more sensitive) or oversight.
 
-3. **custom_json exception swallowing during replay**: Non-fc exceptions are logged via `elog` but not propagated. If a custom operation interpreter has a non-fc exception, state changes from the interpreter may have been applied but the exception was swallowed — the code comment notes evaluators must undo their own changes on exception (references issue #256).
+3. **custom_json exception swallowing**: an `fc::exception` from the interpreter is swallowed when the node is not in control (replay, blocks from the network, re-applied pending transactions), while any other exception is logged via `elog` and swallowed in every mode, including when the node is in control (`hive_evaluator.cpp:361-372`). The generic interpreter applies its operations inside an undo session that is committed only when all of them succeed, so a failed call leaves no partial state (`generic_custom_operation_interpreter.hpp:184-225`); the code comment notes that interpreters must undo their own changes on exception (issue #256).
 
 4. **Pre-HF19 delete_comment soft failure**: Before HF19, deleting a comment with positive votes silently does nothing (emits `ineffective_delete_comment_operation`). Users may not realize their delete was ineffective without watching virtual ops.
 
-5. **Escrow `pending_escrow_transfers` counter**: The counter is modified in multiple evaluators (transfer, approve, release) and maintenance code (expire_escrow_ratification). Any bug in counter management could lead to permanent lockout (counter stuck above 0 preventing account clearing).
+5. **Escrow `pending_escrow_transfers` counter**: The counter is incremented by `escrow_transfer` and decremented by `escrow_release` when the escrow is emptied (`hive_evaluator_transfer.cpp:118-121`, `:258-261`), and since 1.28.8 by `remove_escrow()` for rejection (`escrow_approve`), expiry (`expire_escrow_ratification`) and the HF23 removal (`remove_pending_escrows`) (`database_market.cpp:84-87`). In chain logic it is read only by the `escrow_transfer` limit check (`HIVE_MAX_PENDING_TRANSFERS`, 255, `hive_evaluator_transfer.cpp:85`), so a counter left too high would only reduce how many new escrow transfers that account may open; it does not affect account clearing.
 
-6. **`dhf_conversion_operation` is dual-sourced**: the *same* virtual op type (ID 74) is emitted both by `transfer_evaluator` when a user sends HIVE to the treasury (HF24+, immediate, `hive_evaluator_transfer.cpp:280`) and by `dhf_processor::convert_funds` for the scheduled daily treasury HIVE→HBD sweep (`util/dhf_processor.cpp:358`). Consumers parsing virtual ops cannot assume a single cause for this op — the `account` is always the treasury in the scheduled case but the originating account's transfer in the user case (both target the treasury).
+6. **`dhf_conversion_operation` is dual-sourced**: the *same* virtual op type (ID 74) is emitted both by `transfer_evaluator` when a user sends HIVE to the treasury (HF24+, immediate, `hive_evaluator_transfer.cpp:289`) and by `dhf_processor::convert_funds` for the scheduled daily treasury HIVE->HBD sweep (`util/dhf_processor.cpp:362`). Consumers parsing virtual ops cannot assume a single cause for this op - its `treasury` field (`hive_virtual_operations.hpp:462`) is the receiving account: on the transfer path the transfer's recipient, which can also be the old treasury `steem.dao` because `is_treasury` accepts both names (`database.cpp:373-376`), on the daily sweep the current treasury; the vop does not name the sender of a user transfer.
 
-7. **Time-phase factors are hard-coded magic numbers**: the HF25+ curation phase divisors `÷2` (mid) and `÷8` (late) are literal constants inside the vote evaluator (`hive_evaluator_social.cpp:813-814`, commented "chosen empirically"), not config constants — they cannot be tuned without a code change + hardfork. The phase *durations* (`early_voting_seconds`, `mid_voting_seconds`) are DGPO fields, but the penalties are fixed.
+7. **Time-phase factors are hard-coded magic numbers**: the HF25+ curation phase divisors `÷2` (mid) and `÷8` (late) are literal constants inside the vote evaluator (`hive_evaluator_social.cpp:815-816`, commented "chosen empirically"), not config constants — they cannot be tuned without a code change + hardfork. The phase *durations* (`early_voting_seconds`, `mid_voting_seconds`) are DGPO fields, but the penalties are fixed.
 
 ---
 
@@ -1831,20 +1966,22 @@ The five open questions from the prior revision are now **resolved** in this doc
 5. ~~`process_fast_confirm_transaction()` / `witness_block_approve`~~ → **§1.8** (HF26+
    fast-confirm transport, out-of-band LIB advance).
 
-Remaining questions are properly the scope of **other research parts** (zoom candidates if a
-dedicated deep-dive is wanted):
+Remaining questions are properly the scope of **other research parts**, which cover items 1-3;
+item 4 remains a zoom candidate:
 
 1. The exact LIB algorithm that `update_last_irreversible_block` runs (witness participation
-   counting, fast-confirm vs normal-production interplay, fork switching). → **Part 06
-   (consensus)**.
+   counting, fast-confirm vs normal-production interplay, fork switching). -> **Part 06
+   (consensus)**, section Irreversibility.
 2. `process_funds` per-block inflation split math (content/vesting/DHF/witness shares, the HF16
-   inflation-decay curve). → **Part 07 (economics)**; only its *helper effects* are catalogued
-   here.
+   inflation-decay curve). -> **Part 07 (economics)**, section Inflation Schedule; only its
+   *helper effects* are catalogued here.
 3. RC cost/price curve and mana regeneration (`rc/rc_curve.cpp`, `rc_utility.cpp`) beyond the
-   differential-usage hook. → **Part 08 (resource credits)**.
+   differential-usage hook. -> **Part 08 (resource credits)**, sections RC Cost Calculation and
+   Mana Bar / Regeneration.
 4. The full `cashout_comment_helper` payout arithmetic — beneficiary rounding, treasury
    beneficiary HBD path, curation remainder forwarding, `HIVE_MIN_PAYOUT_HBD` dust handling.
-   Catalogued at the helper level here; a **zoom on comment cashout** would formalize the math.
+   Catalogued at the helper level here and step by step in Part 07 (economics), section Cashout
+   Process; a **zoom on comment cashout** would formalize the math.
 
 ---
 
@@ -1860,16 +1997,18 @@ dedicated deep-dive is wanted):
 | `libraries/chain/hive_evaluator_social.cpp` | Comment, vote, delete evaluators |
 | `libraries/chain/hive_evaluator_transfer.cpp` | Transfer, vesting, conversion, escrow, savings, delegation, DEX evaluators |
 | `libraries/chain/dhf_evaluator.cpp` | DHF proposal evaluators |
-| `libraries/chain/database.cpp` | Evaluator dispatch, balance/supply helpers, end-of-block processing |
-| `libraries/chain/database_init.cpp` | Evaluator registration |
-| `libraries/chain/database_account.cpp` | Account management helpers |
+| `libraries/chain/database.cpp` | Evaluator dispatch, balance helpers, `issue_mining_reward`, end-of-block processing (the supply methods moved to the dgpo in 1.28.8) |
+| `libraries/chain/include/hive/chain/detail/state/global_property_object.hpp` | The dgpo's supply methods (`issue_*`, `burn_*`, `convert_*`; since 1.28.8, section 2.1) |
+| `libraries/chain/include/hive/chain/util/balance.hpp` | Balance classes and temporary balances (since 1.28.8, section 2.1) |
+| `libraries/chain/database_init.cpp` | Evaluator registration; since 1.28.8 also creates the reward fund at genesis |
+| `libraries/chain/database_account.cpp` | Index registration for the dgpo and account indexes (the account helpers of section 2.5 are in `database.cpp` and `hive_evaluator_account.cpp`) |
 | `libraries/chain/database_comment.cpp` | Comment cashout, curation reward helpers |
 | `libraries/chain/database_market.cpp` | DEX order matching, escrow, savings helpers |
 | `libraries/chain/database_vesting.cpp` | Vesting withdrawal processing |
 | `libraries/chain/database_conversion.cpp` | Conversion processing helpers |
 | `libraries/chain/database_delegation.cpp` | Delegation index initialization |
 | `libraries/chain/database_dhf.cpp` | Recurrent transfer processing, governance helpers |
-| `libraries/chain/database_hardfork.cpp` | Reward-curve assignments per hardfork, reward fund creation |
+| `libraries/chain/database_hardfork.cpp` | Reward-curve assignments per hardfork; HF17 resets the reward fund's `last_update` and, outside testnet builds, seeds `recent_claims` (the fund is created at genesis since 1.28.8, at HF17 at 1.28.7) |
 | `libraries/chain/util/delayed_voting.cpp` | Delayed governance vote buffering and maturation (§2.14) |
 | `libraries/chain/util/dhf_processor.cpp` | DHF proposal payout, funding, treasury conversion (§2.15) |
 | `libraries/chain/util/reward.cpp` | `evaluate_reward_curve` — six reward curve formulas (§2.16) |

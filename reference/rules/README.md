@@ -8,7 +8,7 @@ evidence chain is missing, the rule does not exist.
 
 | File | Prefix | Rules | Scope | Anchor |
 |------|--------|-------|-------|--------|
-| [hive-core.md](hive-core.md) | `HC-` | 12 | protocol: authority, operations, mana/RC, limits, hardfork-conditional behavior | hived `1.28.7` |
+| [hive-core.md](hive-core.md) | `HC-` | 12 | protocol: authority, operations, mana/RC, limits, hardfork-conditional behavior | hived `1.28.8` |
 | [wax.md](wax.md) | `WAX-` | 8 | client library: assets, transactions, signing, API surface | wax `2.0.2` |
 | [haf.md](haf.md) | `HAF-` | 6 | indexing framework: contexts, views, forks, filtering | HAF `1.28.6` |
 | [hivemind.md](hivemind.md) | `HM-` | 7 | social API layer: params, response objects, custom_json, payout fields | hivemind `1.28.6` |

@@ -21,7 +21,7 @@ Need to look something up? Go to `reference/`:
 | Resource Credits: cost calculation, mana, delegation | `reference/rc.md` |
 | Hardfork history: what changed when | `reference/hardforks.md` |
 
-The table above is the **protocol** layer (hive-core release `1.28.7`).
+The table above is the **protocol** layer (hive-core release `1.28.8`).
 
 **Doing a task** ("build and broadcast a transfer", "display an asset", "build a HAF app",
 "debug a rejected transaction")? Start at `reference/tasks.md`: it gives the ordered reading
@@ -58,7 +58,8 @@ operation semantics (`reference/hivemind/operations.md`), API methods
 - 3-second blocks, 21 witnesses, DPoS consensus
 - 50 regular + 43 virtual = 93 operations
 - 3 native assets: HIVE (3 dec), HBD (3 dec), VESTS (6 dec)
-- RC is non-consensus (mempool enforcement only)
+- 28 hardforks active on mainnet, HF28 the latest; HF29 is defined in 1.28.8 code, inactive on mainnet (`reference/hardforks.md`)
+- RC is non-consensus until HF29: enforced for new and re-applied pending transactions and while producing a block, not when applying or replaying blocks (`research/hive-core/findings/08-resource-credits.md`, section Non-Consensus Status)
 - Legacy wire format: HIVE="STEEM", HBD="SBD", prefix="STM"
 - No per-client API rate limiting in hived
 - Only `"rc"` custom_json ID is chain-interpreted
@@ -152,7 +153,7 @@ See `contrib/README.md` for the format. Contributions are reviewed and incorpora
 ## Research Coverage
 
 ### hive-core (Complete)
-10-part source-level analysis of hived, completed 2026-04-04, plus 7 zoom parts.
+10-part source-level analysis of hived, completed 2026-04-04, plus 7 zoom parts. Anchored to hived `1.28.8` (`274384a8a`).
 
 | Part | Focus |
 |------|-------|
@@ -188,8 +189,9 @@ protocol semantics rather than re-deriving them.
 ### HAF (Complete)
 7-part source-level analysis of the Hive Application Framework, completed 2026-06-24.
 Anchored to HAF `1.28.6` (`222c848355`), whose embedded protocol layer is hive-core `1.28.6`
-(`10ac0ce94`) — the hive-core KB's prior anchor, now advanced to `1.28.7` (a maintenance release
-that leaves HAF's embedded protocol unchanged). Documents HAF's own surface (SQL indexing + the app framework).
+(`10ac0ce94`), an earlier hive-core KB anchor; the hive-core KB moved to `1.28.7` (a maintenance release
+that left HAF's embedded protocol unchanged) and then to `1.28.8`, which changes the protocol layer (for example, it
+defines HF29). Documents HAF's own surface (SQL indexing + the app framework).
 
 | Part | Focus |
 |------|-------|
@@ -225,4 +227,4 @@ mechanics are cross-referenced, not re-derived.
 ## Source
 
 - **Repository:** [hive/hive](https://gitlab.syncad.com/hive/hive) on GitLab
-- **Version:** release `1.28.7` (`1584099c3`)
+- **Version:** release `1.28.8` (`274384a8a`)

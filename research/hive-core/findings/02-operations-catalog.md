@@ -2,13 +2,13 @@
 
 ## Summary
 
-The Hive blockchain protocol defines **50 regular (broadcastable) operations** (IDs 0–49) and **43 virtual operations** (IDs 50–92, i.e. `last_regular+1` … `last_regular+43`). Operations are encoded as an `fc::static_variant` where the index position is the numeric operation ID; positional stability is consensus-critical. The protocol also defines a custom-operation framework (`custom_operation`, `custom_json_operation`, `custom_binary_operation`) for higher-level protocols to embed structured data. All structs verified directly from `libraries/protocol/` at commit `1584099c30`.
+The Hive blockchain protocol defines **50 regular (broadcastable) operations** (IDs 0-49) and **43 virtual operations** (IDs 50-92, i.e. `last_regular+1` ... `last_regular+43`). Operations are encoded as an `fc::static_variant` where the index position is the numeric operation ID; positional stability is consensus-critical. The protocol also defines a custom-operation framework (`custom_operation`, `custom_json_operation`, `custom_binary_operation`) for higher-level protocols to embed structured data. All structs verified directly from `libraries/protocol/` at release 1.28.8 (`274384a8a`).
 
 Three facts that span the protocol *and* chain layers are worth stating up front, because the protocol-layer structs alone are misleading without them:
 
 1. **Of the three custom-operation types, only `custom_json_operation` with `id == "rc"` is acted upon by consensus.** `custom_operation` (15) is inert except for a size cap; `custom_binary_operation` (35) is **hard-disabled** — its evaluator unconditionally throws.
 2. **There is no central pre-hardfork gate for new operations.** Each evaluator self-guards. Twelve operations carry an explicit blocking `has_hardfork(...)` guard; the rest became usable when their defining release shipped (any historical guard has since been removed, per standard practice).
-3. **There is no per-transaction operation-count limit** — only "≥ 1 operation" and the 64 KiB transaction-size cap.
+3. **There is no per-transaction operation-count limit** - only ">= 1 operation" and the transaction-size limit on the push path (the witness-voted `maximum_block_size` minus 256 bytes; the 64 KiB `HIVE_MAX_TRANSACTION_SIZE` is not applied to transactions). The push path also limits custom operations to 5 per account across a node's pending transactions (not a block-validity rule; see Transaction-Level Constraints).
 
 > Scope note: this part catalogs the *protocol-layer* definition of every operation (fields, types, declared authority, `validate()`), plus the *minimal* chain-layer facts needed to state whether/when an operation is usable. Full evaluator state-change semantics are Part 04; RC cost pricing is Part 08; hardfork block heights are Part 09.
 
@@ -119,7 +119,7 @@ typedef fc::static_variant<
 > operation;
 ```
 
-**Note:** Virtual operations can be compiled out via the `HIVE_PROTOCOL_SKIP_VOPS` preprocessor flag (`operations.hpp:76,124`) for lighter protocol-only builds. The comment at `operations.hpp:12-14` warns: *"do not change the order of any operations prior to the virtual operations or it will trigger a hardfork."*
+**Note:** Virtual operations are left out of the variant when `HIVE_PROTOCOL_SKIP_VOPS` is defined (`operations.hpp:76,124`); nothing in the hived tree defines it (an option for code that includes the protocol headers, added by commit df9b13ff5). The comment at `operations.hpp:12-14` warns: *"do not change the order of any operations prior to the virtual operations or it will trigger a hardfork."*
 
 ## Base Operation Architecture
 
@@ -159,7 +159,7 @@ HIVE_PROTOCOL_NUMBER_ASSERT( operations.size() > 0, "A transaction must have at 
 for( const auto& op : operations ) operation_validate(op);
 ```
 
-The only upper bound is the serialized transaction size, `HIVE_MAX_TRANSACTION_SIZE = 1024*64` = **64 KiB** (`config.hpp:364`). A block's `maximum_block_size` floor equals this same constant (`config.hpp:365`). So the practical op-per-tx ceiling is "as many as fit in 64 KiB once serialized," not a fixed integer.
+The only upper bound is the serialized transaction size. The transaction push path (API or P2P) rejects a transaction larger than the witness-voted `maximum_block_size` minus 256 bytes (`process_non_fast_confirm_transaction`, `database.cpp:566-572`), and a block as a whole must fit in `maximum_block_size` (since HF12, `database.cpp:2284-2286`). `HIVE_MAX_TRANSACTION_SIZE = 1024*64` (64 KiB, `config.hpp:363`) is not checked against transactions: in the code it serves only as `HIVE_MIN_BLOCK_SIZE_LIMIT` (`config.hpp:364`), the floor that validation applies to the voted `maximum_block_size` (`hive_operations.cpp:317`, `hive_operations.hpp:430`); the `get_config` API still reports it, like every `config.hpp` constant (`generate_get_config.cmake:53-59`). So the practical op-per-tx ceiling is "as many as fit in the voted block size minus 256 bytes once serialized," not a fixed integer. The one count rule concerns custom operations, and only on the push path: a node accepts at most `HIVE_CUSTOM_OP_BLOCK_LIMIT` (5 on mainnet) `custom`, `custom_json` and `custom_binary` operations per account named in their required authorities, counted across its pending transactions, so a single transaction with more of them for one account is rejected (`database.cpp:598-621`, `:636-646`; `config.hpp:472-476`; `forward_impacted.cpp:22-30`). The counter is cleared with the pending state (`database.cpp:743`); block production ignores it and block application does not run it (the producer's comment calls the check nonconsensus, `block_producer.cpp:156-158`).
 
 **Posting authority cannot be mixed with active/owner in one transaction (before HF28).** In `transaction.cpp:150-176`, signature gathering enforces:
 
@@ -174,7 +174,7 @@ if( required_posting.size() ) {
 }
 ```
 
-`allow_strict_and_mixed_authorities` is the HF28 switch. **Before HF28**, a transaction that requires any posting authority may *not* also require active or owner authority — so e.g. a `vote` (posting) and a `transfer` (active) could not be batched in one transaction. **From HF28**, mixed/strict authority sets are permitted. This is purely a signature-gathering rule; it does not change individual operation validation.
+`allow_strict_and_mixed_authorities` is the HF28 switch. **Before HF28**, a transaction that requires any posting authority may *not* also require active or owner authority - so e.g. a `vote` (posting) and a `transfer` (active) could not be batched in one transaction. **From HF28**, mixed/strict authority sets are permitted. This is a transaction-level authority rule, which consensus authority verification applies as well (`verify_authority_impl()`, `transaction_util.cpp:60-75`, which before HF28 also excludes witness authorities and the explicit authorities some operations require (`other`) alongside posting; Part 01, Key Discovery 14); it does not change individual operation validation.
 
 ---
 
@@ -188,8 +188,8 @@ Field lists below follow `FC_REFLECT` serialization order (bottom of `hive_opera
 |----|-----------|-----|-------------------|-------|
 | 0 | `vote_operation` | `voter`: account_name, `author`: account_name, `permlink`: string, `weight`: int16_t | **posting** (voter) | Weight range −10000…10000 (HIVE percent). `validate()` checks `abs(weight)` in 0–100% range. |
 | 1 | `comment_operation` | `parent_author`: account_name, `parent_permlink`: string, `author`: account_name, `permlink`: string, `title`: string, `body`: string, `json_metadata`: json_string | **posting** (author) | Post (empty parent_author) or comment. Body must be non-empty UTF-8; title ≤ `HIVE_COMMENT_TITLE_LIMIT−1` (255). |
-| 17 | `delete_comment_operation` | `author`: account_name, `permlink`: string | **posting** (author) | No blocking HF guard. Evaluator: from HF19 cannot delete a comment with net positive rshares (`hive_evaluator_social.cpp:68-69`). |
-| 19 | `comment_options_operation` | `author`: account_name, `permlink`: string, `max_accepted_payout`: asset (HBD, default 1,000,000,000), `percent_hbd`: uint16_t (default 100%), `allow_votes`: bool, `allow_curation_rewards`: bool, `extensions`: comment_options_extensions_type | **posting** (author) | Extensions can carry `comment_payout_beneficiaries`: ≥1 entry, **< `HIVE_BENEFICIARY_LIMIT` (128) ⇒ max 127**, sorted strictly ascending by account, cumulative weight ≤ 100% (`hive_operations.cpp:150-175`). (Evaluator imposes a stricter soft-fork runtime cap — see reference/operations.md — Part 04.) |
+| 17 | `delete_comment_operation` | `author`: account_name, `permlink`: string | **posting** (author) | No blocking HF guard. Evaluator: from HF19 cannot delete a comment with net positive rshares (`hive_evaluator_social.cpp:69-70`). |
+| 19 | `comment_options_operation` | `author`: account_name, `permlink`: string, `max_accepted_payout`: asset (HBD, default 1,000,000.000 HBD, i.e. the raw amount 1,000,000,000 at 3 decimals, `hive_operations.hpp:139`), `percent_hbd`: uint16_t (default 100%), `allow_votes`: bool, `allow_curation_rewards`: bool, `extensions`: comment_options_extensions_type | **posting** (author) | Extensions can carry `comment_payout_beneficiaries`: >= 1 entry, **< `HIVE_BENEFICIARY_LIMIT` (128) -> max 127**, sorted strictly ascending by account, cumulative weight <= 100% (`hive_operations.cpp:150-175`). (Evaluator imposes a stricter soft-fork runtime cap: see reference/operations.md and Part 04.) |
 
 ### Transfer/Financial Operations
 
@@ -198,12 +198,12 @@ Field lists below follow `FC_REFLECT` serialization order (bottom of `hive_opera
 | 2 | `transfer_operation` | `from`, `to`: account_name, `amount`: asset, `memo`: string | **active** (from) | HIVE or HBD only (not vesting). `amount > 0`. Memo ≤ `HIVE_MAX_MEMO_SIZE−1` (2047) UTF-8. `from==to` allowed at protocol level. |
 | 3 | `transfer_to_vesting_operation` | `from`, `to`: account_name, `amount`: asset | **active** (from) | Power up. Amount must be HIVE, `> 0`. `to` empty ⇒ self. |
 | 4 | `withdraw_vesting_operation` | `account`: account_name, `vesting_shares`: asset | **active** (account) | Power down. Amount must be VESTS. (No `>0` check in validate — 0 cancels.) |
-| 20 | `set_withdraw_vesting_route_operation` | `from_account`, `to_account`: account_name, `percent`: uint16_t, `auto_vest`: bool | **active** (from_account) | Percent 0–10000. No blocking HF guard; HF21 evaluator forbids routing to treasury (`hive_evaluator_transfer.cpp:400`). |
+| 20 | `set_withdraw_vesting_route_operation` | `from_account`, `to_account`: account_name, `percent`: uint16_t, `auto_vest`: bool | **active** (from_account) | Percent 0–10000. No blocking HF guard; HF21 evaluator forbids routing to treasury (`hive_evaluator_transfer.cpp:411`). |
 | 32 | `transfer_to_savings_operation` | `from`, `to`: account_name, `amount`: asset, `memo`: string | **active** (from) | HIVE or HBD. `amount > 0`. |
 | 33 | `transfer_from_savings_operation` | `from`: account_name, `request_id`: uint32_t, `to`: account_name, `amount`: asset, `memo`: string | **active** (from) | 3-day delay. HIVE or HBD. `amount > 0`. |
 | 34 | `cancel_transfer_from_savings_operation` | `from`: account_name, `request_id`: uint32_t | **active** (from) | Cancels pending savings withdrawal. |
 | 39 | `claim_reward_balance_operation` | `account`: account_name, `reward_hive`: asset, `reward_hbd`: asset, `reward_vests`: asset | **posting** (account) | Each amount ≥ 0 with correct symbol; at least one > 0. |
-| 49 | `recurrent_transfer_operation` | `from`, `to`: account_name, `amount`: asset, `memo`: string, `recurrence`: uint16_t, `executions`: uint16_t, `extensions`: recurrent_transfer_extensions_type | **active** (from) | **Blocked before HF25** (`hive_evaluator_transfer.cpp:908`). `from != to`; HIVE or HBD; `amount ≥ 0` (0 deletes); `recurrence ≥ HIVE_MIN_RECURRENT_TRANSFERS_RECURRENCE` (24h); `executions ≥ 2`. Extension: `recurrent_transfer_pair_id` (uint8_t). |
+| 49 | `recurrent_transfer_operation` | `from`, `to`: account_name, `amount`: asset, `memo`: string, `recurrence`: uint16_t, `executions`: uint16_t, `extensions`: recurrent_transfer_extensions_type | **active** (from) | **Blocked before HF25** (`hive_evaluator_transfer.cpp:954`). `from != to`; HIVE or HBD; `amount >= 0` (0 deletes); `recurrence >= HIVE_MIN_RECURRENT_TRANSFERS_RECURRENCE` (24h); `executions >= 1` in `validate()` since 1.28.8 (`hive_operations.cpp:820-824`; `>= 2` at 1.28.7). The evaluator requires `executions >= 2` on every path before HF29, and creation always does (`hive_evaluator_transfer.cpp:976-978, 991-996, 1011-1016`); HF29, defined in 1.28.8 and inactive on mainnet, allows `executions == 1` when an existing transfer is modified or deleted (Part 01, section HF29 (Defined in 1.28.8, Inactive on Mainnet)). Extension: `recurrent_transfer_pair_id` (uint8_t). |
 
 ### Market Operations
 
@@ -218,7 +218,7 @@ Field lists below follow `FC_REFLECT` serialization order (bottom of `hive_opera
 | ID | Operation | Fields (serialization order) | Required Authority | Notes |
 |----|-----------|-----|-------------------|-------|
 | 8 | `convert_operation` | `owner`: account_name, `requestid`: uint32_t, `amount`: asset | **active** (owner) | HBD→HIVE only. `amount > 0`. Settles after `HIVE_CONVERSION_DELAY` (3.5 days). |
-| 48 | `collateralized_convert_operation` | `owner`: account_name, `requestid`: uint32_t, `amount`: asset | **active** (owner) | **Blocked before HF25** (`hive_evaluator_transfer.cpp:475`). HIVE→HBD; HBD delivered immediately; excess collateral returned after `HIVE_COLLATERALIZED_CONVERSION_DELAY`. |
+| 48 | `collateralized_convert_operation` | `owner`: account_name, `requestid`: uint32_t, `amount`: asset | **active** (owner) | **Blocked before HF25** (`hive_evaluator_transfer.cpp:488`). HIVE->HBD; HBD delivered immediately; excess collateral returned after `HIVE_COLLATERALIZED_CONVERSION_DELAY`. |
 
 ### Account Operations
 
@@ -226,10 +226,10 @@ Field lists below follow `FC_REFLECT` serialization order (bottom of `hive_opera
 |----|-----------|-----|-------------------|-------|
 | 9 | `account_create_operation` | `fee`: asset, `creator`: account_name, `new_account_name`: account_name, `owner`/`active`/`posting`: authority, `memo_key`: public_key, `json_metadata`: json_string | **active** (creator) | Fee must be HIVE, ≥0, ≤ `HIVE_MAX_ACCOUNT_CREATION_FEE`. Each authority `validate_auth_size()` ≤ `HIVE_MAX_AUTHORITY_MEMBERSHIP` (40). |
 | 10 | `account_update_operation` | `account`: account_name, `owner`/`active`/`posting`: optional\<authority\>, `memo_key`: public_key, `json_metadata`: json_string | **owner** if `owner` set; else **active** | `validate()` deliberately cannot check auth size (comment at `hive_operations.cpp:99`). |
-| 22 | `claim_account_operation` | `creator`: account_name, `fee`: asset, `extensions`: extensions_type | **active** (creator) | **Blocked before HF20** (`hive_evaluator_account.cpp:404`). Fee HIVE (0 ⇒ use RC). `extensions` must be empty. Claims a creation ticket. |
-| 23 | `create_claimed_account_operation` | `creator`: account_name, `new_account_name`: account_name, `owner`/`active`/`posting`: authority, `memo_key`: public_key, `json_metadata`: json_string, `extensions`: extensions_type | **active** (creator) | **Blocked before HF20** (`hive_evaluator_account.cpp:466`). Consumes a claimed creation ticket. `extensions` must be empty. |
+| 22 | `claim_account_operation` | `creator`: account_name, `fee`: asset, `extensions`: extensions_type | **active** (creator) | **Blocked before HF20** (`hive_evaluator_account.cpp:396`). Fee HIVE (0 => use RC). `extensions` must be empty. Claims a creation ticket. |
+| 23 | `create_claimed_account_operation` | `creator`: account_name, `new_account_name`: account_name, `owner`/`active`/`posting`: authority, `memo_key`: public_key, `json_metadata`: json_string, `extensions`: extensions_type | **active** (creator) | **Blocked before HF20** (`hive_evaluator_account.cpp:457`). Consumes a claimed creation ticket. `extensions` must be empty. |
 | 41 | `account_create_with_delegation_operation` | `fee`: asset, `delegation`: asset, `creator`: account_name, `new_account_name`: account_name, `owner`/`active`/`posting`: authority, `memo_key`: public_key, `json_metadata`: json_string, `extensions`: extensions_type | **active** (creator) | **Deprecated at HF20** (evaluator rejects). Fee HIVE, delegation VESTS. |
-| 43 | `account_update2_operation` | `account`: account_name, `owner`/`active`/`posting`: optional\<authority\>, `memo_key`: optional\<public_key\>, `json_metadata`: json_string, `posting_json_metadata`: json_string, `extensions`: extensions_type | **owner** if `owner` set; **active** if `active`/`posting`/`memo_key`/`json_metadata` set (no owner); **posting** if only `posting_json_metadata` set | **Blocked before HF21** (`hive_evaluator_account.cpp:362`). Three-tier authority depending on populated fields (`hive_operations.hpp:88-95`). |
+| 43 | `account_update2_operation` | `account`: account_name, `owner`/`active`/`posting`: optional\<authority\>, `memo_key`: optional\<public_key\>, `json_metadata`: json_string, `posting_json_metadata`: json_string, `extensions`: extensions_type | **owner** if `owner` set; **active** if `active`/`posting`/`memo_key`/`json_metadata` set (no owner); **posting** if only `posting_json_metadata` set | **Blocked before HF21** (`hive_evaluator_account.cpp:354`). Three-tier authority depending on populated fields (`hive_operations.hpp:88-95`). |
 
 ### Account Recovery Operations
 
@@ -264,7 +264,7 @@ Field lists below follow `FC_REFLECT` serialization order (bottom of `hive_opera
 - `maximum_block_size`: uint32_t (`HIVE_MIN_BLOCK_SIZE_LIMIT` … `HIVE_MAX_BLOCK_SIZE`)
 - `hbd_interest_rate`: uint16_t (0–10000)
 
-**`witness_set_properties` recognized `props` keys** (`hive_operations.cpp:287-396`), each deserialized & validated only if present: `key` (**required**), `new_signing_key`, `account_creation_fee`, `maximum_block_size`, `hbd_interest_rate` (or legacy `sbd_interest_rate`), `hbd_exchange_rate` (or legacy `sbd_exchange_rate`), `url`, `account_subsidy_budget`, `account_subsidy_decay`. Unknown keys are ignored by `validate()`.
+**`witness_set_properties` recognized `props` keys** (`hive_operations.cpp:287-396`): `key` (**required**; `validate()` only checks that it is present (`:292`), the evaluator deserializes it and requires it to equal the witness's current signing key, `hive_evaluator.cpp:128-133`), then, each deserialized and validated only if present: `new_signing_key`, `account_creation_fee`, `maximum_block_size`, `hbd_interest_rate` (or legacy `sbd_interest_rate`), `hbd_exchange_rate` (or legacy `sbd_exchange_rate`), `url`, `account_subsidy_budget`, `account_subsidy_decay`. For the two rates both `validate()` and the evaluator look up the legacy `sbd_*` name first, so it wins when both names are given (`hive_operations.cpp:327-329, 351-353`; `hive_evaluator.cpp:149-151, 171-173`). Unknown keys are ignored by `validate()`.
 
 ### Proof-of-Work Operations (Historical/Disabled)
 
@@ -285,7 +285,7 @@ Field lists below follow `FC_REFLECT` serialization order (bottom of `hive_opera
 
 | ID | Operation | Fields (serialization order) | Required Authority | Notes |
 |----|-----------|-----|-------------------|-------|
-| 44 | `create_proposal_operation` | `creator`, `receiver`: account_name, `start_date`, `end_date`: time_point_sec, `daily_pay`: asset, `subject`: string, `permlink`: string, `extensions`: extensions_type | **active** (creator) | **Blocked before HF21** (`dhf_evaluator.cpp:36`). daily_pay HBD. |
+| 44 | `create_proposal_operation` | `creator`, `receiver`: account_name, `start_date`, `end_date`: time_point_sec, `daily_pay`: asset, `subject`: string, `permlink`: string, `extensions`: extensions_type | **active** (creator) | **Blocked before HF21** (`dhf_evaluator.cpp:35`). daily_pay HBD. |
 | 45 | `update_proposal_votes_operation` | `voter`: account_name, `proposal_ids`: flat_set_ex\<int64_t\>, `approve`: bool, `extensions`: extensions_type | **active** (voter) | **Blocked before HF21** (`dhf_evaluator.cpp:159`). |
 | 46 | `remove_proposal_operation` | `proposal_owner`: account_name, `proposal_ids`: flat_set_ex\<int64_t\>, `extensions`: extensions_type | **active** (proposal_owner) | **Blocked before HF21** (`dhf_evaluator.cpp:217`). |
 | 47 | `update_proposal_operation` | `proposal_id`: int64_t, `creator`: account_name, `daily_pay`: asset, `subject`: string, `permlink`: string, `extensions`: update_proposal_extensions_type | **active** (creator) | **Blocked before HF24** (`dhf_evaluator.cpp:107`). daily_pay can only be lowered. Extension: `update_proposal_end_date`. |
@@ -300,7 +300,7 @@ Field lists below follow `FC_REFLECT` serialization order (bottom of `hive_opera
 
 | ID | Operation | Fields (serialization order) | Required Authority | Notes |
 |----|-----------|-----|-------------------|-------|
-| 36 | `decline_voting_rights_operation` | `account`: account_name, `decline`: bool (default true) | **owner** (account) | **Blocked before HF14** (`hive_evaluator_account.cpp:619`). 30-day delay (`HIVE_OWNER_AUTH_RECOVERY_PERIOD`). |
+| 36 | `decline_voting_rights_operation` | `account`: account_name, `decline`: bool (default true) | **owner** (account) | **Blocked before HF14** (`hive_evaluator_account.cpp:605`). 30-day delay (`HIVE_OWNER_AUTH_RECOVERY_PERIOD`). |
 
 ### Placeholder/Disabled Operations
 
@@ -319,7 +319,7 @@ Virtual operations are **never broadcast**. They are generated internally during
 
 | ID | Operation | Fields | Generated By |
 |----|-----------|--------|-------------|
-| 51 | `author_reward_operation` | `author`, `permlink`, `hbd_payout` (HBD), `hive_payout` (HIVE), `vesting_payout` (VESTS), `curators_vesting_payout` (VESTS), `payout_must_be_claimed` (bool) | Comment cashout with nonzero author reward |
+| 51 | `author_reward_operation` | `author`, `permlink`, `hbd_payout` (HBD), `hive_payout` (HIVE), `vesting_payout` (VESTS), `curators_vesting_payout` (VESTS), `payout_must_be_claimed` (bool) | Comment cashout with nonzero reward; the author part, left after beneficiaries, can be zero (`hive_virtual_operations.hpp:28-33`). Since 1.28.8 `curators_vesting_payout` is the sum of the `reward` of the same payout's `curation_reward_operation`s (`database_comment.cpp:171-177, 231-232`); 1.28.7 converted the curators' HIVE total to VESTS in one step, so 1.28.7 and 1.28.8 nodes can report slightly different values for the same payout (in the account-history test patterns regenerated for 1.28.8, lower by 1 to 9 units of 0.000001 VESTS); no hardfork gate, so also on replay |
 | 52 | `curation_reward_operation` | `curator`, `reward` (VESTS), `author`, `permlink`, `payout_must_be_claimed` (bool) | Comment cashout — per curator with nonzero reward |
 | 53 | `comment_reward_operation` | `author`, `permlink`, `payout` (HBD), `author_rewards` (**share_type** — HIVE satoshi, see Discrepancies), `total_payout_value` (HBD), `curator_payout_value` (HBD), `beneficiary_payout_value` (HBD) | Comment cashout — informational summary, no transfers |
 | 63 | `comment_benefactor_reward_operation` | `benefactor`, `author`, `permlink`, `hbd_payout` (HBD), `hive_payout` (HIVE), `vesting_payout` (VESTS), `payout_must_be_claimed` (bool) | Comment cashout — per beneficiary from comment_options |
@@ -435,12 +435,13 @@ if( !eval ) return;            // unknown id ⇒ no-op (the op is still stored i
 ...
 if( !_db.is_in_control() ) truncation_controller::set_verify( false );
 eval->apply( o );              // wrapped in try/catch:
-// - if in_control (producing block / accepting to mempool): exceptions propagate (tx rejected)
-// - if NOT in_control (replay / applying a block from the network): exceptions are swallowed
+// - an fc::exception: propagates if in_control (producing a block / accepting a new transaction: tx rejected),
+//   is swallowed if NOT in_control (replay / applying a block from the network)
+// - any other exception: logged and swallowed in every mode (hive_evaluator.cpp:369-372)
 //   (issue #256 — the interpreter is responsible for undoing partial state itself)
 ```
 
-This asymmetry means a malformed `custom_json` for a *registered* id will be rejected when first broadcast, but is tolerated (no-op) during replay so historical blocks always apply.
+This asymmetry means a malformed `custom_json` for a *registered* id whose interpreter throws an `fc::exception` is rejected when first broadcast, but is tolerated (no-op) during replay so historical blocks always apply; the generic interpreter runs its operations in an undo session committed only on success, so a failed call leaves no partial state (`generic_custom_operation_interpreter.hpp:184-225`).
 
 ### Built-in custom operation: RC delegation — the only consensus-interpreted id
 
@@ -460,7 +461,7 @@ typedef fc::static_variant<delegate_rc_operation> rc_custom_operation;
 
 `validate()` (`hive_custom_operations.cpp:12-32`): valid `from`; 1…100 distinct delegatees, none equal to `from`; `max_rc ≥ 0`.
 
-**This is the only `custom_json` id with a consensus-registered interpreter.** The RC subsystem lives *inside the chain library* (`libraries/chain/rc/`), not an optional plugin, and is wired up during core database init (`database_init.cpp:37` → `rc().initialize_evaluators()`). Registration (`rc/rc_utility.cpp:717-732`):
+**This is the only `custom_json` id with a consensus-registered interpreter.** The RC subsystem lives *inside the chain library* (`libraries/chain/rc/`), not an optional plugin, and is wired up during core database init (`database_init.cpp:38` → `rc().initialize_evaluators()`). Registration (`rc/rc_utility.cpp:748-763`):
 
 ```cpp
 _custom_operation_interpreter = std::make_shared<
@@ -471,7 +472,7 @@ db.register_custom_operation_interpreter( _custom_operation_interpreter );   // 
 
 A broad search of the chain library found **no other `custom_json` id special-cased in consensus code** (no `== "follow"`, `== "reblog"`, etc.). All other ids — `"follow"`, `"reblog"`, `"community"`, `"notify"`, `"ssc-mainnet-hive"`, `"sm_*"`, … — are off-chain conventions interpreted by Hivemind / sidechains, and are pure no-ops to hived (stored in the block, never acted on by consensus).
 
-**Consensus nuance on RC:** RC *delegation processing* (the `"rc"` custom_json) is deterministic and consensus-applied by every node. RC *cost enforcement* (whether a broadcaster has enough mana) is non-consensus / mempool-only — see comment at `rc/rc_utility.cpp:320` and the KB's "RC is non-consensus" headline. Detailed pricing is Part 08.
+**Consensus nuance on RC:** RC *delegation processing* (the `"rc"` custom_json) is deterministic and consensus-applied by every node. RC *cost enforcement* (whether the payer has enough mana) is not part of consensus on mainnet: the RC payer and balance checks assert only when the node is in control (it validates a new transaction from API or P2P, or produces a block), the balance check also when it re-applies its pending transactions, so a block containing a transaction whose payer lacks RC is still accepted (`rc/rc_utility.cpp:507-508, 567`; comment at `rc/rc_utility.cpp:333`; the KB's "RC is non-consensus" headline). Under HF29 (defined in 1.28.8, inactive on mainnet) these checks assert in every mode, which makes RC part of consensus (Part 01, section HF29 (Defined in 1.28.8, Inactive on Mainnet)). Detailed pricing is Part 08.
 
 ### Authority model for custom operations
 
@@ -481,7 +482,7 @@ A broad search of the chain library found **no other `custom_json` id special-ca
 | `custom_json_operation` | active + posting | JSON (validated) | yes (active+posting combined) | 40 combined |
 | `custom_binary_operation` | owner + active + posting + inline authorities | binary | yes | 40 (counting inline auth members) |
 
-`custom_id_type` is `fixed_string<32>` (`types.hpp:80`); `validate()` additionally caps id length at `HIVE_CUSTOM_OP_ID_MAX_LENGTH` (32) for the JSON/binary variants.
+`custom_id_type` is `fixed_string<32>` (`types.hpp:75`); `validate()` additionally caps id length at `HIVE_CUSTOM_OP_ID_MAX_LENGTH` (32) for the JSON/binary variants.
 
 ---
 
@@ -491,31 +492,31 @@ This resolves "when were operations introduced, and how is that enforced?" The m
 
 > **There is no central/generic gate that blocks unknown or new operations before a hardfork.** The evaluator registry (`evaluator_registry.hpp`) is pure dispatch with no hardfork logic. Each operation that needs to be blocked before a hardfork carries its *own* `HIVE_CHAIN_HARDFORK_ASSERT( _db.has_hardfork(...) )` at the top of its `do_apply()`. Operations without such a guard became usable the moment their defining release shipped to a majority of the network; any historical blocking guard is removed once activation is safely in the past (standard practice — see the repo's own CLAUDE.md on consensus-critical changes).
 
-**Operations with an explicit *blocking* hardfork guard** (cannot be applied before the named HF; HF↔version source-confirmed in `database_hardfork.cpp:82,97,100`):
+**Operations with an explicit *blocking* hardfork guard** (cannot be applied before the named HF; HF<->version source-confirmed in `database_hardfork.cpp:67,85,88,97,100`):
 
 | ID | Operation | Blocking HF | Hardfork constant | Guard location |
 |----|-----------|------------|-------------------|----------------|
 | 35 | `custom_binary_operation` | — | (HF14 guard now **dead** under unconditional disable) | `hive_evaluator.cpp:378,380` |
-| 36 | `decline_voting_rights_operation` | HF14 | `HIVE_HARDFORK_0_14__324` | `hive_evaluator_account.cpp:619` |
-| 22 | `claim_account_operation` | HF20 | `HIVE_HARDFORK_0_20__1771` | `hive_evaluator_account.cpp:404` |
-| 23 | `create_claimed_account_operation` | HF20 | `HIVE_HARDFORK_0_20__1771` | `hive_evaluator_account.cpp:466` |
+| 36 | `decline_voting_rights_operation` | HF14 | `HIVE_HARDFORK_0_14__324` | `hive_evaluator_account.cpp:605` |
+| 22 | `claim_account_operation` | HF20 | `HIVE_HARDFORK_0_20__1771` | `hive_evaluator_account.cpp:396` |
+| 23 | `create_claimed_account_operation` | HF20 | `HIVE_HARDFORK_0_20__1771` | `hive_evaluator_account.cpp:457` |
 | 42 | `witness_set_properties_operation` | HF20 | `HIVE_HARDFORK_0_20__1620` | `hive_evaluator.cpp:115` |
-| 43 | `account_update2_operation` | HF21 | `HIVE_HARDFORK_0_21__3274` | `hive_evaluator_account.cpp:362` |
-| 44 | `create_proposal_operation` | HF21 | `HIVE_HARDFORK_0_21_PROPOSALS` | `dhf_evaluator.cpp:36` |
+| 43 | `account_update2_operation` | HF21 | `HIVE_HARDFORK_0_21__3274` | `hive_evaluator_account.cpp:354` |
+| 44 | `create_proposal_operation` | HF21 | `HIVE_HARDFORK_0_21_PROPOSALS` | `dhf_evaluator.cpp:35` |
 | 45 | `update_proposal_votes_operation` | HF21 | `HIVE_HARDFORK_0_21_PROPOSALS` | `dhf_evaluator.cpp:159` |
 | 46 | `remove_proposal_operation` | HF21 | `HIVE_HARDFORK_0_21_PROPOSALS` | `dhf_evaluator.cpp:217` |
 | 47 | `update_proposal_operation` | HF24 | `HIVE_HARDFORK_1_24` | `dhf_evaluator.cpp:107` |
-| 48 | `collateralized_convert_operation` | HF25 | `HIVE_HARDFORK_1_25` | `hive_evaluator_transfer.cpp:475` |
-| 49 | `recurrent_transfer_operation` | HF25 | `HIVE_HARDFORK_1_25` | `hive_evaluator_transfer.cpp:908` |
+| 48 | `collateralized_convert_operation` | HF25 | `HIVE_HARDFORK_1_25` | `hive_evaluator_transfer.cpp:488` |
+| 49 | `recurrent_transfer_operation` | HF25 | `HIVE_HARDFORK_1_25` | `hive_evaluator_transfer.cpp:954` |
 
 **Operations 17–21 specifically** (`delete_comment`, `custom_json`, `comment_options`, `set_withdraw_vesting_route`, `limit_order_create2`) carry **no blocking guard** at this commit. They have only *behavior-modifying* guards added at later hardforks:
 
 | ID | Operation | Behavior-modifying guard (not blocking) | HF |
 |----|-----------|-----------------------------------------|----|
-| 17 | `delete_comment` | from HF19, cannot delete a comment with net positive rshares (`hive_evaluator_social.cpp:68-69`) | HF19 |
-| 19 | `comment_options` | from HF24, cannot update options on an already-paid-out comment (`hive_evaluator_social.cpp:149`) | HF24 |
-| 20 | `set_withdraw_vesting_route` | from HF21, cannot route to treasury (`hive_evaluator_transfer.cpp:400`) | HF21 |
-| 21 | `limit_order_create2` | from HF20, expiration capped to ≤28 days ahead (`hive_evaluator_transfer.cpp:~556`) | HF20 |
+| 17 | `delete_comment` | from HF19, cannot delete a comment with net positive rshares (`hive_evaluator_social.cpp:69-70`) | HF19 |
+| 19 | `comment_options` | from HF24, cannot update options on an already-paid-out comment (`hive_evaluator_social.cpp:150`) | HF24 |
+| 20 | `set_withdraw_vesting_route` | from HF21, cannot route to treasury (`hive_evaluator_transfer.cpp:411`) | HF21 |
+| 21 | `limit_order_create2` | from HF20, an expiration more than 28 days ahead is rejected (`hive_evaluator_transfer.cpp:587-590`; before HF20 it was clamped, `:593`); under HF29 (defined in 1.28.8, inactive on mainnet) only the HIVE:HBD market (`:578-584`, see "SMT residue" below) | HF20; HF29 |
 
 So the answer to "exactly when were 17–21 introduced" is: **not gated by an in-code hardfork at this commit.** Their historical introduction heights (and the genesis set 0–16) are a Part 09 / `reference/hardforks.md` matter; the *consensus mechanism* for their availability is the social/release process plus variant-order stability, not a per-op gate. (`custom_binary` (35) is the cautionary counter-example: technically enabled at HF14, never used, and later hard-disabled.)
 
@@ -525,7 +526,7 @@ So the answer to "exactly when were 17–21 introduced" is: **not gated by an in
 
 From `operations.cpp:7-47`:
 
-- **Market operations** (`is_market_operation`, `operations.cpp:7-16`) — `limit_order_create_operation`, `limit_order_cancel_operation`, `transfer_operation`, `transfer_to_vesting_operation`. (Used for market-history bucketing, not rate limiting — hived has no per-client API rate limiting.)
+- **Market operations** (`is_market_operation`, `operations.cpp:7-16`) - `limit_order_create_operation`, `limit_order_cancel_operation`, `transfer_operation`, `transfer_to_vesting_operation`. (The function is not called anywhere in the 1.28.8 source tree: market history records `fill_order_operation` vops (`market_history_plugin.cpp:50-52`), and RC counts market operations with its own visitor (`rc/resource_count.cpp:618-619`). hived has no per-client API rate limiting.)
 - **Virtual operations** (`is_virtual_operation`, `operations.cpp:22-33`) — dispatches to each op's `is_virtual()`; true for IDs 50–92.
 - **Effective operations** (`is_effective_operation`, `operations.cpp:35-47`) — all operations except `fill_vesting_withdraw_operation` when it represents an empty implied route (`withdrawn.amount == 0`, see issue #337).
 
@@ -533,8 +534,8 @@ From `operations.cpp:7-47`:
 
 `limit_order_create_operation::validate()` (`hive_operations.cpp:601-618`) and `limit_order_create2_operation::validate()` (`:620-640`) accept **four** symbol pairings: the two HIVE/HBD orderings, **plus** two orderings where one side is `HIVE_SYMBOL` and the other has `symbol.space() == asset_symbol_type::smt_nai_space`. `smt_nai_space` is the SMT (Smart Media Token) symbol space (`asset_symbol.hpp:69-73`). This is **leftover code from the never-activated SMT effort** (SMTs were designed on Steem but never shipped to consensus on Hive). Consequences:
 - There is no operation to *create* an SMT, so no SMT balances exist on chain.
-- The limit-order evaluator has **no SMT branch** (verified: zero `smt`/`nai_space` references in `hive_evaluator_transfer.cpp`). A HIVE/SMT order would pass `validate()` but cannot reference a real balance, so it cannot be funded/filled.
-- Tightening `validate()` to reject SMT pairs would change which transactions are legal and therefore requires a hardfork — which is why the dead branch persists (the repo CLAUDE.md uses this exact case as its canonical "unsafe change" example).
+- The limit-order evaluators have **no SMT branch** (verified: zero `smt`/`nai_space` references in `hive_evaluator_transfer.cpp`). Without the market check described next, an order that sells an SMT symbol fails when the evaluator debits the seller (`adjust_balance` accepts only HIVE and HBD here, `database.cpp:3179-3198`), and an order that sells HIVE for an SMT symbol is funded from the seller's HIVE and created, but can never fill because no SMT balances exist, so it stays open until it expires or is cancelled (`hive_evaluator_transfer.cpp:561-568`); a `fill_or_kill` order of that kind fails instead (`:570`, `:605`).
+- Since 1.28.8 both evaluators accept only the HIVE:HBD market under HF29 (`HIVE_HARDFORK_1_29_FIX_LIMIT_ORDER_ASSETS`, defined in 1.28.8, inactive on mainnet), and a 1.28.8 node already rejects other markets in new transactions submitted to it and in blocks it produces (`hive_evaluator_transfer.cpp:540-546, 578-584`; Part 01, section HF29 (Defined in 1.28.8, Inactive on Mainnet)). `validate()` is unchanged and still admits the SMT pairs; the evaluator comment says to try trimming that check once HF29 triggers (`:540`, `:578`). Tightening `validate()` itself would change which transactions are legal, which is why the branch persists (the repo CLAUDE.md uses this case as its canonical "unsafe change" example).
 
 ---
 
@@ -542,15 +543,15 @@ From `operations.cpp:7-47`:
 
 1. **Numeric IDs are strictly positional.** Operation ID = variant index. Reordering anything before the virtual ops triggers a hardfork (`operations.hpp:12-14`). 50 regular (0–49) + 43 virtual (50–92) = 93 total.
 
-2. **Only `custom_json` with `id=="rc"` is interpreted by consensus.** `custom_operation` (15) is inert beyond a size cap, `custom_binary_operation` (35) is hard-disabled, and `custom_json` (18) with any non-`"rc"` id is a silent no-op. The RC interpreter is registered inside the chain library, not a plugin (`rc/rc_utility.cpp:717-732`).
+2. **Only `custom_json` with `id=="rc"` is interpreted by consensus.** `custom_operation` (15) is inert beyond a size cap, `custom_binary_operation` (35) is hard-disabled, and `custom_json` (18) with any non-`"rc"` id is a silent no-op. The RC interpreter is registered inside the chain library, not a plugin (`rc/rc_utility.cpp:748-763`).
 
 3. **`custom_binary_operation` is dead at the chain layer.** Its evaluator unconditionally throws (`hive_evaluator.cpp:378`), despite a valid protocol-layer `validate()` and a declared all-levels authority model. No transaction containing it can be applied. (Correction to prior framing that listed it as a usable multi-level-auth op.)
 
 4. **No central pre-hardfork gate; evaluators self-guard.** Twelve operations carry explicit blocking `has_hardfork` guards (table above); 17–21 carry only behavior-modifying guards. The registry itself does no hardfork checking.
 
-5. **No per-transaction operation-count limit.** `transaction::validate()` requires only ≥1 operation (`transaction.cpp:42`); the real bound is the 64 KiB `HIVE_MAX_TRANSACTION_SIZE` (`config.hpp:364`).
+5. **No per-transaction operation-count limit.** `transaction::validate()` requires only >=1 operation (`transaction.cpp:42`); the real bound is the serialized size, which the push path limits to the witness-voted `maximum_block_size` minus 256 bytes (`database.cpp:566-572`). `HIVE_MAX_TRANSACTION_SIZE` (64 KiB, `config.hpp:363`) is not checked against transactions; in the code it is used only to define `HIVE_MIN_BLOCK_SIZE_LIMIT` (`config.hpp:364`), the floor of the voted block size (`get_config` still reports it). Custom operations are the exception on the push path: at most 5 per account across a node's pending transactions (`HIVE_CUSTOM_OP_BLOCK_LIMIT`, `database.cpp:598-621`; not a block-validity rule).
 
-6. **Posting authority can't mix with active/owner before HF28.** Signature gathering rejects a transaction needing posting auth alongside active/owner auth until the `allow_strict_and_mixed_authorities` (HF28) switch (`transaction.cpp:150-176`).
+6. **Posting authority can't mix with other authorities before HF28.** Until the `allow_strict_and_mixed_authorities` (HF28) switch, consensus authority verification rejects a transaction that needs posting authority together with active, owner, witness or other authorities (`verify_authority_impl()`, `transaction_util.cpp:60-75`, reached through `verify_authority()` from `database.cpp:2626`; `other` holds the explicit authorities that `witness_set_properties`, `custom_binary`, `pow2` and `recover_account` require, `hive_operations.hpp:475, 564, 751, 851`); signature gathering applies the active/owner part of the rule (`transaction.cpp:150-176`).
 
 7. **Three-tier authority in `account_update2`.** Owner / active / posting depending on which fields are populated (`hive_operations.hpp:88-95`) — the only op with three distinct authority paths.
 
@@ -560,13 +561,13 @@ From `operations.cpp:7-47`:
 
 10. **`reset_account`/`set_reset_account` are dead placeholders.** Both `validate()`s always assert false (`hive_operations.cpp:774-782`); they exist only to hold variant slots 37–38.
 
-11. **`flat_set_ex` enforces sorted-unique on deserialize.** DHF proposal-id sets reject out-of-order/duplicate items during `from_variant` (`dhf_operations.hpp:115-143`).
+11. **`flat_set_ex` enforces sorted-unique in JSON.** DHF proposal-id sets given as JSON reject out-of-order/duplicate items in `from_variant` (`dhf_operations.hpp:121-143`).
 
-12. **Several reward vops carry untyped `asset` fields.** `producer_reward.vesting_shares`, `pow_reward.reward`, `fill_vesting_withdraw.deposited`, `fill_transfer_from_savings.amount`, `fill_order.*pays`, escrow vop `fee`/amounts — these intentionally hold whichever of HIVE/HBD/VESTS applies at runtime, unlike the strongly-typed (`HIVE_asset`/`HBD_asset`/`VEST_asset`) fields elsewhere.
+12. **Several vops carry untyped `asset` fields.** `producer_reward.vesting_shares`, `pow_reward.reward`, `fill_vesting_withdraw.deposited`, `fill_transfer_from_savings.amount`, `fill_order.*pays`, the escrow vops' `fee` (their HBD and HIVE amounts are typed) - these intentionally hold whichever of HIVE/HBD/VESTS applies at runtime, unlike the strongly-typed (`HIVE_asset`/`HBD_asset`/`VEST_asset`) fields elsewhere.
 
 13. **`payout_must_be_claimed` flag** on `author_reward`, `curation_reward`, `comment_benefactor_reward` indicates the recipient must use `claim_reward_balance_operation`.
 
-14. **`pow`/`pow2` real work verification is removed.** The cryptographic checks are commented out with "Creation of new ops is disallowed" after the BIP-0062 hard switch (`hive_operations.cpp:562-578`); existing blocks remain valid, new PoW ops cannot be created.
+14. **`pow`/`pow2` work verification is mostly removed.** `pow::validate()` and `pow2::validate()` have their checks commented out with "Creation of new ops is disallowed" after the BIP-0062 hard switch (`hive_operations.cpp:562-578`), while `equihash_pow::validate()`, the other `pow2` work type, still verifies its proof (`:580-590`). New PoW operations are rejected by the evaluators' hardfork asserts, `pow` from HF13 and `pow2` from HF17 (`hive_evaluator.cpp:500`, `:508`); existing blocks remain valid.
 
 15. **Post-HF26 size caps on custom payloads.** `custom_operation.data` and `custom_json.json` are each capped at `HIVE_CUSTOM_OP_DATA_MAX_LENGTH` (8192) from HF26 onward (`hive_evaluator.cpp:330-345`).
 
@@ -582,22 +583,29 @@ From `operations.cpp:7-47`:
 | Regular operation structs | `libraries/protocol/include/hive/protocol/hive_operations.hpp` | All 46 regular op definitions + FC_REFLECT order |
 | DHF operation structs | `libraries/protocol/include/hive/protocol/dhf_operations.hpp` | 4 proposal ops; flat_set_ex |
 | Virtual operation structs | `libraries/protocol/include/hive/protocol/hive_virtual_operations.hpp` | All 43 virtual op definitions |
+| Curator VESTS sum (since 1.28.8) | `libraries/chain/database_comment.cpp:171-177,231-232` | `author_reward_operation.curators_vesting_payout` |
 | RC custom op | `libraries/protocol/include/hive/protocol/hive_custom_operations.hpp:8-23` | delegate_rc_operation; "rc" id |
 | RC custom op validate | `libraries/protocol/hive_custom_operations.cpp:12-32` | delegatee limits |
-| Validate implementations | `libraries/protocol/hive_operations.cpp` | All `validate()` logic (e.g. limit_order SMT `:601-640`, witness props `:287-396`, reset placeholders `:774-782`) |
-| Transaction structure & constraints | `libraries/protocol/transaction.cpp:40-56` (op count); `:150-176` (posting/active mixing) | transaction::validate; signature gathering |
+| Validate implementations | `libraries/protocol/hive_operations.cpp` | All `validate()` logic (e.g. limit_order SMT `:601-640`, witness props `:287-396`, reset placeholders `:774-782`, recurrent transfer executions `:820-824`) |
+| Transaction structure & constraints | `libraries/protocol/transaction.cpp:40-56` (op count); `:150-176` (posting/active mixing in signature gathering) | transaction::validate; signature gathering |
+| Posting mixing rule (consensus, before HF28) | `libraries/protocol/transaction_util.cpp:60-75` | verify_authority_impl(); reached from `database.cpp:2626` |
+| Custom-op count per account (push path) | `libraries/chain/database.cpp:598-621,636-646` | `HIVE_CUSTOM_OP_BLOCK_LIMIT` (5 on mainnet); cleared with the pending state |
+| Transaction size limit | `libraries/chain/database.cpp:566-572` | push path: serialized size <= voted `maximum_block_size` - 256 |
 | Transaction struct | `libraries/protocol/include/hive/protocol/transaction.hpp:12-20` | operations vector; extensions |
-| Custom id / recurrent ext types | `libraries/protocol/include/hive/protocol/types.hpp:80,151-161` | custom_id_type; recurrent_transfer_pair_id |
+| Custom id / recurrent ext types | `libraries/protocol/include/hive/protocol/types.hpp:75,146-156` | custom_id_type; recurrent_transfer_pair_id |
 | SMT symbol space | `libraries/protocol/include/hive/protocol/asset_symbol.hpp:69-73` | legacy_space / smt_nai_space enum |
-| Assert macro semantics | `libraries/protocol/include/hive/protocol/hive_specialised_exceptions.hpp:8-24,59-60` | HIVE_CHAIN_*_ASSERT throw on `!(expr)` |
-| Constants | `libraries/protocol/include/hive/protocol/config.hpp:206,234,353,364,375-377,425-428,449,494` | tx size, memo, url, auth membership, custom-op caps, beneficiary limit, RC delegatee max |
+| Assert macro semantics | `libraries/protocol/include/hive/protocol/hive_specialised_exceptions.hpp:8-42,59-72` | HIVE_CHAIN_*_ASSERT throw on `!(expr)` |
+| Constants | `libraries/protocol/include/hive/protocol/config.hpp:202,230,352,363,374-376,424-427,448,493` | recurrence minimum (mainnet branch), memo, url, max-tx-size constant (in the code used only to define the block-size floor; `get_config` reports it), auth membership, custom-op caps, beneficiary and comment-title limits, proxy-to-self account, RC delegatee max |
 | custom_json / custom / custom_binary evaluators | `libraries/chain/hive_evaluator.cpp:328-394` | dispatch; size caps; custom_binary disabled |
 | witness_set_properties guard | `libraries/chain/hive_evaluator.cpp:115` | HF20 block |
-| Account-op hardfork guards | `libraries/chain/hive_evaluator_account.cpp:362,404,466,619` | account_update2 / claim_account / create_claimed_account / decline_voting_rights |
-| Transfer-op hardfork guards | `libraries/chain/hive_evaluator_transfer.cpp:400,475,556,908` | route-to-treasury / collateralized_convert / lo_create2 expiry / recurrent_transfer |
-| Social-op guards | `libraries/chain/hive_evaluator_social.cpp:68-69,149` | delete_comment HF19; comment_options HF24 |
-| DHF guards | `libraries/chain/dhf_evaluator.cpp:36,107,159,217` | create / update / update_votes / remove proposal |
-| RC interpreter registration | `libraries/chain/rc/rc_utility.cpp:717-732`; `libraries/chain/database_init.cpp:29-38` | "rc" interpreter wired into core init |
+| Account-op hardfork guards | `libraries/chain/hive_evaluator_account.cpp:354,396,457,605` | account_update2 / claim_account / create_claimed_account / decline_voting_rights |
+| Transfer-op hardfork guards | `libraries/chain/hive_evaluator_transfer.cpp:411,488,587,954` | route-to-treasury / collateralized_convert / lo_create2 expiry / recurrent_transfer |
+| Limit-order market check (since 1.28.8) | `libraries/chain/hive_evaluator_transfer.cpp:540-546,578-584` | HIVE:HBD only, when in control or under HF29 (defined in 1.28.8, inactive on mainnet) |
+| Recurrent transfer executions minimum (since 1.28.8) | `libraries/chain/hive_evaluator_transfer.cpp:976-978,991-996,1011-1016` | >= 2 to create; to delete or modify only before HF29 |
+| Social-op guards | `libraries/chain/hive_evaluator_social.cpp:69-70,150` | delete_comment HF19; comment_options HF24 |
+| DHF guards | `libraries/chain/dhf_evaluator.cpp:35,107,159,217` | create / update / update_votes / remove proposal |
+| RC interpreter registration | `libraries/chain/rc/rc_utility.cpp:748-763`; `libraries/chain/database_init.cpp:30-39` | "rc" interpreter wired into core init |
+| RC enforcement | `libraries/chain/rc/rc_utility.cpp:507-508,567` | payer and balance checks: when in control (balance also on pending re-apply); in every mode under HF29 |
 | HF↔version sanity | `libraries/chain/database_hardfork.cpp:82,97,100` | HF19==19, HF24==24, HF25==25 |
 
 ---
@@ -626,13 +634,13 @@ From `operations.cpp:7-47`:
 
 1. ~~When exactly were operations 17–21 introduced?~~ **Resolved.** None of 17–21 carries a blocking hardfork guard at this commit; only behavior-modifying guards exist (table in "Operation Availability"). There is no central pre-hardfork gate — evaluators self-guard, and twelve ops carry explicit blocking guards. Historical introduction heights are Part 09's domain.
 
-2. ~~What is the maximum number of operations per transaction?~~ **Resolved.** No explicit count limit; `transaction::validate()` requires only ≥1 op, bounded by `HIVE_MAX_TRANSACTION_SIZE` = 64 KiB (`transaction.cpp:42`, `config.hpp:364`).
+2. ~~What is the maximum number of operations per transaction?~~ **Resolved.** No explicit count limit; `transaction::validate()` requires only >=1 op (`transaction.cpp:42`), bounded by the serialized size: at most the witness-voted `maximum_block_size` minus 256 bytes on the push path (`database.cpp:566-572`). `HIVE_MAX_TRANSACTION_SIZE` (64 KiB, `config.hpp:363`) is not checked against transactions; in the code it only defines `HIVE_MIN_BLOCK_SIZE_LIMIT`, the floor of the voted block size (`get_config` still reports it). The push path also limits `custom`, `custom_json` and `custom_binary` operations to 5 per account across a node's pending transactions (`database.cpp:598-621`; see Transaction-Level Constraints).
 
-3. **How does the RC system price each operation?** **Still deferred to Part 08.** Confirmed only that RC delegation processing (`"rc"` custom_json) is in the chain library and consensus-applied, while RC *cost* enforcement is non-consensus/mempool-only (`rc/rc_utility.cpp:320`). The per-op cost model (`rc/resource_sizes.cpp`, state/exec/byte sizing) is Part 08.
+3. **How does the RC system price each operation?** **Still deferred to Part 08.** Confirmed only that RC delegation processing (`"rc"` custom_json) is in the chain library and consensus-applied, while RC *cost* enforcement is not part of consensus on mainnet at 1.28.8 and becomes part of it under HF29, defined in 1.28.8 and inactive on mainnet (`rc/rc_utility.cpp:333, 567`; Custom Operations Framework, Consensus nuance on RC). The per-op cost model (`rc/resource_sizes.cpp`, state/exec/byte sizing) is Part 08.
 
-4. ~~What custom_json IDs does the chain itself interpret?~~ **Resolved.** Only `"rc"`. It is the sole id with a consensus-registered interpreter (`rc/rc_utility.cpp:723-730`); every other id is a silent no-op to hived, handled off-chain (Hivemind, sidechains). `custom_operation`(15) dispatches to nothing; `custom_binary`(35) is disabled.
+4. ~~What custom_json IDs does the chain itself interpret?~~ **Resolved.** Only `"rc"`. It is the sole id with a consensus-registered interpreter (`rc/rc_utility.cpp:754-761`); every other id is a silent no-op to hived, handled off-chain (Hivemind, sidechains). `custom_operation`(15) dispatches to nothing; `custom_binary`(35) is disabled.
 
-5. ~~What is the `smt_nai_space` check in `limit_order_create` validate()?~~ **Resolved.** Residual never-activated SMT support: `validate()` permits HIVE↔SMT-NAI pairs (`hive_operations.cpp:601-640`), but no SMT assets exist and the evaluator has no SMT branch, so such orders can't be funded/filled. Removing the branch would require a hardfork (changes transaction legality).
+5. ~~What is the `smt_nai_space` check in `limit_order_create` validate()?~~ **Resolved.** Residual never-activated SMT support: `validate()` permits HIVE<->SMT-NAI pairs (`hive_operations.cpp:601-640`), but no SMT assets exist and the evaluators have no SMT branch, so an order selling an SMT fails and an order selling HIVE for an SMT never fills. Since 1.28.8 the evaluators also restrict orders to the HIVE:HBD market under HF29 (defined in 1.28.8, inactive on mainnet; see "SMT residue" above). Removing the `validate()` branch would require a hardfork (changes transaction legality).
 
 **Residual (minor, for future zoom):**
 - The exact hardfork at which `custom_binary_operation` was hard-disabled (the unconditional assert) is not pinpointed here — the now-dead guard references HF14, but the disable itself is unconditional. A git-archaeology zoom (which release added the `false &&` disable) would settle it; not derivable from this single pinned commit.

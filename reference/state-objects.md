@@ -1,6 +1,6 @@
 # Hive State Objects Reference
 
-Source: hive-core release 1.28.7. 39 type IDs (37 core-defined + 1 plugin-defined + 1 dead). State lives in chainbase shared memory, with one exception: paid-out comments are archived to RocksDB by default (`comment-archive = ROCKSDB` chain option, new in 1.28) — the chainbase comment index only holds comments in or near their 7-day payout window.
+Source: hive-core release 1.28.8. 39 type IDs (37 core-defined + 1 plugin-defined + 1 dead). State lives in chainbase shared memory, with one exception: since 1.28 paid-out comments are archived to RocksDB by default (ROCKSDB is the default of the `comment-archive` option, which exists only in testnet and mirrornet builds; mainnet builds always use ROCKSDB): from HF19 the chainbase comment index holds only comments whose payout is pending or not yet irreversible, plus, while the node syncs, up to about 10,000 paid-out comments awaiting migration; before HF19 nothing is archived (`database_comment.cpp:471-475`, `external_storage/rocksdb_comment_archive.cpp:104-105`).
 
 ---
 
@@ -11,14 +11,14 @@ Source: hive-core release 1.28.7. 39 type IDs (37 core-defined + 1 plugin-define
 | 0 | `dynamic_global_property_object` | Singleton | `detail/state/global_property_object.hpp` |
 | 1 | `account_object` | Dynamic multiton (one per account) | `detail/state/account_object.hpp` |
 | 2 | `account_metadata_object` | Dynamic multiton (plugin-level) | `plugins/metadata/.../metadata_objects.hpp` |
-| 3 | `account_authority_object` | Dynamic multiton (one per account) | `detail/state/account_object.hpp:339` |
+| 3 | `account_authority_object` | Dynamic multiton (one per account) | `detail/state/account_object.hpp:364` |
 | 4 | `witness_object` | Dynamic multiton (one per witness) | `detail/state/witness_objects.hpp:69` |
 | 5 | `transaction_object` | Ephemeral multiton (recent txs) | `detail/state/transaction_object.hpp` |
 | 6 | `block_summary_object` | Fixed multiton (65536 ring buffer) | `detail/state/block_summary_object.hpp` |
-| 7 | `witness_schedule_object` | Doubleton (current id 0 + future id 1, since HF26) | `detail/state/witness_objects.hpp:183` |
+| 7 | `witness_schedule_object` | Doubleton (current id 0 + future id 1, since HF26) | `detail/state/witness_objects.hpp:181` |
 | 8 | `comment_object` | Dynamic multiton (one per post/comment) | `detail/state/comment_object.hpp` |
 | 9 | `comment_vote_object` | Dynamic multiton (one per vote) | `detail/state/comment_object.hpp:372` |
-| 10 | `witness_vote_object` | Dynamic multiton (one per witness vote) | `detail/state/witness_objects.hpp:173` |
+| 10 | `witness_vote_object` | Dynamic multiton (one per witness vote) | `detail/state/witness_objects.hpp:171` |
 | 11 | `limit_order_object` | Dynamic multiton (open orders) | `detail/state/limit_order_object.hpp` |
 | 12 | `feed_history_object` | Singleton | `detail/state/feed_history_object.hpp` |
 | 13 | `convert_request_object` | Dynamic multiton (pending HBD->HIVE) | `detail/state/convert_request_object.hpp` |
@@ -26,16 +26,16 @@ Source: hive-core release 1.28.7. 39 type IDs (37 core-defined + 1 plugin-define
 | 15 | `liquidity_reward_balance_object` | Legacy (index cleared at HF12) | `detail/state/liquidity_reward_balance_object.hpp` |
 | 16 | `hardfork_property_object` | Singleton | `detail/state/hardfork_property_object.hpp` |
 | 17 | `withdraw_vesting_route_object` | Dynamic multiton (powerdown routes) | `detail/state/withdraw_vesting_route_object.hpp` |
-| 18 | `owner_authority_history_object` | Dynamic multiton (recovery history) | `detail/state/account_object.hpp:427` |
-| 19 | `account_recovery_request_object` | Dynamic multiton (pending recovery) | `detail/state/account_object.hpp:454` |
-| 20 | `change_recovery_account_request_object` | Dynamic multiton (pending change) | `detail/state/account_object.hpp:498` |
+| 18 | `owner_authority_history_object` | Dynamic multiton (recovery history) | `detail/state/account_object.hpp:484` |
+| 19 | `account_recovery_request_object` | Dynamic multiton (pending recovery) | `detail/state/account_object.hpp:518` |
+| 20 | `change_recovery_account_request_object` | Dynamic multiton (pending change) | `detail/state/account_object.hpp:562` |
 | 21 | `escrow_object` | Dynamic multiton (active escrows) | `detail/state/escrow_object.hpp` |
 | 22 | `savings_withdraw_object` | Dynamic multiton (pending withdrawals) | `detail/state/savings_withdraw_object.hpp` |
 | 23 | `decline_voting_rights_request_object` | Dynamic multiton (pending requests) | `detail/state/decline_voting_rights_request_object.hpp` |
-| 24 | `block_stats_object` | **DEAD** (Steem-era object removed 2016; slot kept so later IDs don't shift) | `hive_object_types.hpp:114` |
+| 24 | `block_stats_object` | **DEAD** (Steem-era object removed 2016; slot kept so later IDs don't shift) | `hive_object_types.hpp:115` |
 | 25 | `reward_fund_object` | Singleton | `detail/state/reward_fund_object.hpp` |
-| 26 | `vesting_delegation_object` | Dynamic multiton (active delegations) | `detail/state/account_object.hpp:366` |
-| 27 | `vesting_delegation_expiration_object` | Dynamic multiton (returning delegations) | `detail/state/account_object.hpp:402` |
+| 26 | `vesting_delegation_object` | Dynamic multiton (active delegations) | `detail/state/account_object.hpp:421` |
+| 27 | `vesting_delegation_expiration_object` | Dynamic multiton (returning delegations) | `detail/state/account_object.hpp:458` |
 | 28 | `proposal_object` | Dynamic multiton (DHF proposals) | `detail/state/dhf_objects.hpp` |
 | 29 | `proposal_vote_object` | Dynamic multiton (DHF votes) | `detail/state/dhf_objects.hpp:68` |
 | 30 | `comment_cashout_object` | Dynamic multiton (pending payout) | `detail/state/comment_object.hpp:103` |
@@ -43,10 +43,10 @@ Source: hive-core release 1.28.7. 39 type IDs (37 core-defined + 1 plugin-define
 | 32 | `recurrent_transfer_object` | Dynamic multiton (scheduled transfers) | `detail/state/recurrent_transfer_object.hpp` |
 | 33 | `rc_resource_param_object` | Singleton | `rc/rc_objects.hpp:25` |
 | 34 | `rc_pool_object` | Singleton | `rc/rc_objects.hpp:44` |
-| 35 | `rc_direct_delegation_object` | Dynamic multiton (RC delegations) | `rc/rc_objects.hpp:179` |
-| 36 | `rc_usage_bucket_object` | Fixed multiton (24 time buckets) | `rc/rc_objects.hpp:222` |
+| 35 | `rc_direct_delegation_object` | Dynamic multiton (RC delegations) | `rc/rc_objects.hpp:182` |
+| 36 | `rc_usage_bucket_object` | Fixed multiton (24 time buckets) | `rc/rc_objects.hpp:227` |
 | 37 | `rc_stats_object` | Doubleton (pending + archive) | `rc/rc_objects.hpp:130` |
-| 38 | `rc_expired_delegation_object` | Dynamic multiton (pending RC undelegation) | `rc/rc_objects.hpp:201` |
+| 38 | `rc_expired_delegation_object` | Dynamic multiton (pending RC undelegation) | `rc/rc_objects.hpp:205` |
 
 ---
 
@@ -65,12 +65,11 @@ Source: hive-core release 1.28.7. 39 type IDs (37 core-defined + 1 plugin-define
 | `head_block_id` | `block_id_type` | Hash of head block |
 | `time` | `time_point_sec` | Timestamp of head block |
 | `current_witness` | `account_name_type` | Witness who produced head block |
-| `current_supply` | `HIVE_asset` | Total liquid HIVE in existence |
+| `current_supply` | `HIVE_asset` | All HIVE in existence, including the HIVE backing VESTS (main HIVE token counter) |
 | `current_hbd_supply` | `HBD_asset` | Total HBD in existence |
 | `virtual_supply` | `HIVE_asset` | HIVE supply including virtual HBD conversion |
-| `total_vesting_fund_hive` | `HIVE_asset` | HIVE backing all VESTS |
+| `total_vesting_fund_hive` | `HIVE_balance` | HIVE backing all VESTS (a balance class since 1.28.8, `HIVE_asset` at 1.28.7) |
 | `total_vesting_shares` | `VEST_asset` | Total VESTS in existence |
-| `total_reward_fund_hive` | `HIVE_asset` | Pending liquid reward pool |
 | `pending_rewarded_vesting_shares` | `VEST_asset` | Unclaimed vest rewards |
 | `pending_rewarded_vesting_hive` | `HIVE_asset` | HIVE backing unclaimed vest rewards |
 | `hbd_interest_rate` | `uint16_t` | HBD savings interest rate (BPS) |
@@ -92,13 +91,15 @@ Source: hive-core release 1.28.7. 39 type IDs (37 core-defined + 1 plugin-define
 | `early_voting_seconds` | `uint64_t` | Early voting window |
 | `mid_voting_seconds` | `uint64_t` | Mid voting window |
 
+1.28.8 removed `total_reward_fund_hive` and `total_reward_shares2` from this object (`global_property_object.hpp:400-443`) and from the `database_api` / `condenser_api` dgpo responses. The content reward pool is `reward_fund_object.reward_balance`, which since 1.28.8 also holds the pre-HF17 pool, with the pre-HF17 rshares2 total in `recent_claims` (see reward_fund_object below; Part 05, section dynamic_global_property_object (Singleton)).
+
 **Computed Properties**:
 - `get_vesting_share_price()` = `total_vesting_shares / total_vesting_fund_hive` (VEST/HIVE conversion)
 - `get_reward_vesting_share_price()` = includes pending rewards in price calculation
 
 **Indices**: Only `by_id` (singleton)
 
-**Tracks**: supply, rewards, HBD stability, block production, witness participation, DHF timing, recurrent transfer limits
+**Tracks**: supply, rewards, HBD stability, block production, witness participation, DHF timing, recurrent transfer limits (these fields only mirror the `HIVE_*` constants that the chain code reads: Part 12, Key Discovery 5)
 
 ---
 
@@ -111,21 +112,21 @@ Source: hive-core release 1.28.7. 39 type IDs (37 core-defined + 1 plugin-define
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `name` | `account_name_type` | Account name (3-16 chars, primary key) |
+| `name` | `account_name_type` | Account name (3-16 chars, unique key of `by_name`) |
 | `memo_key` | `public_key_type` | Memo encryption key |
 | `proxy` | `account_id_type` | Governance proxy (0 = none) |
 | `recovery_account` | `account_id_type` | Recovery account (0 = top witness) |
 | **Balances** | | |
-| `balance` | `HIVE_asset` | Liquid HIVE |
-| `hbd_balance` | `HBD_asset` | Liquid HBD |
-| `savings_balance` | `HIVE_asset` | HIVE in savings (3-day withdrawal) |
-| `savings_hbd_balance` | `HBD_asset` | HBD in savings (earns interest) |
-| `reward_hive_balance` | `HIVE_asset` | Unclaimed HIVE rewards |
-| `reward_hbd_balance` | `HBD_asset` | Unclaimed HBD rewards |
-| `reward_vesting_balance` | `VEST_asset` | Unclaimed VEST rewards |
-| `reward_vesting_hive` | `HIVE_asset` | HIVE counterweight to reward VESTS |
+| `hive_balance` | `HIVE_balance` | Liquid HIVE (`balance` at 1.28.7 and in the API account objects) |
+| `hbd_balance` | `HBD_balance` | Liquid HBD |
+| `savings_hive_balance` | `HIVE_balance` | HIVE in savings (3-day withdrawal; `savings_balance` at 1.28.7 and in the API account objects) |
+| `savings_hbd_balance` | `HBD_balance` | HBD in savings (earns interest) |
+| `reward_hive_balance` | `HIVE_balance` | Unclaimed HIVE rewards |
+| `reward_hbd_balance` | `HBD_balance` | Unclaimed HBD rewards |
+| `reward_vesting_balance` | `VEST_balance` | Unclaimed VEST rewards |
+| `reward_vesting_hive` | `HIVE_balance` | HIVE counterweight to reward VESTS |
 | **Vesting** | | |
-| `vesting_shares` | `VEST_asset` | Total VESTS held |
+| `vesting_shares` | `VEST_balance` | Total VESTS held |
 | `delegated_vesting_shares` | `VEST_asset` | VESTS delegated out |
 | `received_vesting_shares` | `VEST_asset` | VESTS delegated in |
 | `vesting_withdraw_rate` | `VEST_asset` | Weekly power down rate |
@@ -173,7 +174,7 @@ Source: hive-core release 1.28.7. 39 type IDs (37 core-defined + 1 plugin-define
 
 **Modified By**: transfer, vote, comment cashout, power up/down, delegation, claim rewards, account create/update, RC delegation
 
-**Note**: RC mana is embedded directly in account_object, not in a separate RC object. Authority keys are in a separate `account_authority_object`. JSON metadata is in plugin-level `account_metadata_object`.
+**Note**: RC mana is embedded directly in account_object, not in a separate RC object. Authority keys are in a separate `account_authority_object`. JSON metadata is in plugin-level `account_metadata_object`. Since 1.28.8 the nine fund members are balance classes (`HIVE_balance`, `HBD_balance`, `VEST_balance`: same JSON and binary form as the `*_asset` types, changed only by transfers between balances; Part 01, section tiny_asset and tiny_price) and, with `delegated_vesting_shares` / `received_vesting_shares`, private behind getters; two were renamed (`balance` -> `hive_balance`, `savings_balance` -> `savings_hive_balance`), while the `database_api` and `condenser_api` account objects keep the old names (Part 05, section account_object).
 
 ---
 
@@ -198,7 +199,7 @@ Source: hive-core release 1.28.7. 39 type IDs (37 core-defined + 1 plugin-define
 
 **Note**: Stores only a hash, not raw author+permlink strings. The actual permlink is in `comment_cashout_object` (deleted after cashout). For cashed-out comments, permlink is not available from core chain state. Use `is_root()` to check if root post.
 
-**Archive (1.28)**: under the default `comment-archive = ROCKSDB` chain option, paid-out comments are removed from the chainbase index once their cashout is irreversible (batched at 10,000 via `volatile_comment_object`) and stored in RocksDB as `{comment_id, parent_comment, depth}` keyed by the author+permlink hash. Consensus lookups go through `database::get_comment(...)`, which transparently falls back to the archive. `MEMORY` keeps archived comments in a separate hashed SHM index instead; `NONE` keeps the pre-1.28 keep-everything behavior. Changing the option requires replay.
+**Archive (1.28)**: with the ROCKSDB archive (the default of the `comment-archive` option, which exists only in testnet and mirrornet builds; mainnet builds always use ROCKSDB), paid-out comments are removed from the chainbase index once their cashout is irreversible (staged as `volatile_comment_object`; from HF19, moved in batches once 10,000 are pending while the node syncs, at every irreversible block once live) and stored in RocksDB as `{comment_id, parent_comment, depth}` keyed by the author+permlink hash. Author+permlink lookups go through `database::find_comment(...)` / `get_comment(...)`, which transparently fall back to the archive (the by-id accessors read chainbase only). `MEMORY` keeps archived comments in a separate hashed SHM index instead; `NONE` keeps the pre-1.28 keep-everything behavior. Changing the option requires replay (Part 05, section Comment Archive and External Storage (RocksDB); Part 13, Key Discoveries 1 and 8).
 
 ---
 
@@ -218,11 +219,11 @@ Shares `id` with its `comment_object` (1:0..1 relationship).
 | `net_rshares` | `share_type` | Sum of all vote rshares (up + down) |
 | `vote_rshares` | `share_type` | Sum of positive vote rshares only |
 | `total_vote_weight` | `uint64_t` | Accumulated vote weight for curation split |
-| `max_accepted_payout` | `HBD_asset` | Max payout (default 1000 HBD) |
+| `max_accepted_payout` | `HBD_asset` | Max payout (default 1,000,000.000 HBD) |
 | `net_votes` | `int32_t` | Upvotes minus downvotes (API only) |
 | `children` | `uint32_t` | Direct reply count |
 | `created` | `time_point_sec` | Creation time |
-| `cashout_time` | `time_point_sec` | Scheduled cashout (7 days after creation) |
+| `cashout_time` | `time_point_sec` | Scheduled cashout (7 days after creation since HF17) |
 | `percent_hbd` | `uint16_t` | Percent of reward in HBD (BPS) |
 | `allow_votes` | `bool` | Voting enabled |
 | `allow_curation_rewards` | `bool` | Curation rewards enabled |
@@ -287,7 +288,7 @@ Shares `id` with its `comment_object` (1:0..1 relationship).
 
 ### witness_schedule_object
 
-**File**: `detail/state/witness_objects.hpp:183`
+**File**: `detail/state/witness_objects.hpp:181`
 **Category**: Doubleton — current schedule (id 0, from genesis) + future schedule (id 1, created at HF26)
 
 **Key Fields**:
@@ -338,21 +339,21 @@ Shares `id` with its `comment_object` (1:0..1 relationship).
 | `by_creator` | `(creator, proposal_id)` | Creator's proposals |
 | `by_total_votes` | `(total_votes, proposal_id)` | Rank by support |
 
-**Modified By**: create_proposal, update_proposal, remove_proposal, proposal_pay (maintenance cycle)
+**Modified By**: create_proposal, update_proposal, remove_proposal, the DHF maintenance cycle (hourly on mainnet; recalculates `total_votes` before the `proposal_pay` payments, `dhf_processor.cpp:238-286`)
 
 ---
 
 ### reward_fund_object
 
 **File**: `detail/state/reward_fund_object.hpp`
-**Category**: Singleton (one instance named "post")
+**Category**: Singleton (one instance named "post"; since 1.28.8 created at genesis, at 1.28.7 at HF17; never removed)
 
 **Key Fields**:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | `reward_fund_name_type` | Fund name (always "post") |
-| `reward_balance` | `HIVE_asset` | HIVE available in reward pool |
+| `reward_balance` | `HIVE_balance` | HIVE available in reward pool (a balance class since 1.28.8, `HIVE_asset` at 1.28.7) |
 | `recent_claims` | `uint128_t` | Recent reward claims (denominator for reward calc) |
 | `last_update` | `time_point_sec` | Last update time |
 | `content_constant` | `uint128_t` | Reward-curve shape constant (`s`/`var1`); used by `quadratic`, `bounded_curation`, `convergent_linear`, `convergent_square_root` — ignored by `linear`/`square_root` |
@@ -363,7 +364,7 @@ Shares `id` with its `comment_object` (1:0..1 relationship).
 
 **Indices**: `by_id`, `by_name` (unique)
 
-**Key formula** (HF17+, `util/reward.cpp:7-31`): `payout = reward_balance * evaluate_reward_curve(rshares, author_reward_curve, content_constant) / recent_claims`, then ×`reward_weight` (100% post-HF17), zeroed if below dust, and capped at the comment's `max_accepted_payout`. The curve is **configurable** (see `author_reward_curve` / `curation_reward_curve` below), not fixed — it has moved `quadratic`→`linear`→`convergent_linear`→`linear` across HF17/19/21/25. Since **HF25 the author curve is `linear`**, so `evaluate_reward_curve(rshares, linear) = rshares` and `payout ≈ reward_balance * rshares / recent_claims`. `recent_claims` is the time-decayed sum of `evaluate_reward_curve(net_rshares, …)` over all cashing-out comments.
+**Key formula** (HF17+, `util/reward.cpp:7-31`): `payout = reward_balance * evaluate_reward_curve(rshares, author_reward_curve, content_constant) / recent_claims`, with the claim first scaled by the comment's `reward_weight` (below 100% only for root posts created between HF12 and HF17), zeroed if below dust, and capped at the comment's `max_accepted_payout`. The curve is **configurable** (see `author_reward_curve` / `curation_reward_curve` above), not fixed: the fund's author curve is `quadratic` (its default) until HF19, then `linear` (HF19), `convergent_linear` (HF21) and `linear` again (HF25). Since **HF25 the author curve is `linear`**, so `evaluate_reward_curve(rshares, linear) = rshares` and `payout ~ reward_balance * rshares / recent_claims`. From HF17 `recent_claims` is the time-decayed sum of `evaluate_reward_curve(net_rshares, ...)` over all cashing-out comments (HF17 seeds it, HF19 and HF21 re-seed it, outside testnet builds); before HF17 it holds the undecayed running total of rshares2, which 1.28.7 kept in the dgpo's `total_reward_shares2` (Part 05, section reward_fund_object (Singleton)).
 
 ---
 
@@ -380,7 +381,7 @@ Shares `id` with its `comment_object` (1:0..1 relationship).
 | `market_median_history` | `HBD_price` | Market median (same unless artificially adjusted) |
 | `current_min_history` | `HBD_price` | Min price in window (for collateralized conversions) |
 | `current_max_history` | `HBD_price` | Max price in window |
-| `price_history` | `t_deque<HBD_price>` | Last week of hourly median prices |
+| `price_history` | `t_deque<HBD_price>` | Hourly median prices: the last 84 (3.5 days) since HF16, 168 (a week) before (`database.cpp:2457-2463`; the source comment still says a week) |
 
 **Indices**: Only `by_id` (singleton)
 
@@ -414,7 +415,7 @@ Shares `id` with its `comment_object` (1:0..1 relationship).
 | `comment_cashout_ex_object` | Legacy extended cashout data. Entire index cleared at HF19 (`remove_old_cashouts`); populated only during pre-HF19 replay. |
 | `liquidity_reward_balance_object` | Legacy market maker rewards. Index cleared at HF12; populated only during pre-HF12 replay. |
 | `block_stats_object` | **Dead type ID 24.** Steem-era object (one block_id per block) removed in 2016 (steemit/steem#675); enum slot kept so later type IDs don't shift. Never defined in Hive. |
-| `volatile_comment_object` | Comment-archive staging object (chainbase space ID 21, outside the core enum; exists only with `comment-archive = ROCKSDB`). Created on cashout, under undo; moved to RocksDB and removed (with its `comment_object`) once irreversible, batched at 10,000. |
+| `volatile_comment_object` | Comment-archive staging object (chainbase space ID 21, outside the core enum; exists only with the ROCKSDB archive, the default and the only choice in mainnet builds). Created on cashout from HF19, under undo; moved to RocksDB and removed (with its `comment_object`) once irreversible: from HF19, in batches once 10,000 are pending while the node syncs, at every irreversible block once live. |
 | `rc_resource_param_object` | Singleton. Per-resource RC parameters (dynamics + pricing for 5 resource types). |
 | `rc_pool_object` | Singleton. Global RC resource pools, usage, and budgets for 5 resources. |
 | `rc_stats_object` | Doubleton (pending + archive). Daily RC statistics per operation type. |
@@ -430,7 +431,7 @@ Shares `id` with its `comment_object` (1:0..1 relationship).
 
 2. **comment_object stores only a RIPEMD-160 hash** of author+permlink, not the raw strings. The actual permlink lives in `comment_cashout_object`, which is deleted after cashout. Cashed-out comments have no permlink in core chain state.
 
-3. **Paid-out comments are archived out of chainbase by default (1.28)**: `comment-archive = ROCKSDB` (default) moves comments to RocksDB once their cashout is irreversible; `MEMORY` moves them to a separate hashed SHM index; `NONE` keeps the old keep-everything behavior. Lookups via `database::get_comment` transparently consult the archive. Changing the option requires replay.
+3. **Paid-out comments are archived out of chainbase by default (1.28)**: the ROCKSDB archive (the default of the `comment-archive` option, which exists only in testnet and mirrornet builds; mainnet builds always use ROCKSDB) moves comments to RocksDB once their cashout is irreversible; `MEMORY` moves them to a separate hashed SHM index; `NONE` keeps the old keep-everything behavior. Author+permlink lookups via `database::get_comment` / `find_comment` transparently consult the archive. Changing the option requires replay.
 
 4. **comment_cashout_object shares its ID** with comment_object (1:0..1 relationship).
 
@@ -442,6 +443,6 @@ Shares `id` with its `comment_object` (1:0..1 relationship).
 
 8. **HBD interest** uses a time-weighted accumulator: `hbd_seconds = balance * seconds_held`. Interest paid at most once per month.
 
-9. **Delayed voting**: VESTS from power-up have a 30-day delay before counting toward governance voting power.
+9. **Delayed voting**: VESTS from power-up (and VESTS that an auto-vest power-down route sends to another account) count toward governance voting power only after a delay: they are kept in daily buckets that mature 30 days after the bucket opened, so the effective delay is (29, 30] days (Part 14, Key Discoveries 4 and 6).
 
-10. **Witness scheduling** uses virtual time (three `fc::uint128` fields) giving block production time proportional to votes received.
+10. **Witness scheduling** uses virtual time (three `fc::uint128` fields) for the timeshare (runner-up) slot, giving the witnesses outside the top-voted set block production proportional to their votes (Part 06, section Virtual Time Fair Queuing (Timeshare Selection)).

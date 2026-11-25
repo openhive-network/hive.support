@@ -8,7 +8,7 @@ difference is the KB's measured value, and every miss is a work item for the KB.
 
 | File | Items | Anchor |
 |------|-------|--------|
-| [hive-core.json](hive-core.json) | 25 protocol questions | hived `1.28.7` |
+| [hive-core.json](hive-core.json) | 25 protocol questions | hived `1.28.8` |
 | [wax.json](wax.json) | 10 client-library questions | wax `2.0.2` |
 | [haf.json](haf.json) | 8 indexing-framework questions | HAF `1.28.6` |
 | [hivemind.json](hivemind.json) | 10 social-API questions | hivemind `1.28.6` |
@@ -19,7 +19,7 @@ difference is the KB's measured value, and every miss is a work item for the KB.
 ```json
 {
   "topic": "hive-core",
-  "anchor": {"version": "1.28.7", "sha": "1584099c3054a97f02abfb4788b23f02eea98728"},
+  "anchor": {"version": "1.28.8", "sha": "274384a8adddf54b69965a7fd43d8eb0ddda7701"},
   "items": [
     {
       "id": "HC-E001",
@@ -29,7 +29,7 @@ difference is the KB's measured value, and every miss is a work item for the KB.
       "forbidden": ["plausible wrong answer", "..."],
       "evidence": {
         "kb": ["reference/operations.md (vote_operation)", "research/hive-core/findings/04-chain-evaluators.md (vote_evaluator)"],
-        "source": ["libraries/chain/hive_evaluator_social.cpp:620-623"]
+        "source": ["libraries/chain/hive_evaluator_social.cpp:622-625"]
       },
       "applies": "HF19+ (current HF28)",
       "origin": "where the item came from (contrib note, findings part, hub facts)",

@@ -1,15 +1,15 @@
 {
   "topic": "hive-core",
   "anchor": {
-    "version": "1.28.7",
-    "sha": "1584099c3054a97f02abfb4788b23f02eea98728"
+    "version": "1.28.8",
+    "sha": "274384a8adddf54b69965a7fd43d8eb0ddda7701"
   },
   "items": [
     {
       "id": "HC-E001",
       "kind": "trap",
       "question": "A user upvotes a post that paid out two weeks ago and the transaction is accepted into a block. Did the vote consume voting mana, and will my indexer see an effective_comment_vote_operation for it?",
-      "expected": "No on both counts. hf20_vote_evaluator returns early ('comment already paid') because the comment_cashout_object was deleted at payout, before any manabar update, before creating a comment_vote_object and before pushing effective_comment_vote_operation; the transaction still succeeds as a consensus no-op and the payer is still charged RC.",
+      "expected": "No on both counts. hf20_vote_evaluator returns early ('comment already paid') because the comment_cashout_object was deleted at payout, before any manabar update, before creating a comment_vote_object and before pushing effective_comment_vote_operation; the transaction still succeeds as a consensus no-op (for a voter that has not declined its voting rights) and the payer is still charged RC.",
       "forbidden": [
         "Yes, voting mana is consumed like for any other vote",
         "The transaction is rejected because the post has already paid out",
@@ -17,16 +17,17 @@
       ],
       "evidence": {
         "kb": [
-          "contrib/hive-core/2026-09-05-session-vote-on-paid-out-posts-and-downvote-pool-era.md (item 1)",
           "reference/operations.md (vote_operation, Evaluator and Virtual ops)",
           "reference/state-objects.md (Key Architectural Notes 5)",
+          "research/hive-core/findings/04-chain-evaluators.md (vote_evaluator, Paid-out comments)",
           "research/hive-core/findings/05-state-objects.md (comment_cashout_object lifecycle)"
         ],
         "source": [
-          "libraries/chain/hive_evaluator_social.cpp:620-623",
-          "libraries/chain/hive_evaluator_social.cpp:851",
-          "libraries/chain/database_comment.cpp:477-481",
-          "libraries/chain/database_comment.cpp:366-373"
+          "libraries/chain/hive_evaluator_social.cpp:615",
+          "libraries/chain/hive_evaluator_social.cpp:622-625",
+          "libraries/chain/hive_evaluator_social.cpp:853",
+          "libraries/chain/database_comment.cpp:471-475",
+          "libraries/chain/database_comment.cpp:365-372"
         ]
       },
       "applies": "HF19+ (current HF28)",
@@ -36,20 +37,19 @@
       "id": "HC-E002",
       "kind": "trap",
       "question": "What chain id do I use to sign Hive mainnet transactions, and is it the SHA-256 of some seed string?",
-      "expected": "The literal 32-byte value beeab0de followed by 56 hex zeros (64 hex characters in total). config.hpp:142 builds it with the fc::sha256 hex constructor, which copies the hex into the digest buffer without hashing; only the testnet id is a real digest, fc::sha256::hash(\"testnet\").",
+      "expected": "The literal 32-byte value beeab0de followed by 56 hex zeros (64 hex characters in total). protocol/config.hpp:141 builds it with the fc::sha256 hex constructor, which copies the hex into the digest buffer without hashing; only the testnet id is a real digest, fc::sha256::hash(\"testnet\").",
       "forbidden": [
         "It is sha256(\"beeab0de...\"), i.e. the SHA-256 hash of that string",
         "It is derived like testnet, as sha256::hash of a network name"
       ],
       "evidence": {
         "kb": [
-          "contrib/hive-core/.digested/2026-06-16-reviewer-chain-id-constructor-not-hash.md",
           "reference/constants.md (Testnet Overrides, Chain ID row)",
-          "research/hive-core/findings/01-protocol-foundation.md (Part 01 Chain ID)"
+          "research/hive-core/findings/01-protocol-foundation.md (Discovery 4, chain ID; Signature Digest and Chain ID Selection)"
         ],
         "source": [
-          "libraries/protocol/include/hive/protocol/config.hpp:142",
-          "libraries/protocol/include/hive/protocol/config.hpp:69"
+          "libraries/protocol/include/hive/protocol/config.hpp:141",
+          "libraries/protocol/include/hive/protocol/config.hpp:72"
         ]
       },
       "applies": "HF24+ (current HF28)",
@@ -58,25 +58,26 @@
     {
       "id": "HC-E003",
       "kind": "trap",
-      "question": "A witness includes a transaction whose RC payer cannot afford it. Is the block still valid, and does the payer's RC mana go negative?",
-      "expected": "The block is valid: RC is enforced only while the node is in control (mempool validation, block production, pending reapplication), and during block application the shortfall is only logged. The payer's mana does not go negative: manabar::use_mana's default floor is std::numeric_limits<uint64_t>::min() = 0, so the account ends at exactly 0 and regenerates from there.",
+      "question": "On current mainnet, a node applying a block from the network finds in it a transaction whose RC payer cannot afford it. Is the block still valid, and does the payer's RC mana go negative?",
+      "expected": "The block is valid: RC is non-consensus until HF29, which is defined in 1.28.8 code and inactive on mainnet. A node enforces RC only while it is in control (new transactions from the API or P2P, blocks it produces) or re-applies its pending transactions; while it applies or replays a block it accepts the transaction and, from HF26, only logs the shortfall. The payer's mana does not go negative: manabar::use_mana's default floor is std::numeric_limits<uint64_t>::min() = 0, so the account ends at exactly 0 and regenerates from there.",
       "forbidden": [
         "Mana goes negative via saturating subtraction and the account is in debt until it regenerates",
-        "The block is rejected as invalid because RC is part of consensus"
+        "On current mainnet the block is rejected as invalid because RC is part of consensus"
       ],
       "evidence": {
         "kb": [
           "reference/rc.md (Mana Regeneration: Mana floors at 0; Overview: non-consensus)",
-          "contrib/hive-core/.digested/2026-06-11-zoom14-rc-mana-floor.md",
-          "research/hive-core/findings/15-rc-consensus.md (Summary; mana floor discovery)"
+          "research/hive-core/findings/08-resource-credits.md (Non-Consensus Status)",
+          "research/hive-core/findings/15-rc-consensus.md (Summary; Key Discovery 2, mana floor)",
+          "research/hive-core/findings/01-protocol-foundation.md (HF29 (Defined in 1.28.8, Inactive on Mainnet))"
         ],
         "source": [
           "libraries/chain/include/hive/chain/util/manabar.hpp:87-95",
-          "libraries/chain/rc/rc_utility.cpp:585",
-          "libraries/chain/rc/rc_utility.cpp:547-581"
+          "libraries/chain/rc/rc_utility.cpp:604",
+          "libraries/chain/rc/rc_utility.cpp:565-602"
         ]
       },
-      "applies": "HF20+ (current HF28)",
+      "applies": "HF20+ until HF29, which is defined in 1.28.8 code and inactive on mainnet (current HF28)",
       "origin": "contrib 2026-06-11",
       "leak_risk": "claude-md"
     },
@@ -84,7 +85,7 @@
       "id": "HC-E004",
       "kind": "trap",
       "question": "My app signs vote_operation and comment_operation with the user's active key because 'active is stronger than posting'. Does that still work on current mainnet?",
-      "expected": "No. Since HF28 (ALLOW_STRICT_AND_MIXED_AUTHORITIES) authority checks are strict: a posting requirement is satisfied only by the account's posting authority, so the transaction fails with missing_posting. Before HF28 the role-upgrade path accepted an active or owner key for posting operations.",
+      "expected": "No. Since HF28 (ALLOW_STRICT_AND_MIXED_AUTHORITIES) authority checks are strict: a posting requirement is satisfied only by the account's posting authority, so the transaction fails with tx_missing_posting_auth (\"Missing Posting Authority\"). Before HF28 the role-upgrade path accepted an active or owner key for posting operations.",
       "forbidden": [
         "Yes, a higher authority level always satisfies a lower one on Hive",
         "Yes, as long as you do not mix posting and active operations in one transaction"
@@ -96,9 +97,10 @@
           "reference/hardforks.md (HF28 row)"
         ],
         "source": [
-          "libraries/protocol/transaction_util.cpp:101-104",
-          "libraries/protocol/transaction_util.cpp:146-158",
-          "libraries/chain/database.cpp:2612-2613"
+          "libraries/protocol/transaction_util.cpp:102-105",
+          "libraries/protocol/transaction_util.cpp:87-90",
+          "libraries/protocol/transaction_util.cpp:233-236",
+          "libraries/chain/database.cpp:2626-2627"
         ]
       },
       "applies": "HF28+ (current HF28)",
@@ -122,14 +124,14 @@
           "research/hive-core/findings/10-api-layer.md (Transaction Broadcast; transaction_status_api status enum)"
         ],
         "source": [
-          "libraries/protocol/include/hive/protocol/config.hpp:381",
-          "libraries/chain/database.cpp:2996",
-          "libraries/chain/database.cpp:3017",
-          "libraries/plugins/apis/database_api/include/hive/plugins/database_api/database_api_objects.hpp:218"
+          "libraries/protocol/include/hive/protocol/config.hpp:380",
+          "libraries/chain/database.cpp:3030",
+          "libraries/chain/database.cpp:3051",
+          "libraries/plugins/apis/database_api/include/hive/plugins/database_api/database_api_objects.hpp:216"
         ]
       },
       "applies": "all hardforks, fast-confirm HF26+ (current HF28)",
-      "origin": "reference/consensus.md Irreversibility + reference/api.md Broadcast; database_api_objects.hpp:218 confirmed in worktree"
+      "origin": "reference/consensus.md Irreversibility + reference/api.md Broadcast; database_api_objects.hpp:216 confirmed in worktree"
     },
     {
       "id": "HC-E006",
@@ -147,7 +149,7 @@
           "reference/rc.md (Special Cases: New Account RC Adjustment)"
         ],
         "source": [
-          "libraries/chain/hive_evaluator_account.cpp:156-208"
+          "libraries/chain/hive_evaluator_account.cpp:156-203"
         ]
       },
       "applies": "HF20+ (current HF28)",
@@ -157,7 +159,7 @@
       "id": "HC-E007",
       "kind": "trap",
       "question": "Does HBD held in an account's liquid hbd_balance earn the witness-set HBD interest rate?",
-      "expected": "No. Since HF25 interest accrues only on savings_hbd_balance (savings HIVE never earns interest). It is evaluated lazily when the savings balance is next modified at least 30 days after the previous payment, as simple interest on the time-weighted balance within the period.",
+      "expected": "No. Since HF25 interest accrues only on savings_hbd_balance (savings HIVE never earns interest). It is evaluated lazily when the savings balance is next modified more than 30 days after the previous payment, as simple interest on the time-weighted balance within the period.",
       "forbidden": [
         "Yes, every HBD balance earns interest",
         "Yes, both liquid and savings HBD earn interest at the median rate"
@@ -165,13 +167,14 @@
       "evidence": {
         "kb": [
           "reference/economics.md (HBD Interest)",
-          "research/hive-core/findings/07-economic-model.md (HBD interest; Notable Design Details 4 and 8)",
+          "research/hive-core/findings/07-economic-model.md (HBD Interest; Key Discoveries 4 and 8)",
           "reference/operations.md (transfer_operation, Evaluator note on interest)"
         ],
         "source": [
-          "libraries/chain/database.cpp:3212",
-          "libraries/chain/database.cpp:3256-3263",
-          "libraries/protocol/include/hive/protocol/config.hpp:363"
+          "libraries/chain/database.cpp:3242",
+          "libraries/chain/database.cpp:3304-3310",
+          "libraries/chain/database.cpp:3317-3341",
+          "libraries/protocol/include/hive/protocol/config.hpp:362"
         ]
       },
       "applies": "HF25+ (current HF28)",
@@ -192,7 +195,7 @@
           "research/hive-core/findings/04-chain-evaluators.md (delete_comment_evaluator)"
         ],
         "source": [
-          "libraries/chain/hive_evaluator_social.cpp:55-106"
+          "libraries/chain/hive_evaluator_social.cpp:56-107"
         ]
       },
       "applies": "HF19+ (current HF28)",
@@ -202,20 +205,21 @@
       "id": "HC-E009",
       "kind": "trap",
       "question": "A user powered up 1,000 HIVE five minutes ago. Does the new HP already count toward their witness votes and DHF proposal votes?",
-      "expected": "No. VESTS from transfer_to_vesting are buffered in the account's delayed_votes for 30 days (HF24) and only then mature into governance vote power, emitting delayed_voting_operation. They do count immediately for RC, content-vote mana and delegation.",
+      "expected": "No. VESTS from transfer_to_vesting are buffered in the account's delayed_votes (HF24) and only mature into governance vote power when their daily bucket is 30 days old (in effect after more than 29 and at most 30 days), emitting delayed_voting_operation. They do count immediately for RC, content-vote mana and delegation.",
       "forbidden": [
         "Yes, governance weight is simply vesting_shares and updates immediately",
         "No, and the new VESTS do not count for comment voting mana either until 30 days pass"
       ],
       "evidence": {
         "kb": [
-          "research/hive-core/findings/14-delayed-voting.md (Summary; Key Discovery 1)",
+          "research/hive-core/findings/14-delayed-voting.md (Summary; Key Discoveries 1 and 6)",
           "reference/state-objects.md (account_object: delayed_votes, get_governance_vote_power())",
           "reference/hardforks.md (HF24 row)"
         ],
         "source": [
-          "libraries/chain/hive_evaluator_transfer.cpp:311-317",
-          "libraries/chain/database_vesting_helpers.hpp:29-30"
+          "libraries/chain/hive_evaluator_transfer.cpp:322-328",
+          "libraries/chain/database_vesting_helpers.hpp:18-19",
+          "libraries/chain/include/hive/chain/util/delayed_voting_processor.hpp:65-72"
         ]
       },
       "applies": "HF24+ (current HF28)",
@@ -232,15 +236,14 @@
       ],
       "evidence": {
         "kb": [
-          "contrib/hive-core/2026-09-05-session-vote-on-paid-out-posts-and-downvote-pool-era.md (item 3)",
           "reference/economics.md (Votes to rshares; Notable Design Details: dust threshold is per-vote)",
           "reference/operations.md (vote_operation, Evaluator)"
         ],
         "source": [
-          "libraries/chain/hive_evaluator_social.cpp:704-707",
-          "libraries/chain/hive_evaluator_social.cpp:369",
-          "libraries/chain/hive_evaluator_social.cpp:373",
-          "libraries/protocol/include/hive/protocol/config.hpp:247"
+          "libraries/chain/hive_evaluator_social.cpp:706-709",
+          "libraries/chain/hive_evaluator_social.cpp:370",
+          "libraries/chain/hive_evaluator_social.cpp:374",
+          "libraries/protocol/include/hive/protocol/config.hpp:243"
         ]
       },
       "applies": "HF20+ (current HF28)",
@@ -250,21 +253,25 @@
       "id": "HC-E011",
       "kind": "lookup",
       "question": "What is the maximum number of operations in one Hive transaction, and what is the size limit?",
-      "expected": "There is no explicit operation-count limit: transaction::validate only requires operations.size() > 0. The binding limit is HIVE_MAX_TRANSACTION_SIZE = 65,536 bytes (64 KB) of serialized transaction.",
+      "expected": "There is no explicit operation-count limit: transaction::validate only requires operations.size() > 0 (the push path only limits custom, custom_json and custom_binary operations to 5 per account across a node's pending transactions). The size limit is the witness-voted maximum_block_size minus 256 bytes of serialized transaction, checked on the transaction push path (API or P2P); HIVE_MAX_TRANSACTION_SIZE = 65,536 bytes (64 KB) is not checked against transactions, it is only the floor of the voted block size.",
       "forbidden": [
         "100 operations per transaction",
         "One operation per transaction",
-        "Limited only by the 2 MB maximum block size"
+        "Limited only by the 2 MB maximum block size",
+        "Every transaction is checked against the fixed 64 KB HIVE_MAX_TRANSACTION_SIZE"
       ],
       "evidence": {
         "kb": [
           "reference/README.md (Important Non-Obvious Facts)",
+          "research/hive-core/findings/02-operations-catalog.md (Transaction-Level Constraints)",
           "research/hive-core/findings/00-consolidated.md (Open Question 18)",
           "reference/constants.md (Block / Transaction Limits)"
         ],
         "source": [
-          "libraries/protocol/include/hive/protocol/config.hpp:364",
-          "libraries/protocol/transaction.cpp:40-56"
+          "libraries/chain/database.cpp:566-572",
+          "libraries/protocol/include/hive/protocol/config.hpp:363-364",
+          "libraries/protocol/transaction.cpp:40-56",
+          "libraries/chain/database.cpp:598-621"
         ]
       },
       "applies": "all hardforks (current HF28)",
@@ -274,7 +281,7 @@
       "id": "HC-E012",
       "kind": "lookup",
       "question": "How deep can nested account_auths go in a Hive authority, and what happens to entries beyond that depth?",
-      "expected": "HIVE_MAX_SIG_CHECK_DEPTH = 2 levels of account-authority recursion, enforced in sign_state::check_authority_impl during signature verification, not in validate(). account_auths encountered beyond that depth are silently skipped, so a signature reachable only through a third account hop does not count. Related caps: 40 members per authority and 125 accounts visited per check, both enforced only after HF20.",
+      "expected": "HIVE_MAX_SIG_CHECK_DEPTH = 2 levels of account-authority recursion, enforced in sign_state::check_authority_impl during signature verification, not in validate(). account_auths encountered beyond that depth are silently skipped, so a signature reachable only through a third account hop does not count. Related caps in signature verification, both applied only from HF20: 40 members per authority and 125 account authorities checked (counted per required authority before HF28, across the whole transaction since HF28).",
       "forbidden": [
         "Unlimited depth",
         "Depth 4, the same as the witness proxy chain",
@@ -284,13 +291,15 @@
         "kb": [
           "research/hive-core/findings/00-consolidated.md (Open Question 20)",
           "reference/constants.md (Account Creation)",
-          "research/hive-core/findings/03-operation-validation.md (authority validation notes)",
+          "research/hive-core/findings/03-operation-validation.md (Authority Validation)",
           "research/hive-core/findings/01-protocol-foundation.md (Multi-sig)"
         ],
         "source": [
-          "libraries/protocol/include/hive/protocol/config.hpp:357",
+          "libraries/protocol/include/hive/protocol/config.hpp:356",
           "libraries/protocol/include/hive/protocol/sign_state.hpp:216-223",
-          "libraries/chain/database.cpp:2620-2622"
+          "libraries/protocol/include/hive/protocol/sign_state.hpp:88-91",
+          "libraries/protocol/include/hive/protocol/sign_state.hpp:116-117",
+          "libraries/chain/database.cpp:2634-2636"
         ]
       },
       "applies": "depth limit all hardforks; 40/125 caps HF20+ (current HF28)",
@@ -312,12 +321,12 @@
           "reference/constants.md (Timing)"
         ],
         "source": [
-          "libraries/protocol/include/hive/protocol/config.hpp:232-233",
-          "libraries/chain/database.cpp:2536-2548"
+          "libraries/protocol/include/hive/protocol/config.hpp:228-229",
+          "libraries/chain/database.cpp:2550-2562"
         ]
       },
       "applies": "HF28+ (current HF28); pre-HF28 limit 1 h",
-      "origin": "reference/hardforks.md HF28 + 09 HF28 sub-features; database.cpp:2536-2548 confirmed in worktree"
+      "origin": "reference/hardforks.md HF28 + 09 HF28 sub-features; database.cpp:2550-2562 confirmed in worktree"
     },
     {
       "id": "HC-E014",
@@ -335,9 +344,9 @@
           "research/hive-core/findings/06-consensus-mechanisms.md (Last Irreversible Block (LIB) Calculation)"
         ],
         "source": [
-          "libraries/protocol/include/hive/protocol/config.hpp:381",
-          "libraries/chain/database.cpp:2996",
-          "libraries/chain/database.cpp:3017"
+          "libraries/protocol/include/hive/protocol/config.hpp:380",
+          "libraries/chain/database.cpp:3030",
+          "libraries/chain/database.cpp:3051"
         ]
       },
       "applies": "all hardforks, fast-confirm HF26+ (current HF28)",
@@ -355,19 +364,19 @@
       ],
       "evidence": {
         "kb": [
-          "research/hive-core/findings/07-economic-model.md (DHF: Governance vote expiration; Notable Design Details 16)",
+          "research/hive-core/findings/07-economic-model.md (DHF (Decentralized Hive Fund), Proposal Lifecycle Constraints: Governance vote expiration; Key Discoveries 16)",
           "research/hive-core/findings/04-chain-evaluators.md (remove_expired_governance_votes; account_witness_vote_evaluator; update_proposal_votes_evaluator)",
           "reference/operations.md (Virtual Operations: 75 expired_account_notification)",
           "reference/hardforks.md (HF25 row)"
         ],
         "source": [
-          "libraries/protocol/include/hive/protocol/config.hpp:175",
-          "libraries/chain/database.cpp:2352",
+          "libraries/protocol/include/hive/protocol/config.hpp:171",
+          "libraries/chain/database.cpp:2366",
           "libraries/chain/dhf_evaluator.cpp:169"
         ]
       },
       "applies": "HF25+ (current HF28)",
-      "origin": "07-economic-model Governance vote expiration; call site confirmed at database.cpp:2352 in worktree (KB cites :2353 / :2349)"
+      "origin": "07-economic-model Governance vote expiration; call site confirmed at database.cpp:2366 in worktree"
     },
     {
       "id": "HC-E016",
@@ -405,11 +414,13 @@
       "evidence": {
         "kb": [
           "reference/operations.md (Index Table; account_update_operation; recover_account_operation; witness_set_properties_operation)",
-          "research/hive-core/findings/02-operations-catalog.md (Key findings on recover_account and witness_set_properties)",
+          "research/hive-core/findings/02-operations-catalog.md (Key Discoveries 8 and 9, recover_account and witness_set_properties)",
           "research/hive-core/findings/04-chain-evaluators.md (recover_account_evaluator; witness_set_properties_evaluator)"
         ],
         "source": [
-          "libraries/chain/hive_evaluator_account.cpp:554-587",
+          "libraries/protocol/include/hive/protocol/hive_operations.hpp:851-855",
+          "libraries/protocol/include/hive/protocol/hive_operations.hpp:475-487",
+          "libraries/chain/hive_evaluator_account.cpp:540-573",
           "libraries/chain/hive_evaluator.cpp:113-208"
         ]
       },
@@ -428,15 +439,14 @@
       ],
       "evidence": {
         "kb": [
-          "contrib/hive-core/2026-09-05-session-vote-on-paid-out-posts-and-downvote-pool-era.md (item 5)",
           "reference/economics.md (Votes to rshares (HF28+ stable vote); Downvote pool 25%)",
           "reference/operations.md (vote_operation, Evaluator)",
           "reference/hardforks.md (HF28 stable votes)"
         ],
         "source": [
-          "libraries/chain/hive_evaluator_social.cpp:659-662",
-          "libraries/chain/hive_evaluator_social.cpp:686",
-          "tests/unit/tests/hf28_tests.cpp:1841-1848"
+          "libraries/chain/hive_evaluator_social.cpp:661-664",
+          "libraries/chain/hive_evaluator_social.cpp:688",
+          "tests/unit/tests/hf28_tests.cpp:1844-1851"
         ]
       },
       "applies": "HF28+ (current HF28)",
@@ -446,7 +456,7 @@
       "id": "HC-E019",
       "kind": "lookup",
       "question": "In a transaction with several operations signed by different accounts, which account pays the RC?",
-      "expected": "The account that provides the first required authority of the first operation that declares one (operations declaring no authority are skipped; resource_user.cpp), with explicit overrides: witness_set_properties charges its owner field and recover_account charges account_to_recover. The whole transaction's RC cost is debited from that single payer's rc_manabar.",
+      "expected": "The payer is decided by the first operation that yields one (operations yielding none are skipped; resource_user.cpp): the first account of its required active, else owner, else posting authorities, with explicit overrides: witness_set_properties charges its owner field, recover_account charges account_to_recover and witness_block_approve its witness. The whole transaction's RC cost is debited from that single payer's rc_manabar.",
       "forbidden": [
         "Each operation's own account pays for that operation",
         "The cost is split evenly among all signers",
@@ -455,8 +465,8 @@
       "evidence": {
         "kb": [
           "reference/rc.md (Overview: RC payer)",
-          "research/hive-core/findings/08-resource-credits.md (RC payer = first operation's required authority)",
-          "research/hive-core/findings/15-rc-consensus.md (payer resolution and overrides)"
+          "research/hive-core/findings/08-resource-credits.md (Summary: RC payer = first operation's required authority)",
+          "research/hive-core/findings/15-rc-consensus.md (Node-state predicates and what RC does in each: payer resolution and overrides)"
         ],
         "source": [
           "libraries/chain/rc/resource_user.cpp:11-65",
@@ -478,11 +488,11 @@
       "evidence": {
         "kb": [
           "reference/rc.md (RC Delegation table)",
-          "research/hive-core/findings/08-resource-credits.md (RC delegation rules; Key insight 7 pump-prevention asymmetry)"
+          "research/hive-core/findings/08-resource-credits.md (RC Delegation, Semantics (HF26+); Key Discoveries 7, delegation asymmetry)"
         ],
         "source": [
-          "libraries/chain/rc/rc_utility.cpp:100-101",
-          "libraries/chain/rc/rc_utility.cpp:26-110"
+          "libraries/chain/rc/rc_utility.cpp:111-112",
+          "libraries/chain/rc/rc_utility.cpp:38-122"
         ]
       },
       "applies": "HF26+ (current HF28)",
@@ -492,27 +502,31 @@
       "id": "HC-E021",
       "kind": "reasoning",
       "question": "An indexer must handle chain reorganizations. What is the maximum reorg depth it has to support on Hive, and what bounds it in practice?",
-      "expected": "Blocks at or below the last irreversible block cannot be reverted, so reorg depth is bounded by head - LIB. The fork database's MAX_BLOCK_REORDERING = 1024 blocks (about 51 minutes at 3 s) is the hard cap, but the fork DB is trimmed to head - LIB + 1 as LIB advances, so in practice only a handful of blocks are reversible; 1024 is reachable only if irreversibility stalls, and a node halts with undo_database_exception once head - LIB reaches HIVE_MAX_UNDO_HISTORY = 10,000 blocks.",
+      "expected": "Blocks at or below the last irreversible block cannot be reverted, so the practical reorg depth is head - LIB, normally a handful of blocks. There is no fixed cap: MAX_BLOCK_REORDERING = 1024 is declared but used by no code, and the fork DB window _max_size starts at 1024 and is set to head - LIB + 1 after every applied block and every accepted fast confirm, so it grows while irreversibility stalls. Undo history is bounded separately: a block that would bring head - LIB to HIVE_MAX_UNDO_HISTORY = 10,000 fails to apply with undo_database_exception (unless the check is skipped, for example for blocks at or below a configured checkpoint), so the node stops following the chain there.",
       "forbidden": [
         "Reorgs are unbounded, any block can be reverted",
         "Reorgs cannot exceed 21 blocks, one witness round",
-        "Hive has no reorgs because blocks are final when produced"
+        "Hive has no reorgs because blocks are final when produced",
+        "MAX_BLOCK_REORDERING = 1024 is a hard cap on reorg depth"
       ],
       "evidence": {
         "kb": [
           "reference/consensus.md (Fork Resolution; Irreversibility)",
-          "research/hive-core/findings/06-consensus-mechanisms.md (Fork Database maximum size; Two distinct rollback depth limits)",
+          "research/hive-core/findings/06-consensus-mechanisms.md (Fork Database Structure; Undo History and Reorg Depth Limits)",
           "research/hive-core/findings/00-consolidated.md (Open Question 7)",
           "reference/constants.md (HIVE_MAX_UNDO_HISTORY)"
         ],
         "source": [
           "libraries/chain/include/hive/chain/fork_database.hpp:67",
+          "libraries/chain/include/hive/chain/fork_database.hpp:207",
           "libraries/chain/fork_database.cpp:84-87",
-          "libraries/chain/sync_block_writer.cpp:59"
+          "libraries/chain/sync_block_writer.cpp:59",
+          "libraries/protocol/include/hive/protocol/config.hpp:368",
+          "libraries/chain/database.cpp:2870-2877"
         ]
       },
-      "applies": "all hardforks (current HF28, hived 1.28.7)",
-      "origin": "06-consensus-mechanisms fork DB + LIB; 00-consolidated open question 7 (its fork_database.hpp:207 citation is stale, :67 confirmed in worktree)"
+      "applies": "all hardforks (current HF28, hived 1.28.8)",
+      "origin": "06-consensus-mechanisms fork DB + LIB; 00-consolidated open question 7"
     },
     {
       "id": "HC-E022",
@@ -527,17 +541,17 @@
         "kb": [
           "reference/README.md (Important Non-Obvious Facts: comment permlinks lost after cashout)",
           "reference/state-objects.md (comment_object Note and Archive; Key Architectural Notes 2, 3, 5)",
-          "research/hive-core/findings/13-external-storage.md (archive record contents; APIs that resolve author+permlink)",
+          "research/hive-core/findings/13-external-storage.md (Key Discovery 9, archive record contents and the APIs that resolve author+permlink; Consensus Surface of Archived Comments)",
           "research/hive-core/findings/05-state-objects.md (comment_vote_object lifecycle)"
         ],
         "source": [
-          "libraries/chain/database_comment.cpp:366-373",
-          "libraries/chain/database_comment.cpp:477-481",
+          "libraries/chain/database_comment.cpp:365-372",
+          "libraries/chain/database_comment.cpp:471-475",
           "libraries/chain/include/hive/chain/detail/state/comment_object.hpp:92-96",
           "libraries/chain/external_storage/rocksdb_comment_archive.cpp:143-172"
         ]
       },
-      "applies": "HF19+; RocksDB archive default since hived 1.28 (current HF28)",
+      "applies": "HF19+; RocksDB comment archive since hived 1.28, the only archive mode of mainnet builds (current HF28)",
       "origin": "reference/README.md non-obvious facts + state-objects.md + 13-external-storage"
     },
     {
@@ -553,14 +567,14 @@
       "evidence": {
         "kb": [
           "reference/economics.md (HBD Supply Management; Conversions)",
-          "research/hive-core/findings/07-economic-model.md (HF26 print rate cliff)",
+          "research/hive-core/findings/07-economic-model.md (Key Discoveries 1, HF26 HBD print rate cliff)",
           "research/hive-core/findings/04-chain-evaluators.md (collateralized_convert_evaluator)",
           "research/hive-core/findings/00-consolidated.md (Notable Finding 7)"
         ],
         "source": [
-          "libraries/chain/database.cpp:2884-2889",
-          "libraries/protocol/include/hive/protocol/config.hpp:343-344",
-          "libraries/chain/hive_evaluator_transfer.cpp:473-520"
+          "libraries/chain/database.cpp:2918-2923",
+          "libraries/protocol/include/hive/protocol/config.hpp:342-343",
+          "libraries/chain/hive_evaluator_transfer.cpp:486-533"
         ]
       },
       "applies": "HF26+ (current HF28)",
@@ -578,15 +592,14 @@
       ],
       "evidence": {
         "kb": [
-          "contrib/hive-core/2026-09-05-session-vote-on-paid-out-posts-and-downvote-pool-era.md (item 5)",
           "reference/operations.md (vote_operation, Evaluator)",
           "reference/economics.md (Votes to rshares (HF28+ stable vote))"
         ],
         "source": [
-          "libraries/chain/hive_evaluator_social.cpp:688-690",
-          "libraries/chain/hive_evaluator_social.cpp:692",
-          "libraries/chain/hive_evaluator_social.cpp:699",
-          "tests/unit/tests/hf28_tests.cpp:1893-1907"
+          "libraries/chain/hive_evaluator_social.cpp:691-693",
+          "libraries/chain/hive_evaluator_social.cpp:694",
+          "libraries/chain/hive_evaluator_social.cpp:701",
+          "tests/unit/tests/hf28_tests.cpp:1896-1910"
         ]
       },
       "applies": "HF28+ (current HF28)",
@@ -596,7 +609,7 @@
       "id": "HC-E025",
       "kind": "reasoning",
       "question": "One transaction contains a transfer_operation from alice followed by a vote_operation by bob. Is it valid on current mainnet, which keys must sign, and who pays the RC?",
-      "expected": "Valid since HF28: ALLOW_STRICT_AND_MIXED_AUTHORITIES removed the posting-isolation rule (before HF28 it was rejected as mixed_with_posting). It needs exactly alice's active signature and bob's posting signature, because role checks are strict now. RC for the whole transaction is paid by alice, the first required authority of the first operation.",
+      "expected": "Valid since HF28: ALLOW_STRICT_AND_MIXED_AUTHORITIES removed the posting-isolation rule (before HF28 it was rejected with tx_combined_auths_with_posting). It needs alice's active signature and bob's posting signature, and neither can be replaced by a key of another role because role checks are strict since HF28 (extra signatures are tolerated). RC for the whole transaction is paid by alice, the first required authority of the first operation.",
       "forbidden": [
         "Invalid: posting and active operations cannot share a transaction",
         "Valid, and each account pays RC for its own operation",
@@ -605,13 +618,14 @@
       "evidence": {
         "kb": [
           "research/hive-core/findings/01-protocol-foundation.md (Discovery 14)",
-          "research/hive-core/findings/02-operations-catalog.md (Posting authority cannot be mixed with active/owner before HF28)",
-          "research/hive-core/findings/08-resource-credits.md (RC payer = first operation's required authority)",
-          "research/hive-core/findings/15-rc-consensus.md (payer resolution)"
+          "research/hive-core/findings/02-operations-catalog.md (Transaction-Level Constraints: posting authority cannot be mixed with active/owner before HF28)",
+          "research/hive-core/findings/08-resource-credits.md (Summary: RC payer = first operation's required authority)",
+          "research/hive-core/findings/15-rc-consensus.md (Node-state predicates and what RC does in each: payer resolution)"
         ],
         "source": [
-          "libraries/protocol/transaction_util.cpp:59-74",
-          "libraries/chain/database.cpp:2612-2613",
+          "libraries/protocol/transaction_util.cpp:60-75",
+          "libraries/protocol/transaction_util.cpp:229-232",
+          "libraries/chain/database.cpp:2626-2627",
           "libraries/chain/rc/resource_user.cpp:49-65"
         ]
       },

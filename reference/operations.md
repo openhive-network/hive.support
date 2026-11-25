@@ -1,6 +1,6 @@
 # Hive Operations Reference
 
-Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual operations (IDs 50-92).
+Source: hive-core release 1.28.8. 50 regular operations (IDs 0-49) + 43 virtual operations (IDs 50-92).
 
 ---
 
@@ -24,7 +24,7 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 | 13 | account_witness_proxy | Governance | active | active |
 | 14 | pow | -- | -- | disabled (HF13) |
 | 15 | custom | Custom | active | active |
-| 16 | witness_block_approve | Witness | witness | disabled |
+| 16 | witness_block_approve | Witness | witness | fast-confirm only (HF26+) |
 | 17 | delete_comment | Social | posting | active |
 | 18 | custom_json | Custom | active+posting | active |
 | 19 | comment_options | Social | posting | active |
@@ -65,7 +65,7 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 
 - **pow_operation (14)**: Deprecated at HF13. Use pow2 (also disabled).
 - **pow2_operation (30)**: Mining disabled at HF17.
-- **witness_block_approve_operation (16)**: Handled internally, evaluator always rejects.
+- **witness_block_approve_operation (16)**: Never included in a block, its evaluator always rejects. Since HF26 it travels only as a stand-alone fast-confirmation transaction that the node handles out of band (Part 04, section Out-of-Band Operation Handling).
 - **custom_binary_operation (35)**: Evaluator always rejects. Dead code.
 - **reset_account_operation (37)**: validate() always fails. Never implemented placeholder.
 - **set_reset_account_operation (38)**: validate() always fails. Never implemented placeholder.
@@ -78,16 +78,16 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 ### vote_operation (ID: 0)
 **Authority**: posting (voter)
 **Fields**: voter (account), author (account), permlink (string), weight (int16)
-**Validation**: |weight| <= 10000; permlink < 256 chars UTF-8
-**Evaluator**: Returns early (no mana used, no rshares, no comment_vote_object, no virtual op) when the comment has already paid out: on HF19+ mainnet the comment_cashout_object is removed at payout, so a vote on any paid-out comment succeeds as a consensus no-op (RC is still charged). Otherwise deducts voting mana proportional to |weight|, computes rshares and applies them to the comment. HF20+: mana-based voting; HIVE_VOTE_DUST_THRESHOLD is subtracted from rshares (a dust vote succeeds with 0 rshares and still consumes its mana), not asserted as pre-HF20. HF21+: separate downvote mana pool (25%; `downvote_pool_percent` is 0 until the HF21 migration sets it). HF28+: stake-based vote cost from effective vesting shares, so a 100% vote costs ceil(E/50) = 2% of max mana for upvotes and downvotes alike; the downvote gate is strict (`>`) while the upvote gate is `has_mana` (>=), so a zero-stake account can upvote (0 rshares) but not downvote. Creates/updates comment_vote_object.
+**Validation**: |weight| <= 10000; permlink < 256 bytes, UTF-8
+**Evaluator**: Returns early (no mana used, no rshares, no comment_vote_object, no virtual op) when the comment has already paid out: on HF19+ mainnet the comment_cashout_object is removed at payout, so a vote on any paid-out comment by a voter who has not declined voting rights succeeds as a consensus no-op (RC is still charged). Otherwise deducts voting mana proportional to |weight|, computes rshares and applies them to the comment. HF20+: mana-based voting; HIVE_VOTE_DUST_THRESHOLD is subtracted from rshares (a dust vote succeeds with 0 rshares and still consumes its mana), not asserted as pre-HF20. HF21+: separate downvote mana pool (25%; `downvote_pool_percent` is 0 until the HF21 migration sets it). HF28+: stake-based vote cost from effective vesting shares, so a 100% vote costs ceil(E/50) = 2% of max mana for upvotes and downvotes alike; the downvote gate is strict (`>`) while the upvote gate is `has_mana` (>=), so a zero-stake account can upvote (0 rshares) but not downvote. Creates/updates comment_vote_object.
 **Virtual ops**: effective_comment_vote_operation (on every vote that reaches the comment, including unvotes; none for a vote on a paid-out comment)
-**Notes**: Upvote lockout 12h before payout (HF17+; linear attenuation of rshares inside the window since HF20). Vote edits get curation rewards since HF26. Three-phase curation weighting since HF25 (early=full, mid=/2, late=/8). Common question: "do votes on old (paid-out) posts consume voting mana?" - no (see Evaluator); they only cost RC.
+**Notes**: No vote lockout since HF20: every vote, downvotes included, scales linearly to 0 rshares over the last 12h before payout. Before HF20 a vote that raised the voter's rshares on the comment was rejected in the last 12h (HF17-HF19; the last minute from HF7). Vote edits get curation rewards since HF26. Three-phase curation weighting since HF25 (early=full, mid=/2, late=/8). Common question: "do votes on old (paid-out) posts consume voting mana?" - no (see Evaluator); they only cost RC.
 
 ### comment_operation (ID: 1)
 **Authority**: posting (author)
 **Fields**: parent_author (account), parent_permlink (string), author (account), permlink (string), title (string), body (string), json_metadata (json)
-**Validation**: title <= 255 chars; body non-empty; permlink < 256 chars; all UTF-8; json_metadata valid JSON if non-empty
-**Evaluator**: Creates or edits post/comment. New: sets cashout time (now + 7 days HF17+), increments parent reply count. Edit: updates content only. Posting frequency limits: root posts every 5 min, replies every 3 sec (HF6+). Max depth 255 (HF17+).
+**Validation**: title <= 255 bytes; body non-empty; permlink < 256 bytes; all UTF-8; json_metadata valid JSON if non-empty
+**Evaluator**: Creates or edits post/comment. New: sets cashout time (now + 7 days HF17+), increments parent reply count. Edit: updates content only. Posting frequency limits: root posts every 5 min, replies every 3 sec (HF6+). Depth limit 6 before HF17, 65,535 since; a node in control (new transactions, blocks it produces) applies 255 (node policy, not block validity).
 **Virtual ops**: None directly. Payouts happen via process_comment_cashout at end-of-block.
 
 ### delete_comment_operation (ID: 17)
@@ -101,7 +101,7 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 **Authority**: posting (author)
 **Fields**: author (account), permlink (string), max_accepted_payout (HBD asset), percent_hbd (uint16), allow_votes (bool), allow_curation_rewards (bool), extensions (beneficiaries)
 **Validation**: percent_hbd <= 10000; max_accepted_payout HBD >= 0; beneficiaries sorted by account, total weight <= 100%, max 127 entries
-**Evaluator**: Options can only be made MORE restrictive (one-way ratchet). Beneficiaries: set once, before any votes, max 8 (soft-fork), each account must exist.
+**Evaluator**: Options can only be made MORE restrictive (one-way ratchet). Beneficiaries: set once, before any votes, each account must exist; max 8 when the node is in control (node policy, not block validity; validate() allows 127).
 **Notes**: Extensions contain comment_payout_beneficiaries with (account, weight) pairs.
 
 ---
@@ -111,20 +111,20 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 ### transfer_operation (ID: 2)
 **Authority**: active (from)
 **Fields**: from (account), to (account), amount (asset), memo (string)
-**Validation**: amount > 0; HIVE or HBD only (no VESTS); memo <= 2047 chars UTF-8. Note: from==to is allowed at protocol level.
-**Evaluator**: Deducts from sender, credits receiver. Triggers HBD interest calculation on both accounts (pre-HF25 on liquid, post-HF25 savings only). HIVE sent to treasury is auto-converted to HBD (HF24+).
+**Validation**: amount > 0; HIVE or HBD only (no VESTS); memo <= 2047 bytes, UTF-8. Note: from==to is allowed at protocol level.
+**Evaluator**: Deducts from sender, credits receiver. Before HF25 an HBD transfer also settles the liquid-HBD interest of both accounts (paid once 30 days have passed since the last payment); since HF25 only savings HBD earns interest. To the treasury: only HBD from HF21; since HF24 HIVE sent there is auto-converted to HBD.
 **Virtual ops**: dhf_conversion_operation (HIVE to treasury, HF24+)
 
 ### transfer_to_savings_operation (ID: 32)
 **Authority**: active (from)
 **Fields**: from (account), to (account), amount (asset), memo (string)
-**Validation**: amount > 0; HIVE or HBD; memo <= 2047 chars UTF-8
+**Validation**: amount > 0; HIVE or HBD; memo <= 2047 bytes, UTF-8
 **Evaluator**: Moves liquid balance to savings. Cannot send to treasury savings. Triggers HBD interest on savings balance.
 
 ### transfer_from_savings_operation (ID: 33)
 **Authority**: active (from)
 **Fields**: from (account), request_id (uint32), to (account), amount (asset), memo (string)
-**Validation**: amount > 0; HIVE or HBD; memo <= 2047 chars UTF-8
+**Validation**: amount > 0; HIVE or HBD; memo <= 2047 bytes, UTF-8
 **Evaluator**: Creates 3-day pending withdrawal. Deducts savings immediately. Max pending requests: HIVE_SAVINGS_WITHDRAW_REQUEST_LIMIT. Only HBD can be withdrawn to treasury.
 **Virtual ops**: fill_transfer_from_savings_operation (on completion, 3 days later)
 
@@ -144,7 +144,7 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 **Authority**: active (owner)
 **Fields**: owner (account), requestid (uint32), amount (asset)
 **Validation**: amount > 0; HIVE only
-**Evaluator**: HIVE->HBD with 2x overcollateralization. HBD delivered immediately at current_min_history price. Excess HIVE collateral returned after HIVE_COLLATERALIZED_CONVERSION_DELAY at median price. Requires hbd_print_rate > 0.
+**Evaluator**: HIVE->HBD with 2x overcollateralization. HBD for half the collateral delivered immediately at current_min_history price with the 5% fee applied. After HIVE_COLLATERALIZED_CONVERSION_DELAY the collateral beyond the HIVE that this HBD is worth at the market median price (plus the fee) is returned. Requires hbd_print_rate > 0.
 **Virtual ops**: collateralized_convert_immediate_conversion_operation (always); fill_collateralized_convert_request_operation (on completion)
 **Notes**: HF25+. Fails if new HBD would violate global hbd_stop_percent cap.
 
@@ -157,8 +157,8 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 ### recurrent_transfer_operation (ID: 49)
 **Authority**: active (from)
 **Fields**: from (account), to (account), amount (asset), memo (string), recurrence (uint16 hours), executions (uint16), extensions (pair_id)
-**Validation**: from != to; HIVE or HBD; amount >= 0 (0 = cancel); recurrence >= 24 hours; executions >= 2; memo <= 2047 chars
-**Evaluator**: Creates/updates/deletes scheduled recurring transfer. Sufficient balance required for first execution. Max open transfers per account limited. pair_id extension allows multiple recurrent transfers between same accounts.
+**Validation**: from != to; HIVE or HBD; amount >= 0 (0 = cancel); recurrence >= 24 hours; executions >= 1 since 1.28.8 (>= 2 at 1.28.7); memo <= 2047 bytes, UTF-8
+**Evaluator**: Creates/updates/deletes scheduled recurring transfer. Sufficient balance required for first execution. Max open transfers per account limited. pair_id extension allows multiple recurrent transfers between same accounts. Executions minimum, HF29 switch `ALLOW_MODIFY_LAST_RECURRENT_TRANSFER` (defined in 1.28.8 code, inactive on mainnet): a recurrent transfer may be modified or deleted with `executions == 1`; before HF29 the evaluator requires at least 2 on every path, and creation always does (Part 01, section HF29 (Defined in 1.28.8, Inactive on Mainnet)).
 **Virtual ops**: fill_recurrent_transfer_operation (each execution); failed_recurrent_transfer_operation (insufficient funds)
 **Notes**: HF25+. Auto-deleted after HIVE_MAX_CONSECUTIVE_RECURRENT_TRANSFER_FAILURES consecutive failures.
 
@@ -169,14 +169,14 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 ### account_create_operation (ID: 9)
 **Authority**: active (creator)
 **Fields**: fee (HIVE asset), creator (account), new_account_name (account), owner (authority), active (authority), posting (authority), memo_key (public_key), json_metadata (json)
-**Validation**: fee HIVE >= 0, <= 1B HIVE; auth sizes <= 40; valid JSON if non-empty
-**Evaluator**: HF20+: fee must exactly equal median account_creation_fee, fee burned to null. Pre-HF20: fee >= median, converted to VESTS for new account.
+**Validation**: fee HIVE >= 0, <= 1,000,000 HIVE (`HIVE_MAX_ACCOUNT_CREATION_FEE`); auth sizes <= 40; valid JSON if non-empty
+**Evaluator**: HF20+: fee must exactly equal median account_creation_fee, fee burned to null. Pre-HF20: fee >= median from HF1, >= 30 x median from HF19 (`HIVE_CREATE_ACCOUNT_WITH_HIVE_MODIFIER`); converted to VESTS for new account.
 **Virtual ops**: account_created_operation
 
 ### account_update_operation (ID: 10)
 **Authority**: owner if owner field set; otherwise active
 **Fields**: account (account), owner (optional authority), active (optional authority), posting (optional authority), memo_key (public_key), json_metadata (json)
-**Evaluator**: Updates account authorities and metadata. Owner changes rate-limited: once per hour (HF26+: twice per hour). Creates owner_authority_history_object on owner change.
+**Evaluator**: Updates account authorities and metadata. Owner changes rate-limited (HF11+): once per hour (HF26+: twice per hour). Creates owner_authority_history_object on owner change.
 
 ### account_update2_operation (ID: 43)
 **Authority**: owner if owner set; active if active/posting/memo_key/json_metadata set; posting if only posting_json_metadata set
@@ -188,7 +188,7 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 **Authority**: active (creator)
 **Fields**: creator (account), fee (HIVE asset), extensions
 **Validation**: fee HIVE >= 0
-**Evaluator**: Two paths: (A) fee > 0: must equal exact median fee, burned to null. (B) fee == 0: subsidized via RC system, elected witnesses only. Increments pending_claimed_accounts.
+**Evaluator**: Two paths: (A) fee > 0: must equal exact median fee, burned to null. (B) fee == 0: draws one account's worth (`HIVE_ACCOUNT_SUBSIDY_PRECISION`) from the network-wide account subsidy pool and, while applied in a block, from the producing witness's own pool; that witness must be elected (Part 17, Key Discovery 1). Increments pending_claimed_accounts.
 **Notes**: HF20+. First half of claim+create account flow.
 
 ### create_claimed_account_operation (ID: 23)
@@ -201,7 +201,7 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 ### request_account_recovery_operation (ID: 24)
 **Authority**: active (recovery_account)
 **Fields**: recovery_account (account), account_to_recover (account), new_owner_authority (authority), extensions
-**Evaluator**: Creates recovery request valid for HIVE_ACCOUNT_RECOVERY_REQUEST_EXPIRATION_PERIOD (24h). Recovery account must be the target's configured recovery partner (default: top-voted witness). weight_threshold == 0 cancels.
+**Evaluator**: Creates recovery request valid for HIVE_ACCOUNT_RECOVERY_REQUEST_EXPIRATION_PERIOD (24h). Recovery account must be the target's configured recovery partner (default: top-voted witness). weight_threshold == 0 cancels. Authority size: HF29 switch `FIX_ENFORCEMENT_OF_AUTHORITY_SIZE_ON_RECOVERY_REQUEST` (defined in 1.28.8 code, inactive on mainnet; Part 01, section HF29 (Defined in 1.28.8, Inactive on Mainnet); Part 16, Key Discovery 3; Part 11, Key Discovery 5).
 
 ### recover_account_operation (ID: 25)
 **Authority**: must satisfy BOTH new_owner_authority AND recent_owner_authority
@@ -229,7 +229,7 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 ### witness_update_operation (ID: 11)
 **Authority**: active (owner)
 **Fields**: owner (account), url (string), block_signing_key (public_key), props (legacy_chain_properties), fee (asset)
-**Validation**: url 1-2048 chars UTF-8; fee >= 0; props validated (creation_fee, block_size, interest_rate)
+**Validation**: url 1-2048 bytes, UTF-8; fee >= 0; props validated (creation_fee, block_size, interest_rate)
 **Evaluator**: Creates or updates witness. Setting block_signing_key to null key disables witness.
 
 ### witness_set_properties_operation (ID: 42)
@@ -258,14 +258,14 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 ### limit_order_create_operation (ID: 5)
 **Authority**: active (owner)
 **Fields**: owner (account), orderid (uint32), amount_to_sell (asset), min_to_receive (asset), fill_or_kill (bool), expiration (time)
-**Validation**: HIVE:HBD pair; implied price valid (both > 0)
+**Validation**: HIVE:HBD pair, though validate() also admits an SMT NAI symbol paired with HIVE (Part 02, section SMT residue in limit-order validation); implied price valid (both > 0). Market check, HF29 switch `FIX_LIMIT_ORDER_ASSETS` (defined in 1.28.8 code, inactive on mainnet): `limit_order_create` and `limit_order_create2` accept only the HIVE:HBD market; a 1.28.8 node already rejects other markets in new transactions submitted to it and in blocks it produces (Part 01, section HF29 (Defined in 1.28.8, Inactive on Mainnet)).
 **Evaluator**: Creates limit order on internal HIVE/HBD DEX. Deducts sell amount. Immediately attempts matching. fill_or_kill reverts if not fully filled. Max 28-day expiration (HF20+).
 **Virtual ops**: fill_order_operation (on match); limit_order_cancelled_operation (on cancel/expiry)
 
 ### limit_order_create2_operation (ID: 21)
 **Authority**: active (owner)
 **Fields**: owner (account), orderid (uint32), amount_to_sell (asset), exchange_rate (price), fill_or_kill (bool), expiration (time)
-**Validation**: amount_to_sell matches exchange_rate.base symbol; result > 0
+**Validation**: amount_to_sell matches exchange_rate.base symbol; result > 0; same market rule and HF29 switch as limit_order_create
 **Evaluator**: Same as limit_order_create but takes explicit exchange_rate instead of min_to_receive.
 
 ### limit_order_cancel_operation (ID: 6)
@@ -281,7 +281,7 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 ### create_proposal_operation (ID: 44)
 **Authority**: active (creator)
 **Fields**: creator (account), receiver (account), start_date (time), end_date (time), daily_pay (HBD asset), subject (string), permlink (string), extensions
-**Validation**: end_date > start_date; daily_pay HBD >= 0; subject 1-80 chars UTF-8; permlink non-empty
+**Validation**: end_date > start_date; daily_pay HBD >= 0; subject 1-80 bytes, UTF-8; permlink non-empty
 **Evaluator**: Creates DHF proposal. Fee: 10 HBD base + 1 HBD/day beyond 60 days (HF24+). Permlink must point to a post by creator or receiver. End date must be in future (start can be past).
 **Virtual ops**: proposal_fee_operation
 **Notes**: HF21+.
@@ -297,20 +297,20 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 **Authority**: active (proposal_owner)
 **Fields**: proposal_owner (account), proposal_ids (flat_set<int64>), extensions
 **Validation**: proposal_ids non-empty, max 5 IDs
-**Evaluator**: Two-phase removal: immediate physical removal (throttled) then marks remaining as removed. Only creator can remove own proposals.
+**Evaluator**: Two-phase removal: immediate physical removal (throttled) then marks remaining as removed. Only creator can remove own proposals. HF28+: removing a nonexistent proposal is a hard error. HF29 switch `VALIDATE_ALL_PROPOSAL_IDS` (defined in 1.28.8 code, inactive on mainnet): stricter validation of the listed proposal ids (Part 01, section HF29 (Defined in 1.28.8, Inactive on Mainnet)).
 **Notes**: HF21+.
 
 ### update_proposal_operation (ID: 47)
 **Authority**: active (creator)
 **Fields**: proposal_id (int64), creator (account), daily_pay (HBD asset), subject (string), permlink (string), extensions (may include update_proposal_end_date)
-**Validation**: daily_pay HBD >= 0; subject 1-80 chars; proposal_id >= 0
+**Validation**: daily_pay HBD >= 0; subject 1-80 bytes, UTF-8; proposal_id >= 0
 **Evaluator**: Only creator can update. daily_pay can only decrease. End date can only shorten (HF25+ via extension). Subject and permlink freely changeable.
 **Notes**: HF24+.
 
 ### decline_voting_rights_operation (ID: 36)
 **Authority**: owner (account)
 **Fields**: account (account), decline (bool)
-**Evaluator**: 30-day delay before taking effect. Once effective, can_vote is permanently false -- removes all witness votes, proposal votes, and proxy. decline=false cancels pending request.
+**Evaluator**: 30-day delay before taking effect. Once effective, can_vote is permanently false -- removes all witness votes and the proxy, and since HF28 all proposal votes (the HF28 migration made a request effective at once for every proposal voter that had already declined). decline=false cancels pending request.
 **Virtual ops**: declined_voting_rights_operation (when takes effect); proxy_cleared_operation (if had proxy)
 
 ---
@@ -327,22 +327,22 @@ Source: hive-core release 1.28.7. 50 regular operations (IDs 0-49) + 43 virtual 
 ### withdraw_vesting_operation (ID: 4)
 **Authority**: active (account)
 **Fields**: account (account), vesting_shares (VESTS asset)
-**Validation**: VESTS type; amount >= 0 (0 = cancel power-down)
-**Evaluator**: Sets weekly power-down rate = amount / 13 installments (HF16+; was 104 pre-HF16). Amount 0 cancels. Must have sufficient non-delegated VESTS.
+**Validation**: VESTS type (the sign is not checked here: since HF20 the evaluator rejects a negative amount, before HF20 it was a silent no-op); 0 = cancel power-down
+**Evaluator**: Sets weekly power-down rate = amount / 13 installments (HF16+; was 104 pre-HF16). Amount 0 cancels; since HF28 a request is rejected when it would not change the withdraw rate (amount 0 with no active power-down included, `hive_evaluator_transfer.cpp:358-361`, `:389-390`). Must have sufficient non-delegated VESTS.
 **Virtual ops**: fill_vesting_withdraw_operation (each weekly installment)
 
 ### set_withdraw_vesting_route_operation (ID: 20)
 **Authority**: active (from_account)
 **Fields**: from_account (account), to_account (account), percent (uint16), auto_vest (bool)
 **Validation**: percent 0-10000
-**Evaluator**: Routes power-down proceeds. auto_vest=true re-vests instead of converting to HIVE. percent=0 removes route. Total across all routes <= 100%. Max HIVE_MAX_WITHDRAW_ROUTES per account. Cannot route to treasury.
+**Evaluator**: Routes power-down proceeds. auto_vest=true re-vests instead of converting to HIVE. percent=0 removes route. Total across all routes <= 100%. Max HIVE_MAX_WITHDRAW_ROUTES per account. Cannot route to treasury (HF21+).
 
 ### delegate_vesting_shares_operation (ID: 40)
 **Authority**: active (delegator)
 **Fields**: delegator (account), delegatee (account), vesting_shares (VESTS asset)
 **Validation**: delegator != delegatee; VESTS >= 0 (0 = remove delegation)
 **Evaluator**: Delegates HP to another account. Decrease/removal creates expiration object for delayed return. Minimum delegation threshold derived from account_creation_fee. Affects voting mana and downvote mana of both parties.
-**Notes**: Delegation return period: max(delegation_return_period, min_delegation_time).
+**Notes**: A decrease returns to the delegator at max(now + delegation_return_period, the delegation's min_delegation_time).
 
 ---
 
@@ -399,14 +399,14 @@ Virtual operations are never broadcast. They are generated internally during blo
 | ID | Name | Generated By | Key Fields |
 |----|------|-------------|------------|
 | 50 | fill_convert_request | HBD->HIVE conversion completes | owner, requestid, amount_in (HBD), amount_out (HIVE) |
-| 51 | author_reward | Comment cashout | author, permlink, hbd/hive/vesting payouts, payout_must_be_claimed |
+| 51 | author_reward | Comment cashout | author, permlink, hbd/hive/vesting payouts, curators_vesting_payout (since 1.28.8 the sum of the same payout's curation rewards, at 1.28.7 converted in one step, so values can differ slightly; Part 02), payout_must_be_claimed |
 | 52 | curation_reward | Comment cashout (per curator) | curator, reward (VESTS), author, permlink, payout_must_be_claimed |
 | 53 | comment_reward | Comment cashout (summary) | author, permlink, payout (HBD), total/curator/beneficiary payout values |
 | 54 | liquidity_reward | Market maker reward | owner, payout (HIVE). **Inactive since HF12.** |
 | 55 | interest | HBD balance interest | owner, interest (HBD), is_saved_into_hbd_balance. HF25+: savings only. |
 | 56 | fill_vesting_withdraw | Weekly power-down installment | from_account, to_account, withdrawn (VESTS), deposited (HIVE or VESTS) |
 | 57 | fill_order | DEX order match | current_owner/orderid/pays, open_owner/orderid/pays |
-| 58 | shutdown_witness | Witness removed for missing blocks | owner. **Inactive since HF20.** |
+| 58 | shutdown_witness | Witness disabled (signing key cleared) after a day without a block (HF14-HF19) | owner. **Inactive since HF20.** |
 | 59 | fill_transfer_from_savings | Savings withdrawal completes (3-day) | from, to, amount, request_id, memo |
 | 60 | hardfork | Hardfork activation | hardfork_id |
 | 61 | comment_payout_update | Comment cashout time passes | author, permlink |
@@ -416,11 +416,11 @@ Virtual operations are never broadcast. They are generated internally during blo
 | 65 | clear_null_account_balance | Funds burned from @null | total_cleared (vector<asset>) |
 | 66 | proposal_pay | DHF proposal funded | proposal_id, receiver, payer (treasury), payment (HBD) |
 | 67 | dhf_funding | Inflation to treasury | treasury, additional_funds (HBD) |
-| 68 | hardfork_hive | HF23 account exclusion | account, treasury, hbd/hive/vests transferred |
+| 68 | hardfork_hive | HF23 account exclusion | account, treasury, hbd/hive transferred, vests_converted |
 | 69 | hardfork_hive_restore | HF24 late airdrop | account, treasury, hbd/hive transferred |
 | 70 | delayed_voting | Fresh VESTS governance activation | voter, votes |
 | 71 | consolidate_treasury_balance | Old->new treasury merge | total_moved (vector<asset>) |
-| 72 | effective_comment_vote | Each vote cast | voter, author, permlink, weight, rshares, pending_payout |
+| 72 | effective_comment_vote | Each vote that reaches the comment (none on a paid-out comment) | voter, author, permlink, weight, rshares, pending_payout |
 | 73 | ineffective_delete_comment | Pre-HF19 delete with votes | author, permlink |
 | 74 | dhf_conversion | HIVE->HBD for treasury | treasury, hive_amount_in, hbd_amount_out |
 | 75 | expired_account_notification | Governance votes nullified (inactivity) | account |

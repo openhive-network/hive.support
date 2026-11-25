@@ -4,7 +4,7 @@
 
 The Hive blockchain node (hived) exposes its functionality through a modular plugin system built on the **AppBase** framework. API plugins register methods with a central **JSON-RPC 2.0** router, accessible via HTTP, HTTPS, WebSocket, and Unix socket transports.
 
-**Key numbers verified from source (commit `1584099c30`):**
+**Key numbers verified from source (hived 1.28.8, commit `274384a8ad`; the same at 1.28.7):**
 - **18 API plugins** in `libraries/plugins/apis/` register JSON-RPC methods (excluding `test_api`, a test-only plugin), **plus the `jsonrpc` introspection API** built into the `json_rpc` plugin → **19 method namespaces**.
 - **198 registered `(api, method)` endpoints** total: 196 declared via `DECLARE_API` across the 18 plugins + 2 from `jsonrpc`. (condenser_api duplicates much functionality semantically, but every method is a distinct registered endpoint string.)
 - **7+ non-API infrastructure plugins** (chain, p2p, witness, market_history, reputation, transaction_status, state_snapshot, …) plus testnet-only tooling (colony, queen).
@@ -13,7 +13,7 @@ The Hive blockchain node (hived) exposes its functionality through a modular plu
 - Two-phase API registration (proxy during init, finalized at startup) + an "early" registration path for status APIs.
 - **No per-client rate limiting** anywhere in the webserver/JSON-RPC layer — the only concurrency control is a fixed thread pool (default 16).
 
-> **Count corrections vs. earlier revisions of this doc and `reference/api.md`:** condenser_api has **62** methods (not 57 — the prior tables also omitted `get_open_orders`); debug_node_api has **12** (not 11); total registered endpoints are **~198** (not ~175). See *Discrepancies* and *Reference Impacts*.
+> **Count corrections vs. earlier revisions of this doc and `reference/api.md`:** condenser_api has **62** methods (not 57; the prior tables also omitted `get_open_orders`); debug_node_api has **12** (not 11); total registered endpoints are **~198** (not ~175). See *Discrepancies*.
 
 Per-plugin method counts (robust parenthesis-aware count of each `DECLARE_API` block, comments stripped):
 
@@ -46,8 +46,8 @@ All plugins inherit from `appbase::plugin<Impl>` (CRTP pattern). The framework m
 
 **Plugin lifecycle hooks:**
 1. `plugin_initialize(options)` — Setup resources, register APIs (into `proxy_data`)
-2. `plugin_startup()` — Begin active processing
-3. `plugin_finalize_startup()` — Post-startup actions (json_rpc moves `proxy_data` → `data` here; API plugins resolve their soft dependencies here via `api_startup()`)
+2. `plugin_startup()`: Begin active processing (API plugins with soft dependencies resolve them here via `api_startup()`, e.g. `condenser_api_plugin.cpp:22-25`, `wallet_bridge_api_plugin.cpp:18-22`)
+3. `plugin_finalize_startup()`: Post-startup actions, run after every plugin's `plugin_startup()` (`libraries/appbase/application.cpp:149-166`; json_rpc moves `proxy_data` -> `data` here)
 4. `plugin_pre_shutdown()` — Ordered cleanup (webserver closes first, then p2p, then others)
 5. `plugin_shutdown()` — Final cleanup
 
@@ -66,8 +66,9 @@ So a bare hived is **not a useful API node** — it has `witness` and `account_b
 **Deployment-level defaults differ from the binary's defaults.** The useful API plugin set comes from shipped sample configs, not the C++ defaults:
 - `contrib/config-for-docker.ini:6-26` enables `webserver p2p json_rpc`, `database_api condenser_api`, `witness`, `account_by_key(_api)`, `account_history_rocksdb` + `account_history_api`, `transaction_status(_api)`, `block_api network_broadcast_api rc_api`, `state_snapshot`, `wallet_bridge_api`, `node_status_api`.
 - `contrib/config-for-ahnode.ini` adds `market_history(_api)` and `reputation(_api)`.
-- `doc/example_config.ini:3-21` is similar (no `wallet_bridge`/market in some variants).
-- The official Docker image copies `doc/example_config.ini` to `/home/hived/datadir/example_config.ini` (**not** `config.ini`) — `Dockerfile:161`; the entrypoint (`docker/docker_entrypoint.sh:79-81`) does not pass `--plugin`, so operators must supply their own `config.ini` or fall back to the bare 8-plugin default.
+- `doc/example_config.ini:3-21` is similar but enables neither `condenser_api` nor `node_status_api` nor the market plugins (it does enable `wallet_bridge_api`).
+- Since 1.28.8 the exchange compose deployment ships `docker/exchange/config.ini:10-18`: `webserver p2p json_rpc`, `database_api condenser_api`, `account_by_key(_api)`, `account_history_rocksdb` + `account_history_api`, `transaction_status(_api)`, `block_api network_broadcast_api rc_api`, `wallet_bridge_api`, `node_status_api`, `state_snapshot` (no `witness`).
+- The official Docker image copies `doc/example_config.ini` to `/home/hived/datadir/example_config.ini` (**not** `config.ini`), `Dockerfile:184`; the entrypoint's hived command line (`docker/docker_entrypoint.sh:242-244`) passes no `--plugin` of its own (container arguments are appended as `HIVED_ARGS`), so operators supply a `config.ini` or `--plugin` arguments, or get the bare 8-plugin default.
 
 ### JSON-RPC Framework
 
@@ -77,19 +78,19 @@ The `json_rpc_plugin` is the central API registry. It maintains a map `api_name 
 
 **Two-phase registration (race-condition guard):**
 1. During `plugin_initialize()`: `JSON_RPC_REGISTER_API` inserts methods into `proxy_data` (temporary).
-2. During `plugin_finalize_startup()`: `proxy_data._registered_apis/_methods/_method_sigs` move into the live `data` (`json_rpc_plugin.cpp:~298-310`). Methods become callable only here, after all dependencies are ready.
+2. During `plugin_finalize_startup()`: `proxy_data._registered_apis/_methods/_method_sigs` move into the live `data` (`json_rpc_plugin.cpp:296-303`). Methods become callable only here, after all dependencies are ready.
 3. **Early path:** `JSON_RPC_REGISTER_EARLY_API` registers directly to `data`, making the API callable during init/sync. Used by `app_status_api` (`app_status_api.cpp:58`) and `node_status_api` (`node_status_api.cpp:36`) — health/sync probes that must answer before finalize. The `jsonrpc` API itself registers in `json_rpc_plugin_impl::initialize()` (`json_rpc_plugin.cpp:316`).
 
 **Request routing (`json_rpc_plugin::call` → `rpc` → `rpc_jsonrpc`):**
 ```
 HTTP/WS body (JSON string)
-  -> json_rpc_plugin::call(message)          [json_rpc_plugin.cpp:647-699]
+  -> json_rpc_plugin::call(message)          [json_rpc_plugin.cpp:647-695]
      - fc::json::from_string(..., full validation)   [:652]
-     - if array -> batch: iterate, rpc(element) each [:656-666]
-     - else single rpc(element)                      [:678]
-  -> rpc(variant)                            [:526-587]  (outer id/error isolation)
-  -> rpc_jsonrpc(request, response)          [:416-524]
-     - validate jsonrpc=="2.0"                        [:421]
+     - if array -> batch: iterate, rpc(element) each [json_rpc_plugin.cpp:656-666]
+     - else single rpc(element)                      [json_rpc_plugin.cpp:678]
+  -> rpc(variant)                            [json_rpc_plugin.cpp:526-587]  (outer id/error isolation)
+  -> rpc_jsonrpc(request, response)          [json_rpc_plugin.cpp:416-524]
+     - validate jsonrpc=="2.0"                        [json_rpc_plugin.cpp:421]
      - process_params(method,...) -> find_api_method  [:438, :353-393, :341-351]
      - (*call)(func_args)  (handler executes)         [:455]
   -> json_rpc_response {jsonrpc, result|error, id}
@@ -107,23 +108,23 @@ Convention 2 — generic `"call"` with positional array `["api","method", args?]
 ```json
 {"jsonrpc":"2.0","method":"call","params":["database_api","get_dynamic_global_properties",{}],"id":1}
 ```
-If `params` is omitted it defaults to `{}` (`:376`, `:389`).
+If `params` is omitted (dotted form) or the third `call` element is omitted, the arguments default to `{}` (`json_rpc_plugin.cpp:389`, `:376`); a `"call"` without `params` is an error (-32001, below).
 
 **JSON-RPC error codes and where they are actually produced** — the constants live in `json_rpc_plugin.hpp`; the table below also records the precise emission site, because the runtime mapping has subtleties:
 
 | Code | Constant | Emitted when (file:line) |
 |------|----------|--------------------------|
-| -32700 | JSON_RPC_PARSE_ERROR | Top-level JSON parse / bad_cast of the message (`:567`, `:571`) |
-| -32600 | JSON_RPC_INVALID_REQUEST | `jsonrpc` ≠ "2.0" (`:518`), missing `method` member (`:513`), or bad `id` type (`:411`) |
-| -32601 | JSON_RPC_METHOD_NOT_FOUND | Outer assert handler (`:508`) |
-| -32602 | JSON_RPC_INVALID_PARAMS | (defined; param validation) |
-| -32603 | JSON_RPC_INTERNAL_ERROR | (defined) |
-| -32000 | JSON_RPC_SERVER_ERROR | Uncaught `fc::exception`/`std::exception` in `rpc` (`:554/558/575`) |
-| -32001 | JSON_RPC_NO_PARAMS | `"call"` without a `params` member (`:503`) |
-| -32002 | JSON_RPC_PARSE_PARAMS_ERROR | Failure inside `process_params`/`find_api_method` (`:443`) |
-| -32003 | JSON_RPC_ERROR_DURING_CALL | Exception thrown by the handler, incl. `FC_ASSERT` and `chainbase::lock_exception` (`:494`, `:498`) |
+| -32700 | JSON_RPC_PARSE_ERROR | A request (single or batch element) that is not a JSON object: `bad_cast` from `get_object()` (`json_rpc_plugin.cpp:571`; a `parse_error_exception` handler sits on the same `try`, `json_rpc_plugin.cpp:567`). Text that is not valid JSON fails in `call` and gets -32000 instead |
+| -32600 | JSON_RPC_INVALID_REQUEST | `jsonrpc` missing or not the string "2.0" (`json_rpc_plugin.cpp:421`, `:518`), `method` missing or not a string (`json_rpc_plugin.cpp:423`, `:513`), or bad `id` type (`json_rpc_plugin.cpp:411`) |
+| -32601 | JSON_RPC_METHOD_NOT_FOUND | Outer assert handler (`json_rpc_plugin.cpp:508`); every `FC_ASSERT` on this path is caught first by the inner handlers (`json_rpc_plugin.cpp:441`, `:496`), so an unknown API or method gets -32002 |
+| -32602 | JSON_RPC_INVALID_PARAMS | (defined, `json_rpc_plugin.hpp:57`; never emitted) |
+| -32603 | JSON_RPC_INTERNAL_ERROR | (defined, `json_rpc_plugin.hpp:58`; never emitted) |
+| -32000 | JSON_RPC_SERVER_ERROR | Uncaught `fc::exception`/`std::exception` in `rpc` (`json_rpc_plugin.cpp:554/558/575`); in `call`, text that is not valid JSON or an empty batch `[]` (`json_rpc_plugin.cpp:684`, `:672`) |
+| -32001 | JSON_RPC_NO_PARAMS | `"call"` without a `params` member (`json_rpc_plugin.cpp:503`) |
+| -32002 | JSON_RPC_PARSE_PARAMS_ERROR | An `FC_ASSERT` failing inside `process_params`/`find_api_method` (`json_rpc_plugin.cpp:443`) |
+| -32003 | JSON_RPC_ERROR_DURING_CALL | `FC_ASSERT` (`fc::assert_exception`) or `chainbase::lock_exception` thrown by the handler (`json_rpc_plugin.cpp:494`, `:498`); other handler exceptions surface as -32000 |
 
-> **Subtlety worth knowing:** `find_api_method` throws an `FC_ASSERT` ("Could not find API/method", `:345/:348`) which is invoked from `process_params` inside the inner `try` whose `catch` maps to **-32002 (PARSE_PARAMS_ERROR)** at `:443` — so an unknown api/method is reported through the params-error path, while the nominal -32601 handler at `:508` sits on the outer `try`. Treat both -32002 and -32601 as "method/params resolution failed." Any handler-level `FC_ASSERT` (e.g. `"market_history_api_plugin not enabled."`) surfaces as **-32003**.
+> **Subtlety worth knowing:** `find_api_method` throws an `FC_ASSERT` ("Could not find API/method", `json_rpc_plugin.cpp:345/348`) which is invoked from `process_params` inside the inner `try` whose `catch` maps to **-32002 (PARSE_PARAMS_ERROR)** at `json_rpc_plugin.cpp:443`, so an unknown api/method is reported through the params-error path, while the nominal -32601 handler at `json_rpc_plugin.cpp:508` sits on the outer `try`, behind the inner handlers. Treat -32002 (and -32601, should it appear) as "method/params resolution failed." Any handler-level `FC_ASSERT` (e.g. `"market_history_api_plugin not enabled."`) surfaces as **-32003**.
 
 **Method-specific legacy-serialization fallback (NOT a blanket dual-format):** the handler is normally called once. If it throws `fc::bad_cast_exception` **and** the method is exactly `network_broadcast_api.broadcast_transaction` or `database_api.verify_authority`, the call is retried under a `mode_guard(transaction_serialization_type::legacy)` (`json_rpc_plugin.cpp:457-489`). All other methods do not get this retry at the JSON-RPC layer. (condenser_api's own broadcast methods are lockless and handle their dual serialization internally.)
 
@@ -131,7 +132,7 @@ If `params` is omitted it defaults to `{}` (`:376`, `:389`).
 
 **Source:** `libraries/plugins/json_rpc/include/hive/plugins/json_rpc/utility.hpp`
 
-Each API class uses `DECLARE_API((method_a)(method_b))` (`utility.hpp:27-34`), which generates `method_a_return method_a(const method_a_args&, bool lock=false)` plus a `for_each_api()` visitor used for registration. Implementations bind each method through one of three locking macros (`utility.hpp:45-85`):
+Each API class uses `DECLARE_API((method_a)(method_b))` (`json_rpc/utility.hpp:27-34`), which generates `method_a_return method_a(const method_a_args&, bool lock=false)` plus a `for_each_api()` visitor used for registration. Implementations bind each method through one of three locking macros (`json_rpc/utility.hpp:45-85`):
 
 - `DEFINE_READ_APIS` — when `lock==true`, runs under `db.with_read_lock([...], fc::seconds(1))` — a **1-second read-lock timeout** (`utility.hpp:50`).
 - `DEFINE_WRITE_APIS` — `db.with_write_lock([...])`, **no timeout** (`utility.hpp:63`).
@@ -143,28 +144,30 @@ The `lock` flag is `true` when a method is invoked through the JSON-RPC router (
 
 **Source:** `libraries/plugins/webserver/webserver_plugin.cpp`
 
-Config options (`set_program_options`, `:737-748`):
+Config options (`set_program_options`, `webserver_plugin.cpp:739-750`):
 
 | Flag | Default | Notes |
 |------|---------|-------|
 | `--webserver-http-endpoint` | (unset) | No default port; bound only if supplied |
-| `--webserver-https-endpoint` | (unset) | Requires cert + key flags (asserted `:763-764`) |
+| `--webserver-https-endpoint` | (unset) | Requires cert + key flags (asserted `:765-766`) |
 | `--webserver-ws-endpoint` | (unset) | WebSocket |
-| `--webserver-unix-endpoint` | (unset) | Unix-socket HTTP; **always permessage-deflate-enabled** server type (`:156`) |
-| `--webserver-ws-deflate` | **false** | RFC-7692 permessage-deflate for WS, only if client requests it (`:743`) |
-| `--webserver-thread-pool-size` | **16** | "Number of threads used to handle queries"; asserted `>0` (`:744-745, :755`) |
+| `--webserver-unix-endpoint` | (unset) | Unix-socket HTTP; **always permessage-deflate-enabled** server type (`webserver_plugin.cpp:156`) |
+| `--webserver-ws-deflate` | **false** | RFC-7692 permessage-deflate for WS, only if client requests it (`:745`) |
+| `--webserver-thread-pool-size` | **16** | "Number of threads used to handle queries"; asserted `>0` (`:746-747, :757`) |
 | `--webserver-https-certificate-file-name` | (unset) | HTTPS only |
 | `--webserver-https-key-file-name` | (unset) | HTTPS only |
 
-**Concurrency model — fixed thread pool draining one shared queue.** `prepare_threads()` (`:322-329`) spins up `thread_pool_size` worker threads (named `"api"`), all running the same `thread_pool_ios` io_context, kept alive by a `work_guard`. Acceptor threads (one per endpoint: ws/http/unix, `:284-294`) read the request, then hand work to the pool via `boost::asio::post(thread_pool_ios, ...)` (HTTP `:626`, WS `:574`, unix `:686`). Each worker invokes `api->call(body)` (`:634`, `:584`).
+**Concurrency model — fixed thread pool draining one shared queue.** `prepare_threads()` (`:322-329`) spins up `thread_pool_size` worker threads (named `"api"`), all running the same `thread_pool_ios` io_context, kept alive by a `work_guard`. Acceptor threads (one per endpoint: ws/http/unix, `:284-294`) read the request, then hand work to the pool via `boost::asio::post(thread_pool_ios, ...)` (HTTP `:628`, WS `:576`, unix `:688`). Each worker invokes `api->call(body)` (`:636`, `:586`).
 
-**No rate limiting exists.** An exhaustive search (`rate|throttle|max_connection|max_message|max_body|connection_limit`) across `webserver/` and `json_rpc/` finds nothing; the only `fc::rate_limiting_group` in the tree is in the **P2P** layer (`libraries/net/node.cpp:564`), which throttles inter-node bandwidth, not API clients. `boost::asio::post` enqueues unconditionally — when all N workers are busy, requests **queue indefinitely** with no rejection or backpressure. The only effect of saturation is **diagnostic logging** via `LOG_DELAY`/`LOG_DELAY_EX` (`utility.hpp:87-99`): warnings at 2 s ("begin processing"), 4 s ("get request_body"), 10 s ("process API call") — `webserver_plugin.cpp:627/630/676`. hived sets no max-body-size or max-message-size; any such cap comes from the bundled websocketpp defaults (not overridden) or an upstream reverse proxy.
+**No rate limiting exists.** An exhaustive search (`rate|throttle|max_connection|max_message|max_body|connection_limit`) across `webserver/` and `json_rpc/` finds no limit (its only match, at 1.28.7 and 1.28.8, is the word "generate" in a comment, `local_endpoint.hpp:198`); the only `fc::rate_limiting_group` in the tree is in the **P2P** layer (`libraries/net/node.cpp:591`), which throttles inter-node bandwidth, not API clients. `boost::asio::post` enqueues unconditionally: when all N workers are busy, requests **queue indefinitely** with no rejection or backpressure. The only effect of saturation is **diagnostic logging** via `LOG_DELAY`/`LOG_DELAY_EX` (`utility.hpp:87-99`): warnings at 2 s ("begin processing"), 4 s ("get request_body"), 10 s ("process API call"), `webserver_plugin.cpp:629/632/678`. hived sets no max-body-size or max-message-size; any such cap comes from the bundled websocketpp defaults (not overridden; values under Open Questions) or an upstream reverse proxy.
 
-**Pre-shutdown ordering** (appbase `pre_shutdown_order` enum, pinned `bc76409c`): `basic_order=0`, `p2p_order=1`, `webserver_order=2`, `colony_order=3`. The pre-shutdown multiset iterates **highest-first**, so the order is colony(3) → webserver(2) → p2p(1) → basic(0). The webserver (`set_pre_shutdown_order(webserver_order)`, `webserver_plugin.cpp:730`) drains in-flight API calls **before** p2p is torn down — necessary because `network_broadcast_api` calls into p2p. `stop_webserver()` stops the worker pool then joins acceptor threads (`:540-566`).
+**Pre-shutdown ordering** (appbase `pre_shutdown_order` enum, pinned `bc76409c`): `basic_order=0`, `p2p_order=1`, `webserver_order=2`, `colony_order=3`. The pre-shutdown multiset iterates **highest-first**, so the order is colony(3) → webserver(2) → p2p(1) → basic(0). The webserver (`set_pre_shutdown_order(webserver_order)`, `webserver_plugin.cpp:732`) drains in-flight API calls **before** p2p is torn down — necessary because `network_broadcast_api` calls into p2p. `stop_webserver()` stops the worker pool then joins acceptor threads (`:542-568`).
 
 ---
 
 ## API Reference
+
+Returns cells give the payload type. Several APIs wrap it in a named member of the return object: for example `database_api.get_reward_funds` returns `{funds: [...]}` (`database_api_args.hpp:123-126`) and `network_node_api.get_connected_peers` returns `{connected_peers: [...]}` (`network_node_api.hpp:50-53`).
 
 ### condenser_api (Legacy API) — 62 methods
 
@@ -178,14 +181,14 @@ Config options (`set_program_options`, `:737-748`):
 #### Version & Configuration (3)
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
-| `get_version` | (none) | `{blockchain_version, hive_revision, fc_revision, chain_id}` | lockless |
+| `get_version` | (none) | `{blockchain_version, hive_revision, fc_revision, node_type, chain_id}` | lockless; a build embedded in another CMake project (usually HAF) also reports `<project>_revision` (`libraries/utilities/git_revision.cpp.in:31-38`) |
 | `get_config` | (none) | variant_object | Legacy symbol substitutions applied; lockless |
 | `get_hardfork_version` | (none) | hardfork_version string | e.g. "1.27.0" |
 
 #### Global State (5)
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
-| `get_dynamic_global_properties` | (none) | extended_dynamic_global_properties | Head block, supplies, rates, timing |
+| `get_dynamic_global_properties` | (none) | extended_dynamic_global_properties | Head block, supplies, rates, timing; 42 keys since 1.28.8 (44 at 1.28.7; see database_api `get_dynamic_global_properties`) |
 | `get_chain_properties` | (none) | api_chain_properties | Median witness props |
 | `get_current_median_history_price` | (none) | legacy_price | HBD/HIVE price feed |
 | `get_feed_history` | (none) | api_feed_history_object | min/max/median price history |
@@ -207,9 +210,9 @@ Config options (`set_program_options`, `:737-748`):
 #### Account Data (11)
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
-| `get_accounts` | (names: vector\<string\>, delayed_votes?: bool) | vector\<extended_account\> | Reputation field populated only if reputation_api enabled (`:379`) |
+| `get_accounts` | (names: vector\<string\>, delayed_votes?: bool) | vector\<extended_account\> | Of the fields extended_account adds, only `reputation` (0 unless reputation_api is enabled, `condenser_api.cpp:379-382`) and `witness_votes` (`:384-388`) are filled; `vesting_balance` stays zero, the five `*_history` maps, `tags_usage` and `guest_bloggers` come back empty, and the unset optionals `open_orders`, `comments`, `blog`, `feed`, `recent_replies`, `recommended` are left out of the JSON (`condenser_api.cpp:358-393`, `condenser_api.hpp:248-271`) |
 | `lookup_account_names` | (names: vector\<string\>, delayed_votes?: bool) | vector\<optional\<api_account_object\>\> | Nulls for missing |
-| `lookup_accounts` | (lower_bound: string, limit: uint32) | set\<string\> | `FC_ASSERT(limit <= 1000)` (`:435`) |
+| `lookup_accounts` | (lower_bound: string, limit: uint32) | set\<string\> | `FC_ASSERT(limit <= 1000)` (`condenser_api.cpp:435`) |
 | `get_account_count` | (none) | uint64 | |
 | `get_account_references` | (account) | — | **PERMANENTLY BROKEN** — `FC_ASSERT(false, "...Needs to be refactored for Hive.")` (`condenser_api.cpp:397`) |
 | `get_account_reputations` | (name: string, limit?: uint32=1000) | vector\<account_reputation\> | Needs reputation_api (asserts if absent) |
@@ -222,8 +225,8 @@ Config options (`set_program_options`, `:737-748`):
 #### Vesting & Delegation (5)
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
-| `get_vesting_delegations` | (delegator, start, limit?) | vector\<vesting_delegation\> | **default limit 100** (`:561`) |
-| `get_expiring_vesting_delegations` | (delegator, start, limit?) | vector\<vesting_delegation_expiration\> | **default limit 100** (`:582`) |
+| `get_vesting_delegations` | (delegator, start, limit?) | vector\<vesting_delegation\> | **default limit 100** (`condenser_api.cpp:561`) |
+| `get_expiring_vesting_delegations` | (delegator, start, limit?) | vector\<vesting_delegation_expiration\> | **default limit 100** (`condenser_api.cpp:582`) |
 | `get_withdraw_routes` | (account, type?) | vector\<withdraw_vesting_route\> | outgoing/incoming/all |
 | `get_savings_withdraw_from` | (account) | vector\<savings_withdraw\> | |
 | `get_savings_withdraw_to` | (account) | vector\<savings_withdraw\> | |
@@ -239,16 +242,16 @@ Config options (`set_program_options`, `:737-748`):
 #### Blockchain Data (5)
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
-| `get_block_header` | (block_num) | optional\<block_header\> | Needs block_api (asserts, `:231`) |
-| `get_block` | (block_num) | optional\<legacy_signed_block\> | Needs block_api (asserts, `:244`) |
-| `get_ops_in_block` | (block_num, only_virtual?) | vector\<api_operation_object\> | Needs account_history_api (asserts, `:257`); lockless |
-| `get_account_history` | (account, from: int64, limit, op_filter_low?, op_filter_high?) | map\<uint32, api_operation_object\> | Bitmask filtering; needs account_history_api; lockless |
+| `get_block_header` | (block_num) | optional\<block_header\> | Needs block_api (asserts, `condenser_api.cpp:231`) |
+| `get_block` | (block_num) | optional\<legacy_signed_block\> | Needs block_api (asserts, `condenser_api.cpp:244`) |
+| `get_ops_in_block` | (block_num, only_virtual?) | vector\<api_operation_object\> | Needs account_history_api (asserts, `condenser_api.cpp:257`); lockless |
+| `get_account_history` | (account, from: uint64, limit, op_filter_low?, op_filter_high?) | map\<uint32, api_operation_object\> | Bitmask filtering; needs account_history_api; lockless |
 | `is_known_transaction` | (txid) | bool | |
 
 #### Transaction Operations (6)
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
-| `get_transaction` | (txid: hex) | annotated_signed_transaction | Needs account_history_api (`:760`); lockless |
+| `get_transaction` | (txid: hex) | annotated_signed_transaction | Needs account_history_api (`condenser_api.cpp:760`); lockless |
 | `get_transaction_hex` | (trx) | hex_string | |
 | `get_required_signatures` | (trx, available_keys) | set\<pubkey\> | |
 | `get_potential_signatures` | (trx) | set\<pubkey\> | |
@@ -266,20 +269,20 @@ Config options (`set_program_options`, `:737-748`):
 #### Market & Orders (8)
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
-| `get_open_orders` | (account) | vector\<api_limit_order_object\> | **Was missing from earlier tables.** Reads `limit_order_index, by_account` directly (`:733`) |
+| `get_open_orders` | (account) | vector\<api_limit_order_object\> | **Was missing from earlier tables.** Reads `limit_order_index, by_account` directly (`condenser_api.cpp:733`) |
 | `get_ticker` | (none) | ticker | Needs market_history_api (asserts) |
 | `get_volume` | (none) | volume | Needs market_history_api |
-| `get_order_book` | (depth?: uint32) | order_book | **default depth 500** (`:962`); needs market_history_api |
-| `get_trade_history` | (start, end, limit?) | vector\<market_trade\> | **default limit 1000** (`:970`) |
-| `get_recent_trades` | (limit?) | vector\<market_trade\> | **default 1000** (`:985`) |
+| `get_order_book` | (depth?: uint32) | order_book | **default depth 500** (`condenser_api.cpp:962`); needs market_history_api |
+| `get_trade_history` | (start, end, limit?) | vector\<market_trade\> | **default limit 1000** (`condenser_api.cpp:970`) |
+| `get_recent_trades` | (limit?) | vector\<market_trade\> | **default 1000** (`condenser_api.cpp:985`) |
 | `get_market_history` | (bucket_secs, start, end) | vector\<bucket_object\> | OHLCV; needs market_history_api |
 | `get_market_history_buckets` | (none) | flat_set\<uint32\> | lockless |
 
 #### Transaction Broadcast (2)
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
-| `broadcast_transaction` | (trx) | void | Needs network_broadcast_api (`:854`); async; lockless |
-| `broadcast_transaction_synchronous` | (trx) | {id, block_num, trx_num, rc_cost, expired} | Needs network_broadcast_api + p2p (`:863-864`); blocks until confirmed/expired; lockless |
+| `broadcast_transaction` | (trx) | void | Needs network_broadcast_api (`condenser_api.cpp:854`); async; lockless |
+| `broadcast_transaction_synchronous` | (trx) | {id, block_num, trx_num, rc_cost, expired} | Needs network_broadcast_api + p2p (`condenser_api.cpp:863-864`); blocks until confirmed/expired; lockless |
 
 ---
 
@@ -290,15 +293,17 @@ Config options (`set_program_options`, `:737-748`):
 
 **Pagination:** `{start: variant, limit: uint32, order: sort_order_type}`. **`DATABASE_API_SINGLE_QUERY_LIMIT = 1000`**, enforced via `FC_ASSERT(0 < limit && limit <= 1000, "limit not set or too big")` (e.g. `database_api_financial.cpp:24,92,182,266,328`).
 
-#### Global Properties (6)
+#### Global Properties (8)
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
 | `get_config` | void | variant_object | All consensus config constants |
 | `get_version` | void | variant_object | Version + chain_id |
-| `get_dynamic_global_properties` | void | api_dynamic_global_property_object | 70+ fields |
+| `get_dynamic_global_properties` | void | api_dynamic_global_property_object | 43 keys incl. `id` since 1.28.8 (45 at 1.28.7; `total_reward_fund_hive` and `total_reward_shares2` removed, `database_api_objects.hpp:691-703`; the reward pool is read via `get_reward_funds`; Part 05, section dynamic_global_property_object (Singleton)) |
 | `get_witness_schedule` | include_future?: bool | api_witness_schedule_object | |
 | `get_hardfork_properties` | void | api_hardfork_property_object | HF history/versions |
 | `get_reward_funds` | void | vector\<api_reward_fund_object\> | All reward funds |
+| `get_current_price_feed` | void | price | Current median feed price (`database_api.cpp:163-166`) |
+| `get_feed_history` | void | api_feed_history_object | Current and market median, min/max, price history (`database_api.cpp:168-171`) |
 
 #### Witnesses (4)
 | Method | Parameters | Returns | Order options |
@@ -311,8 +316,8 @@ Config options (`set_program_options`, `:737-748`):
 #### Accounts (24 — 12 find/list pairs)
 | Pair | find_ Parameters | list_ Order Options | Object |
 |------|-----------------|-------------------|--------|
-| accounts | names: vector\<string\> | by_name, by_proxy, by_next_vesting_withdrawal | api_account_object |
-| owner_histories | owner: string | by_account | api_owner_authority_history_object |
+| accounts | accounts: vector\<string\>, delayed_votes_active?: bool | by_name, by_proxy, by_next_vesting_withdrawal | api_account_object |
+| owner_histories | owner: string | none (no `order` argument; always by_account, `database_api_args.hpp:206-210`) | api_owner_authority_history_object |
 | account_recovery_requests | accounts | by_account, by_expiration | api_account_recovery_request_object |
 | change_recovery_account_requests | accounts | by_account, by_effective_date | api_change_recovery_account_request_object |
 | escrows | from: string | by_from_id, by_ratification_deadline | api_escrow_object |
@@ -327,7 +332,7 @@ Config options (`set_program_options`, `:737-748`):
 #### Content (1)
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
-| `get_comment_pending_payouts` | vector\<{author, permlink}\> | vector\<comment_pending_payout_info\> | Cashout: rshares, votes, payout timing |
+| `get_comment_pending_payouts` | comments: vector of [author, permlink] pairs (arrays, not objects) | vector\<comment_pending_payout_info\> | Cashout: rshares, votes, payout timing |
 
 #### Market / Orders (3)
 | Method | Parameters | Returns | Order options |
@@ -339,9 +344,9 @@ Config options (`set_program_options`, `:737-748`):
 #### DHF / Proposals (3)
 | Method | Parameters | Returns | Order options |
 |--------|-----------|---------|---------------|
-| `list_proposals` | start, limit, order, direction, status, last_id? | vector\<api_proposal_object\> | by_creator, by_start_date, by_end_date, by_total_votes |
-| `find_proposals` | ids: vector\<int64\> | vector\<api_proposal_object\> | — |
-| `list_proposal_votes` | start, limit, order, direction, status | vector\<api_proposal_vote_object\> | by_voter_proposal, by_proposal_voter |
+| `list_proposals` | start, limit, order, order_direction, status, last_id? | vector\<api_proposal_object\> | by_creator, by_start_date, by_end_date, by_total_votes |
+| `find_proposals` | proposal_ids: vector\<int64\> | vector\<api_proposal_object\> | - |
+| `list_proposal_votes` | start, limit, order, order_direction, status (same struct as list_proposals; its `last_id` is not used) | vector\<api_proposal_vote_object\> | by_voter_proposal, by_proposal_voter |
 
 **Proposal status filter enum:** `all`, `inactive`, `active`, `expired`, `votable`
 
@@ -356,10 +361,10 @@ Config options (`set_program_options`, `:737-748`):
 | `get_transaction_hex` | trx | hex_string | |
 | `get_required_signatures` | trx + available_keys | set\<pubkey\> | |
 | `get_potential_signatures` | trx | set\<pubkey\> | |
-| `verify_authority` | trx + pack_type? | bool | legacy-serialization retry path (`json_rpc_plugin.cpp:457-489`) |
+| `verify_authority` | trx + pack? (pack_type, default legacy) | {valid: true}; a failed check throws (`database_api_crypto.cpp:74-89`) | legacy-serialization retry path (`json_rpc_plugin.cpp:457-489`) |
 | `verify_account_authority` | account + signers + level? | bool | owner/active/posting |
-| `verify_signatures` | hash + signatures + required_auths | bool | Low-level check |
-| `is_known_transaction` | txid | bool | |
+| `verify_signatures` | hash + signatures + required_owner, required_active, required_posting, required_witness, required_other | bool | Low-level check |
+| `is_known_transaction` | id | bool | |
 
 ---
 
@@ -372,7 +377,7 @@ Config options (`set_program_options`, `:737-748`):
 | `get_block_range` | starting_block_num, count | vector\<api_signed_block_object\> | Batch retrieval |
 
 ### account_history_api — 4 methods
-**Source:** `libraries/plugins/apis/account_history_api/` · Backend: `account_history_rocksdb` plugin.
+**Source:** `libraries/plugins/apis/account_history_api/`. Backend: `account_history_rocksdb` plugin (its RocksDB storage layer: Part 13, section Key Discoveries, item 10).
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
 | `get_ops_in_block` | block_num, only_virtual?, include_reversible? | multiset\<api_operation_object\> | |
@@ -395,7 +400,7 @@ Config options (`set_program_options`, `:737-748`):
 | `broadcast_transaction` | trx, max_block_age?: int32 | void | Validates, accepts to mempool, broadcasts to peers. Legacy-serialization retry path (`json_rpc_plugin.cpp:457-489`) |
 
 ### rc_api (Resource Credits) — 7 methods
-**Source:** `libraries/plugins/apis/rc_api/`
+**Source:** `libraries/plugins/apis/rc_api/`. Semantics of each method: Part 08, section RC API Endpoints.
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
 | `get_resource_params` | void | resource_names + resource_params + size_info | RC config |
@@ -447,6 +452,7 @@ Config options (`set_program_options`, `:737-748`):
 | list_rc_direct_delegations | rc_api | | | |
 
 **Key differences from database_api:** simplified return types; some methods (`get_account(s)`, `list_accounts`, `get_open_orders`, `get_reward_fund`) hit the chain DB directly; includes broadcasting; enriches accounts with metadata; dual serialization (legacy + HF26) for broadcast.
+`get_dynamic_global_properties` returns the database_api object as is (`wallet_bridge_api_args.hpp:90`), so since 1.28.8 it also lacks `total_reward_fund_hive` and `total_reward_shares2`.
 
 ### witness_api — 3 methods
 **Source:** `libraries/plugins/apis/witness_api/` · Witness nodes only. Controls fast-confirm mode. **Not** for querying witness data (that's database_api/condenser_api).
@@ -463,7 +469,7 @@ Config options (`set_program_options`, `:737-748`):
 | `get_account_reputations` | account_lower_bound: string, limit: uint32=1000 | vector\<{account, reputation}\> |
 
 ### rewards_api — 1 method
-**Source:** `libraries/plugins/apis/rewards_api/`
+**Source:** `libraries/plugins/apis/rewards_api/`. The implementation is a stub at 1.28.7 and 1.28.8: it always fails with `FC_ASSERT( false, "Not supported" )` (`rewards_api.cpp:23-26`), i.e. JSON-RPC -32003; the types below are only declared.
 | Method | Parameters | Returns |
 |--------|-----------|---------|
 | `simulate_curve_payouts` | curve: curve_id, var1: string | {recent_claims, payouts: vector\<{author, permlink, payout}\>} |
@@ -501,7 +507,7 @@ Config options (`set_program_options`, `:737-748`):
 | `get_info` | void | variant_object |
 | `add_node` | endpoint | void |
 | `set_allowed_peers` | allowed_peers: vector\<node_id\> | void |
-| `get_connected_peers` | void | vector\<api_peer_status\> |
+| `get_connected_peers` | void | vector\<api_peer_status\> `{version, host, info}`; since 1.28.8 `info` also has `user_agent` and `core_protocol_version` (`libraries/net/node.cpp:6197-6198`) |
 
 ### debug_node_api — 12 methods (testing/debugging)
 **Source:** `libraries/plugins/apis/debug_node_api/` · Requires the `debug_node` plugin. Compiles into mainnet binaries but is **absent from all shipped production configs** — enabled only on dev/testnet nodes. **Not for production use.**
@@ -515,7 +521,7 @@ Config options (`set_program_options`, `:737-748`):
 | `debug_get_hardfork_property_object` | void | api_hardfork_property_object |
 | `debug_set_hardfork` | hardfork_id, hook_to_tx? | void |
 | `debug_has_hardfork` | hardfork_id | {has_hardfork: bool} |
-| `debug_get_json_schema` | void | {schema: string} | **dead** — returns empty (see *Open Questions #1*) |
+| `debug_get_json_schema` | void | {schema: string}; **dead**, returns empty (see *Open Questions #1*) |
 | `debug_throw_exception` | throw_exception?: bool | void |
 | `debug_set_vest_price` | vest_price, hook_to_tx? | void |
 | `debug_fail_transaction` | tx_id | void |
@@ -537,19 +543,19 @@ Config options (`set_program_options`, `:737-748`):
 ## Non-API Plugins
 
 ### chain_plugin (Core)
-**Source:** `libraries/plugins/chain/` — the foundational plugin all others depend on. Maintains the chainbase database and consensus state; processes/validates blocks and transactions; registers block generators; provides `chain::database&` to other plugins; detects legacy vs HF26 transaction encoding. **Requires** webserver + json_rpc (`chain_plugin.hpp:43`).
+**Source:** `libraries/plugins/chain/`: the foundational plugin most others depend on. Maintains the chainbase database and consensus state; processes/validates blocks and transactions (how they enter and are queued: Part 06, section Entry Points and Skip Flags by Source); registers block generators; provides `chain::database&` to other plugins; detects legacy vs HF26 transaction encoding. **Requires** webserver + json_rpc (`chain_plugin.hpp:43`).
 
 ### witness_plugin (Block Production)
 **Source:** `libraries/plugins/witness/` — manages signing keys, schedules production by witness slot, tracks production conditions (not_synced, not_my_turn, no_private_key, low_participation, lag, …), and supports fast-confirm. `enable_queen_mode()` (`witness_plugin.cpp:570-577`) lets a single node represent every scheduled witness (testnet only — bypasses the identity check at `:335`). Requires chain + p2p.
 
 ### p2p_plugin (Network)
-**Source:** `libraries/plugins/p2p/` — peer connections/discovery; broadcasts blocks and transactions; provides network info and peer status. Contains the only rate limiting in hived (`fc::rate_limiting_group`, `libraries/net/node.cpp:564`) — inter-node bandwidth, unrelated to API clients. Pre-shutdown order 1 (closes after webserver). Requires chain.
+**Source:** `libraries/plugins/p2p/` — peer connections/discovery; broadcasts blocks and transactions; provides network info and peer status. Contains the only rate limiting in hived (`fc::rate_limiting_group`, `libraries/net/node.cpp:591`) — inter-node bandwidth, unrelated to API clients. Pre-shutdown order 1 (closes after webserver). Requires chain.
 
 ### market_history_plugin
 **Source:** `libraries/plugins/market_history/` — tracks internal HIVE/HBD market: OHLCV buckets (configurable intervals) and fill-order history; hooks `fill_order` virtual ops. Backs market_history_api. Requires chain.
 
 ### reputation_plugin
-**Source:** `libraries/plugins/reputation/` — computes account reputation from vote operations via `generic_custom_operation_interpreter`. Backs reputation_api. Requires chain.
+**Source:** `libraries/plugins/reputation/` — computes account reputation from `vote_operation` through pre/post-apply operation handlers (`reputation_plugin.cpp:211-212`) whose visitors act only on `vote_operation` (`:61`, `:119`) and update `reputation_object` (`:95`, `:146-157`); the `generic_custom_operation_interpreter` include in its header (`reputation_plugin.hpp:5,16`) is unused, no custom op is interpreted. Backs reputation_api. Requires chain.
 
 ### transaction_status_plugin
 **Source:** `libraries/plugins/transaction_status/` — tracks tx lifecycle mempool→irreversible; hooks post_apply_transaction / pre/post_apply_block; prunes per `--transaction-status-block-depth`. Backs transaction_status_api. Requires chain.
@@ -584,38 +590,38 @@ Config options (`set_program_options`, `:737-748`):
 
 | File | Size | Content |
 |------|------|---------|
-| `documentation/openapi.json` | 1.35 MB | OpenAPI 3.1.0 spec — **215 paths, 507 component schemas**, `x-envelope: "jsonrpc-2.0"` |
+| `documentation/openapi.json` | 1.32 MiB | OpenAPI 3.1.0 spec: **215 paths, 511 component schemas** (507 at 1.28.7), `x-envelope: "jsonrpc-2.0"`. Not hived-only: 44 paths are hivemind namespaces (bridge 24, tags_api 10, follow_api 7, hive 2, search_api 1) and 22 are hivemind methods under hived namespaces (19 condenser_api, 3 database_api: `find_comments`, `find_votes`, `list_votes`; see `reference/hivemind/api.md`); `debug_node_api.debug_fail_transaction` has no path |
 | `documentation/walletapi.json` | 171 KB | OpenAPI 3.1.0 spec — 87 paths (cli_wallet API) |
 | `documentation/Dockerfile` | — | Minifies + version-stamps the spec and serves it via busybox httpd |
 
 **Both specs are hand-maintained, committed source artifacts — NOT auto-generated.** No build step, CMake target, or CI job *produces* them; every tool only *consumes* them:
-- The `Dockerfile` (`:5-12,23-24`) only `jq`-minifies `openapi.json` and injects `info.version` (placeholder `"0.0.0-dev"`); it does not generate content.
-- `api_generation/` is a downstream **client-package generator** (OpenAPI → Python `hiveio-api` via `datamodel-code-generator`); it *reads* `openapi.json` (`api_generation/.../generate_description.py:21`).
-- CI jobs (`.gitlab-ci.yaml`): `generate-wax-spec` (`:207`) feeds `openapi.json` into the `@hiveio/wax-api-jsonrpc` npm generator; `generate_hived_flattened_openapi_definition` (`:1462-1474`) flattens it. All treat the spec as fixed input.
+- The `Dockerfile` (`libraries/plugins/apis/documentation/Dockerfile:5-12`, `libraries/plugins/apis/documentation/Dockerfile:23-24`) only `jq`-minifies `openapi.json` and `walletapi.json` and injects `info.version` (placeholder `"0.0.0-dev"`); it does not generate content.
+- `api_generation/` is a downstream **client-package generator** (OpenAPI → Python `hiveio-api` via `datamodel-code-generator`); it *reads* `openapi.json` (`api_generation/.../generate_description.py:24`).
+- CI jobs (`.gitlab-ci.yaml`): `generate-wax-spec` (`:207`) feeds `openapi.json` into the `@hiveio/wax-api-jsonrpc` npm generator; `generate_hived_flattened_openapi_definition` (`.gitlab-ci.yaml:1537-1549`) flattens it. All treat the spec as fixed input.
 
 **The live-introspection path that *could* generate schemas is dead:**
-- `debug_get_json_schema` (`debug_node_api.cpp:170`) is annotated "the whole schema thing is (and pretty much always was) dead"; it returns `_db.get_json_schema()` whose populating function `init_schema()` has its **entire body commented out** (`libraries/chain/database_init.cpp:118-174`), so it always returns empty.
+- `debug_get_json_schema` (`debug_node_api.cpp:170`) is annotated "the whole schema thing is (and pretty much always was) dead"; it returns `_db.get_json_schema()` whose populating function `init_schema()` has its **entire body commented out** (`libraries/chain/database_init.cpp:119-175`), so it always returns empty.
 - `jsonrpc.get_signature` returns *default-constructed* arg/return structs reflected to a variant (`json_rpc_plugin.cpp:325-339`) — a field skeleton, not a JSON Schema, and nothing converts it into the OpenAPI document.
 
-**Drift risk: HIGH and unguarded.** The C++ arg/return structs are FC-reflected (so schemas *could* be derived) but nothing does so. No CI job regenerates or validates the spec against the node's actual responses or struct definitions. `openapi.json` has ~59 commits of granular hand-fixes ("Fix get_rc_stats…", "Rename block to header…"), and its 927 example blocks contain frozen real mainnet snapshots — direct evidence of manual maintenance. (Note: `libraries/wallet/api_documentation.cpp`, the cli_wallet interactive `help`, *is* genuinely auto-generated from Doxygen via Perl (`libraries/wallet/CMakeLists.txt:13-22`) — do not confuse it with the hand-written `walletapi.json`.)
+**Drift risk: HIGH and unguarded.** The C++ arg/return structs are FC-reflected (so schemas *could* be derived) but nothing does so. No CI job regenerates or validates the spec against the node's actual responses or struct definitions. `openapi.json` has 76 commits of granular hand-fixes as of 1.28.8 (59 at 1.28.7; e.g. "Fix get_rc_stats...", "Rename block to header..."), and its 942 example blocks (927 at 1.28.7) contain frozen real mainnet snapshots: direct evidence of manual maintenance. (Note: `libraries/wallet/api_documentation.cpp`, the cli_wallet interactive `help`, *is* generated at build time from Doxygen via Perl when both are found (`libraries/wallet/CMakeLists.txt:6-17`); otherwise the build copies `api_documentation_standin.cpp`, which builds the help from reflection at runtime (`libraries/wallet/CMakeLists.txt:18-22`); do not confuse it with the hand-written `walletapi.json`.)
 
 ---
 
 ## Key Discoveries
 
-1. **condenser_api has 62 methods, not 57** — the prior count was wrong and the tables omitted `get_open_orders` (`condenser_api.hpp:993`). It remains a thick legacy adapter: it delegates to specialized APIs but applies `legacy_asset` serialization ("1.000 HIVE" vs NAI `{amount, precision, nai}`).
+1. **condenser_api has 62 methods, not 57** — the prior count was wrong and the tables omitted `get_open_orders` (`condenser_api.hpp:989`). It remains a thick legacy adapter: it delegates to specialized APIs but applies `legacy_asset` serialization ("1.000 HIVE" vs NAI `{amount, precision, nai}`).
 
 2. **Only `database_api` + `json_rpc` are hard dependencies of condenser_api** (`condenser_api_plugin.hpp:17`). Everything else (block, account_history, account_by_key, network_broadcast, reputation, market_history, rc, metadata, p2p) is resolved softly in `api_startup()` via `find_plugin<>()` (`condenser_api.cpp:1213-1270`) and may be null.
 
-3. **Missing optional plugins produce CLEAR errors, not silent empties** — methods needing an absent soft dependency throw `FC_ASSERT("X_plugin not enabled.")` (e.g. `condenser_api.cpp:231,257,854,936,944`), surfaced as JSON-RPC -32003. The *only* silent degradation is reputation enrichment inside `get_accounts` (`if(_reputation_api)`, `:379`). This reverses the prior doc's claim.
+3. **Missing optional plugins produce CLEAR errors, not silent empties**: methods needing an absent soft dependency throw `FC_ASSERT("X_plugin not enabled.")` (e.g. `condenser_api.cpp:231,257,854,936,944`), surfaced as JSON-RPC -32003. The *only* silent degradations are account enrichments: reputation inside `get_accounts` (`if(_reputation_api)`, `:379`), and `json_metadata`/`posting_json_metadata`, which stay empty when the `metadata` plugin is not enabled (`database_api_objects_constructors.cpp:264-268`). This reverses the prior doc's claim.
 
 4. **hived does not enable the API by default.** A bare node runs only chain/p2p/webserver/json_rpc + witness/account_by_key(_api)/state_snapshot (`main.cpp:117-131`). The useful API set comes from deployment `config.ini` files (`contrib/config-for-docker.ini`), not the binary.
 
-5. **No per-client rate limiting exists** anywhere in the webserver/JSON-RPC layer; the sole concurrency control is the fixed thread pool (default 16, `webserver_plugin.cpp:744`). Under saturation, requests queue indefinitely via `boost::asio::post` — no rejection, only `LOG_DELAY` warnings at 2/4/10 s. (Reverse proxies must provide any throttling.)
+5. **No per-client rate limiting exists** anywhere in the webserver/JSON-RPC layer; the sole concurrency control is the fixed thread pool (default 16, `webserver_plugin.cpp:746`). Under saturation, requests queue indefinitely via `boost::asio::post` — no rejection, only `LOG_DELAY` warnings at 2/4/10 s. (Reverse proxies must provide any throttling.)
 
 6. **Two-phase + early registration.** Most APIs register into `proxy_data` during init and go live at finalize; `app_status_api` and `node_status_api` use `JSON_RPC_REGISTER_EARLY_API` so health/sync probes answer during replay.
 
-7. **Three locking strategies, taken once.** Read APIs use a 1-second read-lock timeout (`utility.hpp:50`); write APIs an untimed write lock; lockless skip locking. The `lock` flag is true only for top-level JSON-RPC calls, so nested API delegation never double-locks.
+7. **Three locking strategies, taken once.** Read APIs use a 1-second read-lock timeout (`json_rpc/utility.hpp:50`); write APIs an untimed write lock; lockless skip locking. The `lock` flag is true only for top-level JSON-RPC calls, so nested API delegation never double-locks.
 
 8. **Legacy-serialization fallback is method-specific, not universal** — only `network_broadcast_api.broadcast_transaction` and `database_api.verify_authority` retry under a legacy `mode_guard` on `bad_cast` (`json_rpc_plugin.cpp:457-489`).
 
@@ -637,35 +643,39 @@ Config options (`set_program_options`, `:737-748`):
 |-------|------|-----------|
 | Plugin base / requires macro | `libraries/appbase/include/appbase/plugin.hpp` | 10-16 (`APPBASE_PLUGIN_REQUIRES`), 35-42 (`pre_shutdown_order`) |
 | App init / default plugins | `libraries/appbase/include/appbase/application.hpp` | 174-175 (`set_default_plugins`), 223 |
-| App init / option default | `libraries/appbase/src/application.cpp` | 183-184, 329-343, 483-530 |
+| App init / option default | `libraries/appbase/application.cpp` | 183-184, 329-343, 483-530 |
 | hived startup | `programs/hived/main.cpp` | 108, 117-122, 126-131 |
 | Plugin manifest generation | `libraries/manifest/templates/plugins/mf_plugins.cpp.j2` | 12-17; `libraries/manifest/CMakeLists.txt:17-39` |
 | API declaration / locking macros | `libraries/plugins/json_rpc/include/hive/plugins/json_rpc/utility.hpp` | 27-34 (DECLARE_API), 45-85 (locking), 87-99 (LOG_DELAY) |
-| JSON-RPC routing | `libraries/plugins/json_rpc/json_rpc_plugin.cpp` | 341-393 (find/process_params), 416-524 (rpc_jsonrpc), 526-587 (rpc), 647-699 (call/batch) |
+| JSON-RPC routing | `libraries/plugins/json_rpc/json_rpc_plugin.cpp` | 341-393 (find/process_params), 416-524 (rpc_jsonrpc), 526-587 (rpc), 647-695 (call/batch) |
 | JSON-RPC registration & introspection | `libraries/plugins/json_rpc/json_rpc_plugin.cpp` | 274-316 (register/finalize), 319-339 (get_methods/get_signature) |
 | Legacy-serialization retry | `libraries/plugins/json_rpc/json_rpc_plugin.cpp` | 457-489 |
-| WebServer transports/pool | `libraries/plugins/webserver/webserver_plugin.cpp` | 322-329 (pool), 574/626/686 (post), 730 (shutdown order), 737-748 (options) |
-| condenser methods (62) | `libraries/plugins/apis/condenser_api/include/.../condenser_api.hpp` | 957-1020 (DECLARE_API) |
+| WebServer transports/pool | `libraries/plugins/webserver/webserver_plugin.cpp` | 322-329 (pool), 576/628/688 (post), 732 (shutdown order), 739-750 (options) |
+| condenser methods (62) | `libraries/plugins/apis/condenser_api/include/.../condenser_api.hpp` | 953-1016 (DECLARE_API) |
 | condenser soft-dep wiring | `libraries/plugins/apis/condenser_api/condenser_api.cpp` | 1213-1270 (api_startup), 1272-1282 (lockless set), 397 (broken method) |
 | database_api methods (51) | `libraries/plugins/apis/database_api/include/.../database_api.hpp` | DECLARE_API block |
 | database_api query limit | `libraries/plugins/apis/database_api/database_api_financial.cpp` | 24,92,182,266,328 (`DATABASE_API_SINGLE_QUERY_LIMIT`) |
 | wallet_bridge_api (35) | `libraries/plugins/apis/wallet_bridge_api/include/.../wallet_bridge_api.hpp` | DECLARE_API block |
-| account_history limits | `libraries/plugins/apis/account_history_api/account_history_api.cpp` | 125-126 (1000), 259-267 (150,000) |
-| debug_node_api (12) | `libraries/plugins/apis/debug_node_api/include/.../debug_node_api.hpp` | 162-184; dead schema `debug_node_api.cpp:170` |
-| EARLY-registered status APIs | `…/app_status_api/app_status_api.cpp:58`, `…/node_status_api/node_status_api.cpp:36` | |
+| account_history limits (`get_account_history` limit <= 1000; `enum_virtual_ops` max 150000) | `libraries/plugins/apis/account_history_api/account_history_api.cpp` | 125-126, 259-267 |
+| debug_node_api (12) | `libraries/plugins/apis/debug_node_api/include/.../debug_node_api.hpp` | 162-184 |
+| dead schema (`debug_get_json_schema`) | `libraries/plugins/apis/debug_node_api/debug_node_api.cpp` | 170 |
+| EARLY-registered status API (app_status_api) | `libraries/plugins/apis/app_status_api/app_status_api.cpp` | 58 |
+| EARLY-registered status API (node_status_api) | `libraries/plugins/apis/node_status_api/node_status_api.cpp` | 36 |
 | colony (testnet tool) | `libraries/plugins/colony/colony_plugin.cpp` | 42-50, 286-288, 858-880, 887-889 |
 | queen (testnet tool) | `libraries/plugins/queen/queen_plugin.cpp` | 98-127, 256-266, 273-275 |
-| OpenAPI spec (hand-maintained) | `libraries/plugins/apis/documentation/openapi.json`, `.../Dockerfile:5-12` | client gen: `api_generation/.../generate_description.py:21` |
+| OpenAPI spec (hand-maintained) | `libraries/plugins/apis/documentation/openapi.json` | (whole file) |
+| OpenAPI spec image (minify + version stamp) | `libraries/plugins/apis/documentation/Dockerfile` | 5-12, 23-24 |
+| Python client generation (reads the spec) | `libraries/plugins/apis/api_generation/api_generation/api_generation/generate_description.py` | 24 |
 
 ---
 
 ## Discrepancies and Potential Issues
 
-1. **condenser_api method count was wrong (57 → 62).** The `DECLARE_API` block (`condenser_api.hpp:957-1020`) declares 62 methods; earlier tables summed to 61 and omitted `get_open_orders`, while the headline said 57. `reference/api.md` must be corrected.
+1. **condenser_api method count was wrong (57 → 62).** The `DECLARE_API` block (`condenser_api.hpp:953-1016`) declares 62 methods; earlier tables summed to 61 and omitted `get_open_orders`, while the headline said 57. `reference/api.md` must be corrected.
 
 2. **debug_node_api count was wrong (11 → 12).** `debug_fail_transaction` was missing.
 
-3. **"Optional plugins silently return empty / no clear error" was wrong (now corrected).** condenser_api methods for optional plugins throw a descriptive `FC_ASSERT("X_plugin not enabled.")` → JSON-RPC -32003. Clients *can* distinguish "plugin not enabled" (this assert message) from "no data found" (empty result). Only the reputation field inside `get_accounts` degrades silently.
+3. **"Optional plugins silently return empty / no clear error" was wrong (now corrected).** condenser_api methods for optional plugins throw a descriptive `FC_ASSERT("X_plugin not enabled.")` -> JSON-RPC -32003. Clients *can* distinguish "plugin not enabled" (this assert message) from "no data found" (empty result). Only account enrichments degrade silently: the reputation field inside `get_accounts` and, without the `metadata` plugin, the account JSON metadata fields (Key Discovery 3).
 
 4. **Inconsistent pagination limits (confirmed, quantified).** Caps/defaults: condenser `get_vesting_delegations`/`get_expiring_vesting_delegations` default **100**; `get_order_book` default **500**; most list methods and `DATABASE_API_SINGLE_QUERY_LIMIT` cap at **1000**; `account_history_api.enum_virtual_ops` caps at **150,000**. No unified pagination standard.
 
@@ -675,7 +685,7 @@ Config options (`set_program_options`, `:737-748`):
 
 7. **Total endpoint count was understated (~175 → ~198).** 196 `DECLARE_API` methods across 18 production API plugins + 2 jsonrpc. The "17 API plugins" headline should be "18 + jsonrpc" (plus the test-only `test_api`).
 
-8. **Error-code nuance.** An unknown api/method returns **-32002** (PARSE_PARAMS_ERROR, via `find_api_method`'s assert in `process_params`), not the nominal -32601; handler asserts (incl. "plugin not enabled") return **-32003**. Documenting only the nominal constants can mislead client error-handling.
+8. **Error-code nuance.** An unknown api/method returns **-32002** (PARSE_PARAMS_ERROR, via `find_api_method`'s assert in `process_params`), not the nominal -32601; handler asserts (incl. "plugin not enabled") return **-32003**. Likewise a body that is not valid JSON returns **-32000** (caught in `call`, `json_rpc_plugin.cpp:684`), not -32700, which is returned only for a request that is not a JSON object (`json_rpc_plugin.cpp:571`). Documenting only the nominal constants can mislead client error-handling.
 
 ---
 
@@ -694,5 +704,5 @@ Config options (`set_program_options`, `:737-748`):
 5. **What's the `queen` plugin?** → **RESOLVED.** A testnet-only single-node instant block producer for benchmarking/CI, no API, mainnet-blocked, disables P2P.
 
 **Remaining / out of scope (zoom candidates):**
-- **Exact websocketpp default body/message-size limits.** hived sets none; the effective cap is whatever the bundled websocketpp (nested under the `fc` submodule, not checked out) compiles in. Verifying the numeric default requires the populated submodule.
+- **Exact websocketpp default body/message-size limits.** -> **RESOLVED (read at 1.28.8 from the pinned submodule objects; the `fc` submodule is still not checked out in the worktree).** hived sets none (the webserver plugin overrides neither `max_message_size` nor `max_http_body_size`), so the bundled websocketpp defaults apply: at 1.28.8 fc `4ab43c0357b1` pins websocketpp `9a60d6ca` (1.28.7: fc `1f3833595ff3`, websocketpp `92a6493d`, same values), whose `websocketpp/config/core.hpp` sets `max_message_size` (WebSocket messages) and `max_http_body_size` (HTTP request bodies) to 32000000 bytes. hived's server configs derive from `websocketpp::config::asio_tls` and `websocketpp::config::asio`, which inherit both values (`webserver_plugin.cpp:50-53`, `:114`). These are the limits of hived's own server; anything in front of it (a reverse proxy, a load balancer) applies its own.
 - **HAF/hivemind API surface.** The richest production "Hive API" (account history, social, block explorer) is served by HAF-based apps in front of hived, not by these node plugins. That layer is out of scope for hive-core and belongs in a separate HAF research part.

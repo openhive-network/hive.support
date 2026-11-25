@@ -5,7 +5,7 @@
 The Hive blockchain maintains its consensus state as a set of objects stored in shared memory via chainbase (a memory-mapped Boost.Interprocess database). The core `object_type` enum defines **39 type IDs (0–38)**: 37 are defined and registered by the core chain library, one (`account_metadata_object`, ID 2) is defined in the metadata plugin, and one (`block_stats_object`, ID 24) is a historical leftover with no definition at all. Each object type is stored in a Boost.MultiIndex container with one or more lookup indices. This document catalogs every state object, its fields, indices, lifecycle (what creates/modifies/removes it), and role in the system.
 
 **Key architectural points:**
-- Core consensus state lives in chainbase shared memory — **with one important exception**: since 1.28, paid-out (cashed-out) comments are by default migrated out of chainbase into a **RocksDB comment archive** (`comment-archive = ROCKSDB` is the default chain plugin option). See "Comment Archive and External Storage" below.
+- Core consensus state lives in chainbase shared memory, **with one important exception**: since 1.28, paid-out (cashed-out) comments are by default migrated out of chainbase into a **RocksDB comment archive** (ROCKSDB is the default of the chain plugin option `comment-archive`, which exists only in testnet and mirrornet builds; mainnet builds always use ROCKSDB: `libraries/plugins/chain/chain_plugin.cpp:1539-1541`, `:1604-1606`). See "Comment Archive and External Storage" below.
 - Objects are accessed through Boost.MultiIndex containers with composite keys; node memory comes from a pool allocator that allocates blocks of N objects at a time (N = power of 2, default 4096 for multi-index nodes).
 - Several objects are **singletons** (one instance): `dynamic_global_property_object`, `feed_history_object`, `hardfork_property_object`, `reward_fund_object`, `rc_resource_param_object`, `rc_pool_object`
 - The `witness_schedule_object` and `rc_stats_object` are **doubletons** (exactly 2 instances). The second witness schedule (the *future* schedule, id 1) is created at HF26; `rc_stats_object` has pending (id 0) and archive (id 1) instances created at HF20.
@@ -14,12 +14,12 @@ The Hive blockchain maintains its consensus state as a set of objects stored in 
 - `block_stats_object` is **forward-declared but never defined** — it is a remnant of an early Steem object deleted in 2016; the enum slot is kept so later type IDs don't shift.
 - RC state (mana) is embedded directly in `account_object`; there is no separate `rc_account_object` (the old RC-plugin object of that name disappeared when RC was merged into the chain library).
 - The `comment_object` stores only a RIPEMD-160 hash of permlink+author_id, not the raw strings.
-- Object IDs (`oid`/`oid_ref`) are **uint32_t** (4 bytes) — `chainbase/util/object_id.hpp:20-23`. Typed assets (`HIVE_asset`/`HBD_asset`/`VEST_asset` = `tiny_asset<SYM>`) store only an 8-byte `share_type` amount; the symbol is a compile-time template parameter (`libraries/protocol/include/hive/protocol/asset.hpp:219-221`).
+- Object IDs (`oid`/`oid_ref`) are **uint32_t** (4 bytes): `chainbase/util/object_id.hpp:20-23`. Typed assets (`HIVE_asset`/`HBD_asset`/`VEST_asset` = `tiny_asset<SYM>`) store only an 8-byte `share_type` amount; the symbol is a compile-time template parameter (`libraries/protocol/include/hive/protocol/asset.hpp:219-221`). Since 1.28.8 the amounts that hold funds in chain objects are balance classes wrapped around them (`tiny_balance<SYM>` such as `HIVE_balance`, or `balance` around a full `asset` where the symbol varies: `libraries/chain/include/hive/chain/util/balance.hpp:25-27`, `:262-307`) with the same JSON and binary form (`:385-422`); they change only by transfers between balances or through the dgpo supply methods (see the dgpo Lifecycle below), while counters and records keep `tiny_asset`. See Part 01, section tiny_asset and tiny_price.
 - All chain timestamps use `fc::time_point_sec`, which stores **uint32_t seconds since epoch** — the entire chain (not just manabars) has a year-2106 representation horizon; `time_point_sec::maximum()` = `0xffffffff`.
 
 ## Object Type Enum
 
-Source: `libraries/chain/include/hive/chain/hive_object_types.hpp:47-89`
+Source: `libraries/chain/include/hive/chain/hive_object_types.hpp:48-90`
 
 | ID | Type Name | Category |
 |----|-----------|----------|
@@ -67,7 +67,7 @@ Source: `libraries/chain/include/hive/chain/hive_object_types.hpp:47-89`
 
 ### Chainbase objects outside the core enum (space-ID scheme)
 
-The core enum is not the full universe of chainbase objects. Plugins (and one core subsystem) define additional chainbase objects using a *space ID* convention: the object's 16-bit type value is `(SPACE_ID << 8) + n`, keeping them clear of core IDs 0–38. The chainbase `object<>` template takes `uint16_t TypeNumber` (`libraries/chainbase/include/chainbase/chainbase.hpp:171`).
+The core enum is not the full universe of chainbase objects. Plugins (and one core subsystem) define additional chainbase objects using a *space ID* convention: the object's 16-bit type value is `(SPACE_ID << 8) + n`, keeping them clear of core IDs 0-38. The chainbase `object<>` template takes `uint16_t TypeNumber` (`libraries/chainbase/include/chainbase/util/object.hpp:15`).
 
 Space IDs defined at this revision:
 
@@ -81,7 +81,7 @@ Space IDs defined at this revision:
 | 18 | transaction_status plugin | transaction status objects |
 | 21 | **core comment RocksDB archive** | `volatile_comment_object` (`external_storage/comment_rocksdb_objects.hpp:8-17`) |
 | 22 | metadata plugin (reserved; the actual `account_metadata_object` uses core ID 2) | — |
-| 666 | comment_cashout_logging plugin | logging objects |
+| 666 | comment_cashout_logging plugin | none: the plugin defines the macro (`comment_cashout_logging_plugin.hpp:13-15`) but no chainbase object, and `666 << 8` would not fit the 16-bit type number |
 
 Notably, `volatile_comment_object` (type value `21 << 8` = 5376) is a *consensus-relevant* chainbase object registered by core chain code (not a plugin) whenever the default ROCKSDB comment archive is active — see the dedicated section below.
 
@@ -91,21 +91,24 @@ Notably, `volatile_comment_object` (type value `21 << 8` = 5376) is a *consensus
 - **RocksDB external storage (core)**: archived (paid-out) comments, as serialized `rocksdb_comment_object` records keyed by author+permlink hash — only when `comment-archive = ROCKSDB` (the default). This is the only core state that leaves chainbase.
 - **RocksDB external storage (plugin)**: `account_history_rocksdb` stores account history operations in RocksDB (non-consensus, out of scope here).
 - **Not persisted at all**: `node_property_object` (per-node runtime config, `node_property_object.hpp:15`) and the `block_stats` *telemetry class* in `block_flow_control.hpp:18` (unrelated to the dead enum slot — see Discrepancies).
+- **State files of 1.28.7 cannot be reused** (per code reading and the unit-test checksums, not observed on a node): on open, hived compares the checksums of the reflected state types stored in shared memory (each over the type and its members' types, names and offsets) with its own and throws `shm_state_definitions_mismatch_exception` on a mismatch (`libraries/chain/database.cpp:187`, `libraries/chain/database_init.cpp:76-87`, `libraries/chain/util/state_checker_tools.cpp:34-38`, `libraries/chain/include/hive/chain/util/decoded_types_data_storage.hpp:182-216`). The objects whose members became balance classes changed checksum in 1.28.8 (for example `tests/unit/tests/basic_tests.cpp:1519`), so a 1.28.8 node refuses a `shared_memory.bin` or state snapshot written by 1.28.7 and state must be rebuilt: `--force-replay`, `--resync-blockchain`, or `--load-snapshot` of a snapshot made by 1.28.8 (only these wipe shared memory before the open, `libraries/plugins/chain/chain_plugin.cpp:955-956`; a snapshot load then runs the same check, `libraries/plugins/state_snapshot/state_snapshot_plugin.cpp:1601-1611`).
 
 ---
 
 ## State Objects Reference
 
 Conventions used below:
-- "Lifecycle" lists verified create/modify/remove sites (`file:line` at pinned commit `1584099c3`).
-- All `*_multiindex.hpp` files live in `libraries/chain/include/hive/chain/detail/state/` unless noted; object headers in the same directory.
-- The chainbase `object<>` base template is `object<TypeNumber, Derived, HasDynamicAlloc = std::false_type, EnableNoUndo = std::false_type>` (`chainbase.hpp:171-193`). `HasDynamicAlloc = true` marks objects whose members need an allocator (shared_string / t_vector) and enables dynamic-allocation benchmarking; `EnableNoUndo = true` enables `remove_no_undo()` destruction outside the undo stack (used only by `comment_object` for archive migration — safe because comments are immutable and the 7-day cashout window guarantees no pending undo entry references them; the chainbase comment explicitly contrasts this with `volatile_comment_object`, which must NOT use it).
+- "Lifecycle" lists verified create/modify/remove sites (`file:line` at release 1.28.8, commit `274384a8a`).
+- The `*_multiindex.hpp` files of the core state objects live in `libraries/chain/include/hive/chain/detail/state/` unless noted; object headers in the same directory. Since 1.28.8 the other chainbase index definitions have their own headers too: `rc/rc_objects_multiindex.hpp` (RC objects), `external_storage/comment_rocksdb_objects_multiindex.hpp` (`volatile_comment_index`), and a `<name>_objects_multiindex.hpp` next to each plugin's object header (for example `plugins/metadata/include/hive/plugins/metadata/metadata_objects_multiindex.hpp`); at 1.28.7 they were defined next to the objects.
+- The chainbase `object<>` base template is `object<TypeNumber, Derived, HasDynamicAlloc = std::false_type, EnableNoUndo = std::false_type>` (`chainbase/util/object.hpp:15-37`). `HasDynamicAlloc = true` marks objects whose members need an allocator (shared_string / t_vector) and enables dynamic-allocation benchmarking; `EnableNoUndo = true` enables `remove_no_undo()` destruction outside the undo stack (used only by `comment_object`, for the MEMORY comment archive's migration: safe because comments are immutable and the 7-day cashout window guarantees no pending undo entry references them; the chainbase comment explicitly contrasts this with `volatile_comment_object`, which must NOT use it).
+- Since 1.28.8 chainbase's `remove()` and `erase()` call the object's `check_on_remove()` when its class defines one (`chainbase/chainbase.hpp:172-181`, `:417-444`); undo, `clear()`, `remove_no_undo()` and `move_to_external_storage()` skip it. The eight classes with balance members (account, dgpo, reward fund, escrow, limit order, savings withdraw, convert and collateralized convert requests) define it to assert that every balance is empty, so the code that removes them moves the funds out to temp balances first (for example `cancel_order`, `database_market.cpp:408-423`).
+- Field tables list the reflected member names (`FC_REFLECT`). Since 1.28.8 many more objects keep these members private behind getters and setters (among them the dgpo, the funds and delegation members of `account_object`, `account_authority_object` and `limit_order_object`; the comment family, the conversion requests and recurrent transfers were private already at 1.28.7); the tables keep the reflected names.
 
 ---
 
 ### dynamic_global_property_object (Singleton)
 
-**Source:** `detail/state/global_property_object.hpp:27`
+**Source:** `detail/state/global_property_object.hpp:29`
 
 The single most important state object — tracks ALL global chain state. One instance exists.
 
@@ -123,10 +126,8 @@ The single most important state object — tracks ALL global chain state. One in
 | `current_supply` | `HIVE_asset` | **Main HIVE token counter** |
 | `init_hbd_supply` | `HBD_asset` | Initial HBD supply |
 | `current_hbd_supply` | `HBD_asset` | **Main HBD token counter** |
-| `total_vesting_fund_hive` | `HIVE_asset` | HIVE backing all VESTS |
+| `total_vesting_fund_hive` | `HIVE_balance` | HIVE backing all VESTS (a balance class since 1.28.8, `HIVE_asset` at 1.28.7) |
 | `total_vesting_shares` | `VEST_asset` | Total VESTS in existence |
-| `total_reward_fund_hive` | `HIVE_asset` | Pending liquid reward pool |
-| `total_reward_shares2` | `fc::uint128` | Running total of REWARD^2 |
 | `pending_rewarded_vesting_shares` | `VEST_asset` | Unclaimed vest rewards |
 | `pending_rewarded_vesting_hive` | `HIVE_asset` | HIVE backing unclaimed vest rewards |
 | `hbd_interest_rate` | `uint16_t` | HBD interest rate (BPS) |
@@ -157,7 +158,7 @@ The single most important state object — tracks ALL global chain state. One in
 | `min_recurrent_transfers_recurrence` | `uint8_t` | Min recurrence in hours |
 | `max_open_recurrent_transfers` | `uint16_t` | Max active recurrent transfers per account |
 
-(44 reflected fields + `id`; matches `FC_REFLECT` at `global_property_object.hpp:176-221`.)
+(41 reflected fields + `id`; matches `FC_REFLECT` at `global_property_object.hpp:400-443`. 1.28.7 also had `total_reward_fund_hive` and `total_reward_shares2` (43 fields); 1.28.8 removed both from the object and from the `database_api` and `condenser_api` dgpo responses (`database_api_objects.hpp:691-703`, `condenser_api.hpp:1062-1075`). The pre-HF17 data they held, the content reward pool and the running rshares2 total, is kept in `reward_fund_object` (`reward_balance`, `recent_claims`) since 1.28.8 (`database.cpp:1687-1699`, `:1953-1966`); see its section below.)
 
 **Computed Properties:**
 - `get_vesting_share_price()` — VEST/HIVE conversion price (from `total_vesting_shares` / `total_vesting_fund_hive`)
@@ -165,7 +166,7 @@ The single most important state object — tracks ALL global chain state. One in
 
 **Indices:** Only `by_id` (singleton)
 
-**Lifecycle:** created once at genesis (`database_init.cpp:293`); modified every block (`update_global_dynamic_data`, `process_funds`, supply changes via `adjust_supply`, witness-median property updates); never removed.
+**Lifecycle:** created once at genesis (`database_init.cpp:256`); modified every block (`update_global_dynamic_data`, `process_funds`, supply changes, witness-median property updates); never removed. Since 1.28.8 HIVE and HBD are issued, burned and converted only through the dgpo's own methods, which replace `database::adjust_supply` and hand out or take in temp balances (`global_property_object.hpp:295-396`): `issue_HIVE`/`burn_HIVE` (`current_supply`, `virtual_supply`), `issue_HBD`/`burn_HBD` (`current_hbd_supply`, `virtual_supply`), `convert_HIVE_to_HBD` (raises `current_hbd_supply`, lowers `current_supply`, may recompute `virtual_supply`), `issue_VESTS`/`burn_VESTS` (`total_vesting_shares`, or `pending_rewarded_vesting_shares` for rewards), `convert_HIVE_to_VESTS` (moves the HIVE into `total_vesting_fund_hive`, or for rewards adds its amount to `pending_rewarded_vesting_hive`, and issues the VESTS) and `convert_VESTS_to_HIVE` (pays the HIVE out of `total_vesting_fund_hive` and burns the VESTS). Some counters are still written directly through the dgpo's `access_*` mutators: `update_virtual_supply()` recomputes `virtual_supply` every block (`database.cpp:2905-2913`, called at `:2348` and `:2359`), and `claim_reward_balance` and `liquify_reward_balance` adjust the reward VESTS counters (`hive_evaluator_transfer.cpp:711-718`, `database.cpp:1172-1176`).
 
 ---
 
@@ -173,7 +174,7 @@ The single most important state object — tracks ALL global chain state. One in
 
 **Source:** `detail/state/account_object.hpp:27` (declared `object<..., std::true_type>` — has dynamic alloc, for `delayed_votes`)
 
-The largest and most complex state object. Stores all account state including balances, manabars, voting data, and RC state. A source comment at `account_object.hpp:175` states: *"members are organized in such a way that the object takes up as little space as possible (note that object starts with 4byte id)"* — the field order below is deliberate packing, not historical accident.
+The largest and most complex state object. Stores all account state including balances, manabars, voting data, and RC state. A source comment at `account_object.hpp:200` states: *"members are organized in such a way that the object takes up as little space as possible (note that object starts with 4byte id)"*: the declaration order in the header is deliberate packing, not historical accident; the table below groups the fields by topic instead. Since 1.28.8 the nine members that hold funds are balance classes (types below) and, with `delegated_vesting_shares` and `received_vesting_shares`, private behind getters such as `get_hive_balance()` (`account_object.hpp:70-127`, `:217-230`); two of them were renamed in 1.28.8 (`balance` -> `hive_balance`, `savings_balance` -> `savings_hive_balance`; `FC_REFLECT` at `account_object.hpp:608-609`), while the `database_api` and `condenser_api` account objects keep the old names (`database_api_objects.hpp:312-313`, `condenser_api.hpp:195-196`).
 
 **Fields:**
 
@@ -185,16 +186,16 @@ The largest and most complex state object. Stores all account state including ba
 | `last_account_recovery` | `time_point_sec` | Last successful recovery |
 | `block_last_account_recovery` | `time_point_sec` | Same from block time (REMOVE — API only) |
 | **Balances** | | |
-| `balance` | `HIVE_asset` | Liquid HIVE |
-| `savings_balance` | `HIVE_asset` | HIVE in savings (3-day withdrawal) |
-| `reward_hive_balance` | `HIVE_asset` | Unclaimed HIVE rewards |
-| `hbd_balance` | `HBD_asset` | Liquid HBD |
-| `savings_hbd_balance` | `HBD_asset` | HBD in savings (earns interest) |
-| `reward_hbd_balance` | `HBD_asset` | Unclaimed HBD rewards |
-| `reward_vesting_balance` | `VEST_asset` | Unclaimed VEST rewards |
-| `reward_vesting_hive` | `HIVE_asset` | HIVE counterweight to reward VESTS |
+| `hive_balance` | `HIVE_balance` | Liquid HIVE (`balance` at 1.28.7 and in the API account objects) |
+| `savings_hive_balance` | `HIVE_balance` | HIVE in savings (3-day withdrawal; `savings_balance` at 1.28.7 and in the API account objects) |
+| `reward_hive_balance` | `HIVE_balance` | Unclaimed HIVE rewards |
+| `hbd_balance` | `HBD_balance` | Liquid HBD |
+| `savings_hbd_balance` | `HBD_balance` | HBD in savings (earns interest) |
+| `reward_hbd_balance` | `HBD_balance` | Unclaimed HBD rewards |
+| `reward_vesting_balance` | `VEST_balance` | Unclaimed VEST rewards |
+| `reward_vesting_hive` | `HIVE_balance` | HIVE counterweight to reward VESTS |
 | **Vesting** | | |
-| `vesting_shares` | `VEST_asset` | Total VESTS held |
+| `vesting_shares` | `VEST_balance` | Total VESTS held |
 | `delegated_vesting_shares` | `VEST_asset` | VESTS delegated out |
 | `received_vesting_shares` | `VEST_asset` | VESTS delegated in |
 | `vesting_withdraw_rate` | `VEST_asset` | Weekly power down rate |
@@ -210,7 +211,7 @@ The largest and most complex state object. Stores all account state including ba
 | `rc_adjustment` | `share_type` | Extra RC from account creation fee |
 | `delegated_rc` | `share_type` | RC delegated out |
 | `received_rc` | `share_type` | RC delegated in |
-| `last_max_rc` | `share_type` | Debug only — comment: "for bug catching with RC code, can be removed once RC becomes part of consensus" (`account_object.hpp:218`) |
+| `last_max_rc` | `share_type` | Maximum RC as last recorded by the RC code, which updates and caps `rc_manabar` against it when the maximum changes (`rc/rc_utility.cpp:468-488`) and compares it with the current maximum to catch RC bugs (`:344-358`). Source comment: "for bug catching with RC code, can be removed once RC becomes part of consensus" (`account_object.hpp:243`); HF29, defined in 1.28.8 and inactive on mainnet, makes RC part of consensus (Part 01, section HF29 (Defined in 1.28.8, Inactive on Mainnet)) |
 | **HBD Interest** | | |
 | `hbd_seconds` | `uint128_t` | Liquid HBD × time held |
 | `hbd_seconds_last_update` | `time_point_sec` | Last HBD seconds update |
@@ -231,7 +232,7 @@ The largest and most complex state object. Stores all account state including ba
 | `last_post_edit` | `time_point_sec` | Last post edit time (source comment: could be merged with `last_post`, needs HF) |
 | `last_vote_time` | `time_point_sec` | Last vote time (REMOVE — non-consensus) |
 | **Delayed Voting** | | |
-| `delayed_votes` | `t_vector<delayed_votes_data>` | VESTS per day pending activation (30-day delay); TODO comment: "check how frequently it is filled — maybe separate index would be better" (`account_object.hpp:266`) |
+| `delayed_votes` | `t_vector<delayed_votes_data>` | VESTS per day pending activation (30-day delay); TODO comment: "check how frequently it is filled - maybe separate index would be better" (`account_object.hpp:291`) |
 | `sum_delayed_votes` | `ushare_type` | Sum of delayed votes (comment: should be `VEST_asset`) |
 | **Other** | | |
 | `pending_claimed_accounts` | `share_type` | Claimed but unused account tokens (comment: could be 32bit) |
@@ -244,7 +245,7 @@ The largest and most complex state object. Stores all account state including ba
 | `block_created` | `time_point_sec` | Creation time from block (REMOVE — API and colony) |
 | `last_account_update` | `time_point_sec` | Last account update (REMOVE — non-consensus) |
 | `mined` | `bool` | Created via POW mining (REMOVE — API only) |
-| `memo_key` | `public_key_type` | Memo key, 33 bytes align(1). Source comment: "it belongs to metadata as it is not used by consensus, but witnesses need it here since they don't use metadata plugin" (`account_object.hpp:257`) |
+| `memo_key` | `public_key_type` | Memo key, 33 bytes align(1). Source comment: "it belongs to metadata as it is not used by consensus, but witnesses need it here since they don't use metadata plugin" (`account_object.hpp:282`) |
 
 **Computed Properties:**
 - `get_effective_vesting_shares()` = `vesting_shares - delegated_vesting_shares + received_vesting_shares - next_withdrawal_step`
@@ -262,13 +263,13 @@ The largest and most complex state object. Stores all account state including ba
 | `by_delayed_voting` | `(oldest_delayed_vote_time, id)` | Mature delayed votes |
 | `by_governance_vote_expiration_ts` | `(governance_vote_expiration_ts, id)` | Expire governance votes |
 
-**Lifecycle:** created by `account_create` / `account_create_with_delegation` / `create_claimed_account` / `pow` / `pow2` evaluators through the free `create_account()` helper (`hive_evaluator_account.cpp:152`); at genesis for builtin accounts (miners, initminer, temp, treasury — `database_init.cpp:195-280`); at HF21 (`steem.dao`) and HF24 (`hive.fund`) for the treasury (`database_hardfork.cpp:433`, `database_hardfork.cpp:534`). Modified by virtually every balance/vesting/voting/RC operation and per-block processing. **Never removed** (accounts are permanent; HF23 zeroed balances of specific accounts via `clear_account` but kept the objects).
+**Lifecycle:** created by `account_create` / `account_create_with_delegation` / `create_claimed_account` / `pow` / `pow2` evaluators through the free `create_account()` helper (`hive_evaluator_account.cpp:152`); at genesis for the builtin accounts (`miners`, `null`, `temp`, `initminer` and `steem`; testnet and mirrornet builds add their configured init witnesses, testnet and iceberg-converter builds both treasury accounts: `database_init.cpp:197-252`); at HF21 (`steem.dao`) and HF24 (`hive.fund`) for the treasury, each only if that account does not exist yet (`database_hardfork.cpp:428`, `database_hardfork.cpp:529`). Modified by virtually every balance/vesting/voting/RC operation and per-block processing. **Never removed** (accounts are permanent; HF23 zeroed balances of specific accounts via `clear_account` but kept the objects).
 
 ---
 
 ### account_authority_object
 
-**Source:** `detail/state/account_object.hpp:339` (has dynamic alloc — shared_authority maps)
+**Source:** `detail/state/account_object.hpp:364` (has dynamic alloc - shared_authority maps)
 
 Separate object for authority storage (owner/active/posting keys). Split from account_object so that the hot account data stays small.
 
@@ -290,7 +291,7 @@ Separate object for authority storage (owner/active/posting keys). Split from ac
 | `by_id` | `id` | Primary |
 | `by_account` | `(account, id)` | Lookup by account name |
 
-**Lifecycle:** created alongside every `account_object` (`hive_evaluator_account.cpp:197`, pow paths `hive_evaluator.cpp:424,561`, genesis `database_init.cpp`); modified by `account_update`/`account_update2`, `recover_account`, `change_recovery_account` effects; never removed. Owner updates are rate-limited via `previous_owner_update`/`last_owner_update` (two changes per `HIVE_OWNER_UPDATE_LIMIT`).
+**Lifecycle:** created alongside every `account_object` (`hive_evaluator_account.cpp:200`, `:256`, `:476` in the three creation evaluators, pow paths `hive_evaluator.cpp:426,559`, genesis `database_init.cpp:198-252`), and by `lock_account` for a treasury account that has none (`database.cpp:1407`); modified by `account_update`/`account_update2` (`hive_evaluator_account.cpp:311`, `:343-347`, `:368`, `:385-389`), `recover_account` (`:567`), the HF9 reset of the compromised accounts (`database_hardfork.cpp:226-232`) and `lock_account` at HF21 and HF24, which overwrites all three authorities of a treasury account that already has the object (`database.cpp:1411-1416`, called at `database_hardfork.cpp:433`, `:534`); never removed. `change_recovery_account` does not touch it (it changes `account_object.recovery_account`, `database.cpp:2020-2023`). Owner changes go through `set_owner()`, which moves `last_owner_update` into `previous_owner_update` and records the change time (`account_object.hpp:390-395`); since 1.28.8 `lock_account` writes the owner this way too, so it also moves both timestamps. Owner updates are rate-limited via these two fields: since HF26 at most two changes per `HIVE_OWNER_UPDATE_LIMIT` (60 minutes on mainnet, `hive/protocol/config.hpp:165`), before HF26 one (`util/owner_update_limit_mgr.cpp:10-26`); `account_update` checks it from HF11 except in converter builds (`hive_evaluator_account.cpp:301-307`), `account_update2` always (`:362-364`).
 
 ---
 
@@ -298,7 +299,7 @@ Separate object for authority storage (owner/active/posting keys). Split from ac
 
 **Source:** `libraries/plugins/metadata/include/hive/plugins/metadata/metadata_objects.hpp:10`
 
-**Note:** Defined in the `metadata` plugin but occupies core enum slot 2. The plugin registers `account_metadata_index` via `HIVE_ADD_PLUGIN_INDEX` in `metadata_plugin.cpp:198` and fills it from a `post_apply_operation` handler. The plugin has **no config options** of its own and is **not part of hived's default plugin set** (`programs/hived/main.cpp:117-122` lists defaults: witness, account_by_key, account_by_key_api, state_snapshot). A node without the plugin stores no account JSON metadata at all (and cannot serve it). The plugin separately reserves space ID 22 (`metadata_plugin.hpp:9`) even though this object uses core ID 2 — the object was moved out of core into the plugin while keeping its original type ID, since changing it would break state compatibility.
+**Note:** Defined in the `metadata` plugin but occupies core enum slot 2. The plugin registers `account_metadata_index` via `HIVE_ADD_PLUGIN_INDEX` in `metadata_plugin.cpp:199` and fills it from a `post_apply_operation` handler. The plugin has **no config options** of its own and is **not part of hived's default plugin set** (`programs/hived/main.cpp:117-122` lists defaults: witness, account_by_key, account_by_key_api, state_snapshot). A node without the plugin stores no account JSON metadata at all (and cannot serve it). The plugin separately reserves space ID 22 (`metadata_plugin.hpp:9`) even though this object uses core ID 2 — the object was moved out of core into the plugin while keeping its original type ID, since changing it would break state compatibility.
 
 **Fields:**
 
@@ -323,7 +324,7 @@ Separate object for authority storage (owner/active/posting keys). Split from ac
 
 **Source:** `detail/state/comment_object.hpp:24`
 
-Minimal comment/post identity object. Stores only a hash (not raw author+permlink strings). Declared as `object<comment_object_type, comment_object, std::false_type /* no dynamic alloc */, std::true_type /* enable no undo remove */>` — the only object using the `EnableNoUndo` feature, required so the comment archive can destroy paid-out comments outside the undo stack (`chainbase.hpp:182-191` documents why this is safe only for comments).
+Minimal comment/post identity object. Stores only a hash (not raw author+permlink strings). Declared as `object<comment_object_type, comment_object, std::false_type /* no dynamic alloc */, std::true_type /* enable no undo remove */>`: the only object using the `EnableNoUndo` feature, which lets the MEMORY comment archive destroy paid-out comments outside the undo stack (`memory_comment_archive.cpp:44`; the default ROCKSDB archive removes them with the regular, undoable `remove()`, `rocksdb_comment_archive.cpp:131`). `chainbase/util/object.hpp:26-35` documents when this is safe, with `comment_object` as the example and `volatile_comment_object` as the counterexample.
 
 **Fields:**
 
@@ -331,7 +332,7 @@ Minimal comment/post identity object. Stores only a hash (not raw author+permlin
 |-------|------|-------------|
 | `parent_comment` | `comment_id_type` | Parent comment ID (null = root post) |
 | `author_and_permlink_hash` | `fc::ripemd160` | RIPEMD-160 hash of `permlink + "@" + author_id` |
-| `depth` | `uint16_t` | Nesting depth (0 = root post); source comment flags it as a removal candidate (steemit/steem#767); soft-limited to `HIVE_SOFT_MAX_COMMENT_DEPTH` by witness plugin, consensus doesn't need a limit |
+| `depth` | `uint16_t` | Nesting depth (0 = root post); source comment flags it as a removal candidate (steemit/steem#767) and still says it is soft-limited in the witness plugin with no consensus limit needed (`comment_object.hpp:60-61`), but the comment evaluator enforces the limit: `HIVE_MAX_COMMENT_DEPTH_PRE_HF17` (6) before HF17 and `HIVE_MAX_COMMENT_DEPTH` (0xffff) from HF17, lowered to `HIVE_SOFT_MAX_COMMENT_DEPTH` (255) when the node is in control (`hive_evaluator_social.cpp:186-190`; Part 03, section comment_operation (ID 1)) |
 
 A source comment on the hash field (`comment_object.hpp:57-58`, ABW) sketches a future optimization: splitting it into author_id + 128-bit hash would allow moving comment identity to external DB with only active authors cached.
 
@@ -346,9 +347,9 @@ A source comment on the hash field (`comment_object.hpp:57-58`, ABW) sketches a 
 | `by_id` | `id` | Primary |
 | `by_permlink` | `author_and_permlink_hash` | Consensus lookup by author+permlink |
 
-**Lifecycle:** created by `comment_evaluator` on first posting (`hive_evaluator_social.cpp:245`); **never modified** (edits touch only `comment_cashout_object`); removed by `delete_comment_evaluator` (when no replies, no positive rshares, never paid), or — under MEMORY/ROCKSDB archive modes — removed from the chainbase index when migrated to the archive after its cashout becomes irreversible (see Comment Archive section). Under `comment-archive = NONE` it stays in chainbase forever.
+**Lifecycle:** created by `comment_evaluator` on first posting (`hive_evaluator_social.cpp:246`); **never modified** (edits touch only `comment_cashout_object`); removed by `delete_comment_evaluator` (when no replies, no positive rshares, never paid), or — under MEMORY/ROCKSDB archive modes — removed from the chainbase index when migrated to the archive after its cashout becomes irreversible (see Comment Archive section). Under `comment-archive = NONE` it stays in chainbase forever.
 
-**Lookup API:** consensus code never queries the chainbase index directly for author+permlink lookups; it goes through `database::find_comment(author, permlink)` / `get_comment(...)` (`database.cpp:403-450`), which delegate to the comments handler so archived comments are still found. The handler returns a `comment` wrapper (`external_storage/comment.hpp`) that either points into shared memory or owns a heap copy reconstructed from RocksDB.
+**Lookup API:** consensus code never queries the chainbase index directly for author+permlink lookups; it goes through `database::find_comment(author, permlink)` / `get_comment(...)` (`database.cpp:404-451`), which delegate to the comments handler so archived comments are still found. The handler returns a `comment` wrapper (`external_storage/comment.hpp`) that either points into shared memory or owns a heap copy reconstructed from RocksDB.
 
 ---
 
@@ -367,7 +368,7 @@ Holds payout-related data for comments with pending cashout. **Removed after cas
 | `net_rshares` | `share_type` | Sum of all vote rshares |
 | `vote_rshares` | `share_type` | Sum of positive vote rshares |
 | `total_vote_weight` | `uint64_t` | Accumulated vote weight for curation split |
-| `max_accepted_payout` | `HBD_asset` | Max payout (default 1'000'000'000 = 1M HBD satoshis = 1000 HBD... stored raw: `HBD_asset(1'000'000'000)` = 1,000,000.000 HBD) |
+| `max_accepted_payout` | `HBD_asset` | Max payout (default `HBD_asset( 1'000'000'000 )`, i.e. 1,000,000.000 HBD since HBD has 3 decimals: `comment_object.hpp:238`) |
 | `net_votes` | `int32_t` | Upvotes minus downvotes (API only) |
 | `children` | `uint32_t` | Direct reply count |
 | `created` | `time_point_sec` | Creation time |
@@ -385,7 +386,7 @@ Holds payout-related data for comments with pending cashout. **Removed after cas
 | `by_id` | `id` | Shares ID with comment_object |
 | `by_cashout_time` | `(cashout_time, id)` | Process pending payouts |
 
-**Lifecycle:** created with the comment (`hive_evaluator_social.cpp:255`); modified by votes (`on_vote`, `accumulate_vote_rshares`), replies (`on_reply`), edits, and `comment_options_evaluator` (`configure_options`); removed at payout in `process_comment_cashout` post-HF19 (`database_comment.cpp:477-481` — handler `on_cashout` is invoked, then `remove`), at HF19 itself for already-paid comments (`remove_old_cashouts`, `database_comment.cpp:102-120`), or by `delete_comment`.
+**Lifecycle:** created with the comment (`hive_evaluator_social.cpp:256`); modified by votes (`on_vote`, `accumulate_vote_rshares`), replies (`on_reply`), edits, and `comment_options_evaluator` (`configure_options`); removed at payout in `process_comment_cashout` post-HF19 (`database_comment.cpp:471-475` — handler `on_cashout` is invoked, then `remove`), at HF19 itself for already-paid comments (`remove_old_cashouts`, `database_comment.cpp:94-112`), or by `delete_comment`.
 
 ---
 
@@ -407,7 +408,7 @@ Extended cashout data needed only for pre-HF19 reward rules (mostly pre-HF17, pl
 | `total_payout_value` | `HBD_asset` | Cumulative payouts |
 | `curator_payout_value` | `HBD_asset` | Cumulative curator payouts |
 | `beneficiary_payout_value` | `HBD_asset` | Cumulative beneficiary payouts |
-| `reward_weight` | `uint16_t` | Reward weight (BPS; pre-HF17 frequent-post penalty) |
+| `reward_weight` | `uint16_t` | Reward weight (BPS; below 100% only for root posts created between HF12 and HF17, the frequent-post penalty) |
 
 **Indices:**
 
@@ -416,7 +417,7 @@ Extended cashout data needed only for pre-HF19 reward rules (mostly pre-HF17, pl
 | `by_id` | `id` |
 | `by_root` | `(root_comment, id)` |
 
-**Lifecycle:** created with every comment **only before HF19** (`hive_evaluator_social.cpp:261`); modified during pre-HF19 vote/payout processing; **the entire index is cleared at HF19 application** — `remove_old_cashouts()` calls `comment_cashout_ex_idx.clear()` (`database_comment.cpp:104-106`, invoked from `database_hardfork.cpp:333`). On a synced node this index is empty; it only holds objects transiently during replay of pre-HF19 blocks (one per comment existing at that point). `find_comment_cashout_ex` short-circuits to `nullptr` once HF19 is active (`database_comment.cpp:79-92`).
+**Lifecycle:** created with every comment **only before HF19** (`hive_evaluator_social.cpp:262`); modified during pre-HF19 vote/payout processing; **the entire index is cleared at HF19 application**: `remove_old_cashouts()` calls `comment_cashout_ex_idx.clear()` (`database_comment.cpp:96-98`, invoked from `database_hardfork.cpp:328`). On a synced node this index is empty; it only holds objects transiently during replay of pre-HF19 blocks (one per comment existing at that point). `find_comment_cashout_ex` short-circuits to `nullptr` once HF19 is active (`database_comment.cpp:71-82`).
 
 ---
 
@@ -445,7 +446,7 @@ Tracks each voter/comment pair. One object per vote — but only while the comme
 | `by_comment_voter` | `(comment, voter)` | Find vote for specific comment |
 | `by_voter_comment` | `(voter, comment)` | Find all votes by voter |
 
-**Lifecycle:** created by `vote_evaluator` (`hive_evaluator_social.cpp:557` pre-HF20 path, `:841` current path); modified on vote edits (`set(...)`); **removed in bulk at comment payout** — the tail of `cashout_comment_helper` walks `by_comment_voter` and removes every vote of the paid comment (`database_comment.cpp:366-373`) — and on `delete_comment` (`hive_evaluator_social.cpp:77-85`). Consequently the index holds only votes on comments inside the 7-day window, which is why total state stays bounded despite ~unbounded vote history.
+**Lifecycle:** created by `vote_evaluator` (`hive_evaluator_social.cpp:559` pre-HF20 path, `:843` current path); modified on vote edits (`set(...)`); **removed in bulk at comment payout** — the tail of `cashout_comment_helper` walks `by_comment_voter` and removes every vote of the paid comment (`database_comment.cpp:365-372`) — and on `delete_comment` (`hive_evaluator_social.cpp:78-86`). Consequently the index holds only votes on comments inside the 7-day window, which is why total state stays bounded despite ~unbounded vote history.
 
 ---
 
@@ -502,13 +503,13 @@ Witness configuration, stats, and scheduling data.
 | `by_vote_name` | `(votes, owner)` | **votes DESC**, name asc | Rank witnesses by votes |
 | `by_schedule_time` | `(virtual_scheduled_time, id)` | asc | Virtual time scheduling |
 
-**Lifecycle:** created by `witness_update_evaluator` for new witnesses (`hive_evaluator.cpp:90`), by pow/pow2 evaluators (`hive_evaluator.cpp:471,569`), and for initminer at genesis (`database_init.cpp:254`); modified by `witness_update`, `witness_set_properties`, `feed_publish`, `account_witness_vote` tallies (`adjust_witness_votes`), block production stats, and schedule shuffling; never removed (disabled witnesses just have a null signing key).
+**Lifecycle:** created by `witness_update_evaluator` for new witnesses (`hive_evaluator.cpp:90`), by pow/pow2 evaluators (`hive_evaluator.cpp:467,562`), and for initminer at genesis (`database_init.cpp:220`); modified by `witness_update`, `witness_set_properties`, `feed_publish`, `account_witness_vote` tallies (`adjust_witness_votes`), block production stats, and schedule shuffling; never removed (disabled witnesses just have a null signing key).
 
 ---
 
 ### witness_vote_object
 
-**Source:** `detail/state/witness_objects.hpp:173`
+**Source:** `detail/state/witness_objects.hpp:171`
 
 Links accounts to witnesses they voted for. Both references are **names**, not ids.
 
@@ -527,15 +528,15 @@ Links accounts to witnesses they voted for. Both references are **names**, not i
 | `by_account_witness` | `(account, witness)` |
 | `by_witness_account` | `(witness, account)` |
 
-**Lifecycle:** created by `account_witness_vote_evaluator` (`hive_evaluator.cpp:283`); removed by the same evaluator (unvote), by `clear_witness_votes` during decline-voting-rights processing (`database_dhf.cpp:207+`), governance vote expiration, and HF23 account clearing.
+**Lifecycle:** created by `account_witness_vote_evaluator` (`hive_evaluator.cpp:283`); removed by the same evaluator (unvote, `hive_evaluator.cpp:324`) and by `clear_witness_votes` (`database_witness.cpp:96-111`), which runs when an account sets a proxy (`account_witness_proxy`, `hive_evaluator.cpp:235`), during decline-voting-rights processing (`database_dhf.cpp:208+`) and on governance vote expiration (`database.cpp:3526`). HF23 account clearing keeps them (`clear_account` only takes the account's VESTS out of the vote tallies, `database.cpp:1558`).
 
 ---
 
 ### witness_schedule_object (Doubleton since HF26)
 
-**Source:** `detail/state/witness_objects.hpp:183`
+**Source:** `detail/state/witness_objects.hpp:181`
 
-Witness schedule state. **Two instances**: the *current* schedule (id 0, created at genesis `database_init.cpp:338`) and the *future* schedule (id 1, created at HF26 application with `FC_ASSERT(fwso.get_id() == 1)` — `database_hardfork.cpp:503-508`). The allocator comment "dubleton (plus one internal)" (`witness_objects_multiindex.hpp`) refers to these two plus the pool allocator's internal node — hence block size 4.
+Witness schedule state. **Two instances**: the *current* schedule (id 0, created at genesis `database_init.cpp:308`) and the *future* schedule (id 1, created at HF26 application with `FC_ASSERT(fwso.get_id() == 1)` — `database_hardfork.cpp:498-503`). The allocator comment "dubleton (plus one internal)" (`witness_objects_multiindex.hpp`) refers to these two plus the pool allocator's internal node — hence block size 4.
 
 **Fields:**
 
@@ -579,19 +580,19 @@ Tracks HBD/HIVE price feed history. Updated once per hour.
 | `market_median_history` | `HBD_price` | Market median (same unless artificially adjusted) |
 | `current_min_history` | `HBD_price` | Min price (for collateralized conversion) |
 | `current_max_history` | `HBD_price` | Max price in window |
-| `price_history` | `t_deque<HBD_price>` | Last week of hourly medians |
+| `price_history` | `t_deque<HBD_price>` | Hourly medians: the last 84 (3.5 days) since HF16, 168 (7 days) before; the HF16 switch trimmed it to 84 (`database.cpp:2457-2463`, `database_hardfork.cpp:256-263`, `protocol/config.hpp:186-187`; Part 07, section Feed History) |
 
 **Indices:** Only `by_id` (singleton)
 
-**Lifecycle:** created at genesis (`database_init.cpp:297,329`); modified hourly by `update_median_feed` from witness `feed_publish` data; never removed.
+**Lifecycle:** created at genesis (`database_init.cpp:265` in testnet and iceberg-converter builds, `:299` otherwise); modified hourly by `update_median_feed` from witness `feed_publish` data; never removed.
 
 ---
 
 ### limit_order_object
 
-**Source:** `detail/state/limit_order_object.hpp:20`
+**Source:** `detail/state/limit_order_object.hpp:21`
 
-Open internal market (HIVE/HBD) limit orders.
+Open internal market (HIVE/HBD) limit orders. Which markets an order may use: Part 02, section SMT residue in limit-order validation (resolves open question).
 
 **Fields:**
 
@@ -599,9 +600,9 @@ Open internal market (HIVE/HBD) limit orders.
 |-------|------|-------------|
 | `created` | `time_point_sec` | Order creation time |
 | `expiration` | `time_point_sec` | Expiration time |
-| `seller` | `account_name_type` | Seller account |
-| `orderid` | `uint32_t` | User-assigned order ID |
-| `for_sale` | `share_type` | Amount for sale (asset type from sell_price.base) |
+| `orderid` | `uint32_t` | User-assigned order ID (declared and reflected before `seller` since 1.28.8, after it at 1.28.7) |
+| `seller` | `account_name_type` | Seller account (a name: the source comment says an id is not possible because `by_account` serves `database_api.list_limit_orders`, `limit_order_object.hpp:68`) |
+| `for_sale` | `balance` | Amount for sale with its symbol, which the constructor asserts equals `sell_price.base.symbol` (`limit_order_object.hpp:34`); at 1.28.7 a `share_type` amount whose symbol came from `sell_price.base`. The API objects still return only the amount (`share_type`, `database_api_objects.hpp:186`) |
 | `sell_price` | `price` | Price (base/quote pair) |
 
 **Indices:**
@@ -613,7 +614,7 @@ Open internal market (HIVE/HBD) limit orders.
 | `by_price` | `(sell_price, id)` | **price DESC**, id asc | Order matching |
 | `by_account` | `(seller, orderid)` | asc | Find user's orders |
 
-**Lifecycle:** created by `limit_order_create` / `limit_order_create2` evaluators (`hive_evaluator_transfer.cpp:542,566`); modified (partial fill) / removed (full fill) during matching (`database_market.cpp`); removed by `limit_order_cancel` and by `clear_expired_orders` (`database_market.cpp:379`).
+**Lifecycle:** created by `limit_order_create` / `limit_order_create2` evaluators (`hive_evaluator_transfer.cpp:565,600`); modified (partial fill) / removed (full fill) during matching (`database_market.cpp:346-359`, `:384-388`); removed by `limit_order_cancel` and by `clear_expired_orders` (`database_market.cpp:425`), and at HF23 by `remove_pending_limit_orders` for the cleared accounts (`database_market.cpp:455-465`). Removal requires an empty `for_sale` (`check_on_remove()`, `limit_order_object.hpp:55-58`): a full fill removes the order once matching has drained it, and every other path goes through `cancel_order`, which first returns the remainder to the seller (`database_market.cpp:408-423`).
 
 ---
 
@@ -628,7 +629,7 @@ Pending HBD->HIVE conversion requests (3.5-day delay).
 | Field | Type | Description |
 |-------|------|-------------|
 | `owner` | `account_id_type` | Request owner |
-| `amount` | `HBD_asset` | HBD amount to convert |
+| `amount` | `HBD_balance` | HBD amount to convert (a balance class since 1.28.8, `HBD_asset` at 1.28.7) |
 | `requestid` | `uint32_t` | User-assigned request ID |
 | `conversion_date` | `time_point_sec` | Conversion execution date |
 
@@ -640,7 +641,7 @@ Pending HBD->HIVE conversion requests (3.5-day delay).
 | `by_conversion_date` | `(conversion_date, id)` |
 | `by_owner` | `(owner, requestid)` |
 
-**Lifecycle:** created by `convert_evaluator` (`hive_evaluator_transfer.cpp:470`); removed when executed in `process_conversions` (`database_conversion.cpp:34`).
+**Lifecycle:** created by `convert_evaluator` (`hive_evaluator_transfer.cpp:482`); removed when executed in `process_conversions` (`database_conversion.cpp:35`), and at HF23 by `remove_pending_conversion_requests` for the cleared accounts, which returns the HBD to the owner's balance (`database_conversion.cpp:198-216`).
 
 ---
 
@@ -655,7 +656,7 @@ Pending HIVE->HBD collateralized conversion requests (3.5-day delay). HBD is giv
 | Field | Type | Description |
 |-------|------|-------------|
 | `owner` | `account_id_type` | Request owner |
-| `collateral_amount` | `HIVE_asset` | HIVE collateral locked |
+| `collateral_amount` | `HIVE_balance` | HIVE collateral locked (a balance class since 1.28.8, `HIVE_asset` at 1.28.7) |
 | `converted_amount` | `HBD_asset` | HBD already given to owner |
 | `requestid` | `uint32_t` | User-assigned request ID |
 | `conversion_date` | `time_point_sec` | Conversion execution date |
@@ -668,7 +669,7 @@ Pending HIVE->HBD collateralized conversion requests (3.5-day delay). HBD is giv
 | `by_conversion_date` | `(conversion_date, id)` |
 | `by_owner` | `(owner, requestid)` |
 
-**Lifecycle:** created by `collateralized_convert_evaluator` (`hive_evaluator_transfer.cpp:516`); removed when executed in `process_conversions`.
+**Lifecycle:** created by `collateralized_convert_evaluator` (`hive_evaluator_transfer.cpp:529`); removed when executed in `process_conversions`.
 
 ---
 
@@ -676,7 +677,7 @@ Pending HIVE->HBD collateralized conversion requests (3.5-day delay). HBD is giv
 
 **Source:** `detail/state/escrow_object.hpp:14`
 
-Active escrow transfers between accounts with an agent. All three account references are **names** with explicit TODO comments: *"TODO: can be replaced with account_id_type (ABW: would make looking for escrow object harder)"* (`escrow_object.hpp:40-42`) — operations identify escrows by `(from_name, escrow_id)`, so an id-based object would force an extra account lookup per access. `to_approved`/`agent_approved`/`disputed` have a further TODO: "can be replaced with bit field along with all flags" (`escrow_object.hpp:48`).
+Active escrow transfers between accounts with an agent. All three account references are **names** with explicit TODO comments: *"TODO: can be replaced with account_id_type (ABW: would make looking for escrow object harder)"* (`escrow_object.hpp:69-71`): operations identify escrows by `(from_name, escrow_id)`, so an id-based object would force an extra account lookup per access. `to_approved`/`agent_approved`/`disputed` have a further TODO: "can be replaced with bit field along with all flags" (`escrow_object.hpp:77`).
 
 **Fields:**
 
@@ -688,9 +689,9 @@ Active escrow transfers between accounts with an agent. All three account refere
 | `agent` | `account_name_type` | Escrow agent |
 | `ratification_deadline` | `time_point_sec` | Approval deadline |
 | `escrow_expiration` | `time_point_sec` | Escrow expiration |
-| `hbd_balance` | `HBD_asset` | HBD in escrow |
-| `hive_balance` | `HIVE_asset` | HIVE in escrow |
-| `pending_fee` | `asset` | Fee for agent (HIVE or HBD) |
+| `hbd_balance` | `HBD_balance` | HBD in escrow (a balance class since 1.28.8, `HBD_asset` at 1.28.7) |
+| `hive_balance` | `HIVE_balance` | HIVE in escrow (a balance class since 1.28.8, `HIVE_asset` at 1.28.7) |
+| `pending_fee` | `balance` | Fee for agent (HIVE or HBD; a balance class since 1.28.8, `asset` at 1.28.7) |
 | `to_approved` | `bool` | Receiver approved |
 | `agent_approved` | `bool` | Agent approved |
 | `disputed` | `bool` | Escrow is disputed |
@@ -703,15 +704,15 @@ Active escrow transfers between accounts with an agent. All three account refere
 | `by_from_id` | `(from, escrow_id)` | Find user's escrows |
 | `by_ratification_deadline` | `(is_approved, ratification_deadline, id)` | Auto-cleanup unapproved |
 
-**Lifecycle:** created by `escrow_transfer_evaluator` (`hive_evaluator_transfer.cpp:99`); modified by `escrow_approve` / `escrow_dispute`; removed by `escrow_approve` (rejection), `escrow_release` (when emptied), and `expire_escrow_ratification` (`database_market.cpp:58`) for unratified escrows past deadline.
+**Lifecycle:** created by `escrow_transfer_evaluator` (`hive_evaluator_transfer.cpp:115`); modified by `escrow_approve` / `escrow_dispute` and by partial releases; removed by `escrow_approve` (rejection), `escrow_release` (when emptied), `expire_escrow_ratification` (`database_market.cpp:91`) for unratified escrows past deadline, and at HF23 by `remove_pending_escrows` for the escrows sent by the cleared accounts (`database_market.cpp:105-116`). Since 1.28.8 rejection, expiry and the HF23 removal share `remove_escrow`, which returns all funds to `from` before removing the object (`database_market.cpp:58-89`).
 
 ---
 
 ### savings_withdraw_object
 
-**Source:** `detail/state/savings_withdraw_object.hpp:10` (has dynamic alloc — memo string)
+**Source:** `detail/state/savings_withdraw_object.hpp:11` (has dynamic alloc - memo string)
 
-Pending savings withdrawal requests (3-day delay). `from`/`to` carry the TODO "can be replaced with account_id_type" (`savings_withdraw_object.hpp:27-28`).
+Pending savings withdrawal requests (3-day delay). Since 1.28.8 `from`/`to` carry the note "can't be replaced with account_id_type - see database_api.list_savings_withdrawals API" (`savings_withdraw_object.hpp:54-55`); at 1.28.7 a TODO said they could be.
 
 **Fields:**
 
@@ -721,7 +722,7 @@ Pending savings withdrawal requests (3-day delay). `from`/`to` carry the TODO "c
 | `to` | `account_name_type` | Destination account |
 | `memo` | `shared_string` | Memo |
 | `request_id` | `uint32_t` | User-assigned request ID |
-| `amount` | `asset` | Withdrawal amount (HIVE or HBD) |
+| `amount` | `balance` | Withdrawal amount (HIVE or HBD; a balance class since 1.28.8, `asset` at 1.28.7) |
 | `complete` | `time_point_sec` | Completion time |
 
 **Indices:**
@@ -733,7 +734,7 @@ Pending savings withdrawal requests (3-day delay). `from`/`to` carry the TODO "c
 | `by_complete_from_rid` | `(complete, from, request_id)` |
 | `by_to_complete` | `(to, complete, id)` |
 
-**Lifecycle:** created by `transfer_from_savings_evaluator` (`hive_evaluator_transfer.cpp:600`); removed by `cancel_transfer_from_savings` or on payout in `process_savings_withdraws` (`database_market.cpp:134`).
+**Lifecycle:** created by `transfer_from_savings_evaluator` (`hive_evaluator_transfer.cpp:638`); removed by `cancel_transfer_from_savings` or on payout in `process_savings_withdraws` (`database_market.cpp:145`), and at HF23 by `remove_pending_savings_withdraws` for the requests from or to the cleared accounts (`database_market.cpp:182-228`).
 
 ---
 
@@ -758,13 +759,13 @@ Pending requests to permanently decline voting rights (30-day delay).
 | `by_account` | `account` (unique) |
 | `by_effective_date` | `(effective_date, account)` |
 
-**Lifecycle:** created by `decline_voting_rights_evaluator` (`hive_evaluator_account.cpp:632`) and by HF28 fixup logic for repeated declines (`database_dhf.cpp:188-203`); removed when the request executes in `process_decline_voting_rights` (`database_dhf.cpp:207`) — which also removes the account's witness votes, proposal votes (HF28+, throttled by `remove_guard`), and proxy — or when cancelled (`decline = false`).
+**Lifecycle:** created by `decline_voting_rights_evaluator` (`hive_evaluator_account.cpp:618`) and once at HF28 by `remove_proposal_votes_for_accounts_without_voting_rights()` (`database_hardfork.cpp:507`), which gives every proposal voter that had already declined its voting rights a request effective at once, so that its proposal votes get removed; an account that already has a request (possible before HF28 by declining again) only gets its `effective_date` reset (`database_dhf.cpp:147-206`, `:186-204`). Removed when the request executes in `process_decline_voting_rights` (`database_dhf.cpp:208`), which also removes the account's witness votes, proposal votes (HF28+, throttled by `remove_guard`) and proxy, or when cancelled (`decline = false`).
 
 ---
 
 ### vesting_delegation_object
 
-**Source:** `detail/state/account_object.hpp:366`
+**Source:** `detail/state/account_object.hpp:421`
 
 Active VESTS delegation from one account to another. Uses **ids** for both parties.
 
@@ -784,13 +785,13 @@ Active VESTS delegation from one account to another. Uses **ids** for both parti
 | `by_id` | `id` |
 | `by_delegation` | `(delegator, delegatee)` |
 
-**Lifecycle:** created by `delegate_vesting_shares_evaluator` (`hive_evaluator_transfer.cpp:767`) and `account_create_with_delegation` (`hive_evaluator_account.cpp:278`); modified on delegation increase/decrease; removed when delegation set to 0 (evaluator) — plus a one-time HF19 cleanup of all zero-value delegation objects (`database_hardfork.cpp:316-331`).
+**Lifecycle:** created by `delegate_vesting_shares_evaluator` (`hive_evaluator_transfer.cpp:813`) and `account_create_with_delegation` (`hive_evaluator_account.cpp:268`); modified on delegation increase/decrease; removed when delegation set to 0 (evaluator), plus a one-time HF19 cleanup of all zero-value delegation objects (`database_hardfork.cpp:311-326`) and, at HF23, the delegations made by the cleared accounts (`clear_account`, `database.cpp:1513-1543`).
 
 ---
 
 ### vesting_delegation_expiration_object
 
-**Source:** `detail/state/account_object.hpp:402`
+**Source:** `detail/state/account_object.hpp:458`
 
 Expiring delegation — delegation was removed/reduced, VESTS returning to delegator after cooldown.
 
@@ -810,7 +811,7 @@ Expiring delegation — delegation was removed/reduced, VESTS returning to deleg
 | `by_expiration` | `(expiration, id)` |
 | `by_account_expiration` | `(delegator, expiration, id)` |
 
-**Lifecycle:** created on delegation decrease/removal (`hive_evaluator_transfer.cpp:856`); removed when VESTS return in `clear_expired_delegations` (`database.cpp:3113`).
+**Lifecycle:** created on delegation decrease/removal (`hive_evaluator_transfer.cpp:902`); removed when VESTS return in `clear_expired_delegations` (`database.cpp:3147`), and at HF23 for the VESTS returning to the cleared accounts (`clear_account`, `database.cpp:1545-1555`).
 
 ---
 
@@ -818,7 +819,7 @@ Expiring delegation — delegation was removed/reduced, VESTS returning to deleg
 
 **Source:** `detail/state/withdraw_vesting_route_object.hpp:10`
 
-Routes for power-down payouts to other accounts. Uses **names**.
+Routes for power-down payouts to other accounts. Uses **names**; since 1.28.8 the source comment says they cannot become ids "because power down uses name order" (`withdraw_vesting_route_object.hpp:16-17`).
 
 **Fields:**
 
@@ -837,13 +838,13 @@ Routes for power-down payouts to other accounts. Uses **names**.
 | `by_withdraw_route` | `(from_account, to_account)` |
 | `by_destination` | `(to_account, id)` |
 
-**Lifecycle:** created/modified/removed by `set_withdraw_vesting_route_evaluator` (`hive_evaluator_transfer.cpp:410`; percent 0 removes); read during `process_vesting_withdrawals` (`database_vesting.cpp:111`).
+**Lifecycle:** created/modified/removed by `set_withdraw_vesting_route_evaluator` (`hive_evaluator_transfer.cpp:421`; percent 0 removes); read during `process_vesting_withdrawals` (`database_vesting.cpp:111`).
 
 ---
 
 ### owner_authority_history_object
 
-**Source:** `detail/state/account_object.hpp:427` (has dynamic alloc — shared_authority)
+**Source:** `detail/state/account_object.hpp:484` (has dynamic alloc - shared_authority)
 
 Historical owner authority changes (for account recovery).
 
@@ -851,7 +852,7 @@ Historical owner authority changes (for account recovery).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `account` | `account_name_type` | Account name |
+| `account` | `account_name_type` | Account name (since 1.28.8 the source comment says an id would change `database_api.list_owner_histories`, `account_object.hpp:511`) |
 | `previous_owner_authority` | `shared_authority` | Previous owner authority |
 | `last_valid_time` | `time_point_sec` | When this authority was valid |
 
@@ -862,13 +863,13 @@ Historical owner authority changes (for account recovery).
 | `by_id` | `id` |
 | `by_account` | `(account, last_valid_time, id)` |
 
-**Lifecycle:** created by `update_owner_authority` whenever an owner key changes (`database.cpp:1682`); removed by per-block account-recovery processing once older than `HIVE_OWNER_AUTH_RECOVERY_PERIOD` (30 days) (`database.cpp:1975-1982`).
+**Lifecycle:** created by `update_owner_authority` (`database.cpp:1701-1711`, object at `:1705`), which saves the owner authority it replaces each time it runs from block `HIVE_OWNER_AUTH_HISTORY_TRACKING_START_BLOCK_NUM` on (3186477 on mainnet, `hive/protocol/config.hpp:166`): for `account_update` / `account_update2` with an `owner` field (`hive_evaluator_account.cpp:311`, `:368`), `recover_account` (`:567`) and the HF9 reset of the compromised accounts (`database_hardfork.cpp:226`). `lock_account` (the HF21 and HF24 treasury lock) writes the owner with `set_owner()` directly and leaves no history object (`database.cpp:1411-1416`). Removed by per-block account-recovery processing once older than `HIVE_OWNER_AUTH_RECOVERY_PERIOD` (30 days) (`database.cpp:2000-2007`).
 
 ---
 
 ### account_recovery_request_object
 
-**Source:** `detail/state/account_object.hpp:454` (has dynamic alloc — shared_authority)
+**Source:** `detail/state/account_object.hpp:518` (has dynamic alloc - shared_authority)
 
 Pending account recovery requests.
 
@@ -888,15 +889,15 @@ Pending account recovery requests.
 | `by_account` | `account_to_recover` (unique) |
 | `by_expiration` | `(expires, account_to_recover)` |
 
-**Lifecycle:** created by `request_account_recovery_evaluator` (`hive_evaluator_account.cpp:533`); modified on re-request (or removed when re-requested with empty authority); removed by `recover_account_evaluator` on success or by expiration processing (`database.cpp:1965-1972`).
+**Lifecycle:** created by `request_account_recovery_evaluator` (`hive_evaluator_account.cpp:519`); modified on re-request (or removed when re-requested with empty authority); removed by `recover_account_evaluator` on success, by expiration processing (`database.cpp:1990-1997`) or by `lock_account` (the HF21 and HF24 treasury lock, `database.cpp:1425-1427`).
 
 ---
 
 ### change_recovery_account_request_object
 
-**Source:** `detail/state/account_object.hpp:498`
+**Source:** `detail/state/account_object.hpp:562`
 
-Pending change of recovery account (30-day delay). Field comments document why names persist here: *"changing it to id would influence response from database_api.list_change_recovery_account_requests"* (`account_object.hpp:525-526`).
+Pending change of recovery account (30-day delay). A field comment documents why `account_to_recover` stays a name: *"changing it to id would influence response from database_api.list_change_recovery_account_requests"* (`account_object.hpp:590`); `recovery_account` is marked "could be changed to id" (`:591`).
 
 **Fields:**
 
@@ -914,13 +915,13 @@ Pending change of recovery account (30-day delay). Field comments document why n
 | `by_account` | `account_to_recover` (unique) |
 | `by_effective_date` | `(effective_on, account_to_recover)` |
 
-**Lifecycle:** created by `change_recovery_account_evaluator` (`hive_evaluator_account.cpp:601`); modified/removed on repeat request; removed when applied by per-block recovery processing (`database.cpp:1985+`).
+**Lifecycle:** created by `change_recovery_account_evaluator` (`hive_evaluator_account.cpp:587`); modified/removed on repeat request; removed when applied by per-block recovery processing (`database.cpp:2010+`) or by `lock_account` (the HF21 and HF24 treasury lock, `database.cpp:1429-1431`).
 
 ---
 
 ### reward_fund_object (Singleton)
 
-**Source:** `detail/state/reward_fund_object.hpp:13`
+**Source:** `detail/state/reward_fund_object.hpp:14`
 
 Reward pool configuration. One instance named "post".
 
@@ -929,7 +930,7 @@ Reward pool configuration. One instance named "post".
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | `reward_fund_name_type` | Fund name (fixed_string<16>) |
-| `reward_balance` | `HIVE_asset` | HIVE in reward pool |
+| `reward_balance` | `HIVE_balance` | HIVE in reward pool (a balance class since 1.28.8, `HIVE_asset` at 1.28.7) |
 | `recent_claims` | `uint128_t` | Recent reward claims |
 | `last_update` | `time_point_sec` | Last update time |
 | `content_constant` | `uint128_t` | Content constant for curve |
@@ -945,7 +946,7 @@ Reward pool configuration. One instance named "post".
 | `by_id` | `id` |
 | `by_name` | `name` (unique) |
 
-**Lifecycle:** created at HF17 application from the global `total_reward_fund_hive` (`database_hardfork.cpp:278`); curve/percent parameters re-tuned at later hardforks (HF19 linear/sqrt at `database_hardfork.cpp:311-313`, HF25 changes); modified every block by `process_funds` and every payout by `process_comment_cashout`; never removed.
+**Lifecycle:** since 1.28.8 created at genesis with an empty balance and the default parameters (quadratic / bounded_curation curves, 25% curation, `reward_fund_object.hpp:66-70`), asserting that it gets id 0 (`database_init.cpp:258-262`); at 1.28.7 HF17 created it from the dgpo's `total_reward_fund_hive`. Before HF17 it plays the roles of the two dgpo fields that 1.28.8 removed: every block's content reward is paid into `reward_balance` (`pay_reward_funds`, `database.cpp:1953-1975`, called from both `process_funds` branches at `:1799`, `:1836`) and `recent_claims` holds the undecayed running total of rshares2 (`adjust_rshares2`, `database.cpp:1687-1699`). HF17 sets `last_update` to the HF17 block time and, except in testnet (`IS_TEST_NET`) builds, `recent_claims` to `HIVE_HF_17_RECENT_CLAIMS` (`database_hardfork.cpp:281-287`); from HF17 `process_comment_cashout` decays `recent_claims` every block (`database_comment.cpp:397-420`). Later hardforks re-tune the parameters: HF19 linear / square_root curves (`database_hardfork.cpp:301-308`), HF21 50% curation, convergent curves and `HIVE_CONTENT_CONSTANT_HF21` (`:435-444`), HF25 linear curves (`:478-482`); HF19 and HF21 also re-seed `recent_claims` outside testnet builds. Modified every block by `process_funds` and every payout by `process_comment_cashout`; never removed (`reward_fund_object.hpp:41-45`).
 
 ---
 
@@ -981,7 +982,7 @@ Decentralized Hive Fund proposals.
 | `by_creator` | `(creator, proposal_id)` | asc |
 | `by_total_votes` | `(total_votes, proposal_id)` | asc |
 
-**Lifecycle:** created by `create_proposal_evaluator` (`dhf_evaluator.cpp:76`); modified by `update_proposal` and maintenance vote recalculation; soft-removed by `remove_proposal_evaluator` (sets `removed`, actual deletion throttled by `remove_guard` / `current_remove_threshold`), hard-removed by DHF maintenance once expired+grace.
+**Lifecycle:** created by `create_proposal_evaluator` (`dhf_evaluator.cpp:75`); modified by `update_proposal` and maintenance vote recalculation; soft-removed by `remove_proposal_evaluator` (sets `removed`, actual deletion throttled by `remove_guard` / `current_remove_threshold`), hard-removed by the per-block DHF cycle, which deletes only proposals flagged `removed`; expired proposals are not removed automatically and stay queryable (`dhf_processor.cpp:43-69`, code comment at `:57-63`).
 
 ---
 
@@ -1006,7 +1007,7 @@ DHF proposal votes (one object per voter/proposal pair).
 | `by_voter_proposal` | `(voter, proposal_id)` |
 | `by_proposal_voter` | `(proposal_id, voter)` |
 
-**Lifecycle:** created by `update_proposal_votes_evaluator` (`dhf_evaluator.cpp:197`); removed on unvote, on proposal removal, on decline-voting-rights execution (HF28+, `database_dhf.cpp:222`), and on governance vote expiration.
+**Lifecycle:** created by `update_proposal_votes_evaluator` (`dhf_evaluator.cpp:197`); removed on unvote, on proposal removal, on decline-voting-rights execution (HF28+, `database_dhf.cpp:224`), and on governance vote expiration.
 
 ---
 
@@ -1039,7 +1040,7 @@ Scheduled recurring transfers between accounts. Uses **ids** for both parties.
 | `by_from_id` | `(from_id, id)` |
 | `by_from_to_id` | `(from_id, to_id, pair_id)` |
 
-**Lifecycle:** created by `recurrent_transfer_evaluator` (`hive_evaluator_transfer.cpp:926`); modified on each execution in `process_recurrent_transfers` (`database_dhf.cpp:37`) and on user edits; removed when amount set to 0, when `remaining_executions` exhausts, or after `max_consecutive_recurrent_transfer_failures`.
+**Lifecycle:** created by `recurrent_transfer_evaluator` (`hive_evaluator_transfer.cpp:979`); modified on each execution in `process_recurrent_transfers` (`database_dhf.cpp:37`) and on user edits; removed when amount set to 0, when `remaining_executions` exhausts, or after `HIVE_MAX_CONSECUTIVE_RECURRENT_TRANSFER_FAILURES` (10) consecutive failures (`database_dhf.cpp:103`, `:131-139`; the dgpo field `max_consecutive_recurrent_transfer_failures` only mirrors that constant: Part 12, Key Discovery 5).
 
 ---
 
@@ -1064,7 +1065,7 @@ Tracks recent transactions for duplicate detection. Removed after expiration.
 | `by_trx_id` | `trx_id` (unique) |
 | `by_expiration` | `(expiration, id)` |
 
-**Lifecycle:** created for every applied transaction (`database.cpp:2681`); removed by `clear_expired_transactions` (`database.cpp:3103`) once `expiration` passes. Maximum lifetime is bounded by `HIVE_MAX_TIME_UNTIL_EXPIRATION` (1 hour).
+**Lifecycle:** created for every applied transaction (`database.cpp:2695`) unless the dupe check is skipped (`:2690`), as in a replay without full validation (`chain_plugin.cpp:1255-1266`); removed by `clear_expired_transactions` (`database.cpp:3137`) once `expiration` passes. The object stores the transaction's own `expiration` field, not its runtime expiration (`database.cpp:2697-2698`), so its lifetime is bounded by `HIVE_MAX_TIME_UNTIL_EXPIRATION` (1 hour) before HF28 and by `HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION` (24 hours) since HF28, when the field may be up to 24 hours ahead while the runtime expiration stays capped at 1 hour (`database.cpp:2550-2563`; Part 01, Key Discovery 8).
 
 ---
 
@@ -1082,7 +1083,7 @@ Minimal past block info for TaPOS (Transaction as Proof of Stake) validation: le
 
 **Indices:** Only `by_id` (accessed by `block_num & 0xFFFF`)
 
-**Lifecycle:** all 65536 created at genesis (`database_init.cpp:335`); slot `block_num & 0xFFFF` overwritten as each block is applied; never removed.
+**Lifecycle:** all 65536 created at genesis (`database_init.cpp:305`); slot `block_num & 0xFFFF` overwritten as each block is applied; never removed.
 
 ---
 
@@ -1105,7 +1106,7 @@ Tracks hardfork state and history.
 
 **Indices:** Only `by_id` (singleton)
 
-**Lifecycle:** created at genesis (`database_init.cpp:294`); modified by `process_hardforks` (`database_hardfork.cpp:114`) and witness HF version voting; never removed.
+**Lifecycle:** created at genesis (`database_init.cpp:257`); modified by `process_hardforks` (`database_hardfork.cpp:119`) and witness HF version voting; never removed.
 
 ---
 
@@ -1113,15 +1114,15 @@ Tracks hardfork state and history.
 
 **Source:** `detail/state/liquidity_reward_balance_object.hpp:18`
 
-Tracked market-maker liquidity rewards: every 1000 blocks the account with highest `weight` won a HIVE reward (doc comment `liquidity_reward_balance_object.hpp:7-17`).
+Tracked market-maker liquidity rewards: every `HIVE_LIQUIDITY_REWARD_BLOCKS` blocks (1200, one hour) the account with the highest `weight` won a HIVE reward (`database_vesting.cpp:36`, `hive/protocol/config.hpp:287-288`; the doc comment at `liquidity_reward_balance_object.hpp:7-17` still says every 1000 blocks).
 
 **Fields:**
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `owner` | `account_id_type` | Account |
-| `last_update` | `time_point_sec` | Last update (volume decays after a week) |
-| `weight` | `uint128_t` | Volume weight (`hive_volume * hbd_volume` if both positive, post-HF9 `min(hive,hbd)`) |
+| `last_update` | `time_point_sec` | Last update (a week or more later, the next adjustment resets both volumes and the weight to 0: `database_vesting.cpp:70-75`) |
+| `weight` | `uint128_t` | Volume weight: `hive_volume * hbd_volume` computed in `uint128`, or `min(hive_volume, hbd_volume)` for objects created from HF9 and for every update from HF10, when all weights were recomputed; 0 unless both volumes are positive (`liquidity_reward_balance_object.hpp:34-60`; `database_vesting.cpp:82`, `:96`, `:102-109`; `database_hardfork.cpp:236-237`) |
 | `hive_volume` | `int64_t` | HIVE volume (maker +, taker -) |
 | `hbd_volume` | `int64_t` | HBD volume |
 
@@ -1133,18 +1134,18 @@ Tracked market-maker liquidity rewards: every 1000 blocks the account with highe
 | `by_owner` | `owner` | asc (unique) |
 | `by_volume_weight` | `(weight, owner)` | **weight DESC** |
 
-**Lifecycle:** created/modified by `adjust_liquidity_reward` during order matching, which is gated by `!has_hardfork(HIVE_HARDFORK_0_12__178)` (`database_market.cpp:295-308`, create at `database_vesting.cpp:88`) — i.e. only during replay of pre-HF12 blocks. **At HF12 application the entire index is cleared**: `liquidity_reward_balance_idx.clear()` with comment "liquidity reward mechanism no longer active after HF12" (`database_hardfork.cpp:240-242`). On a synced mainnet node the index is **empty** — the only residual costs are the empty container + pool allocator bookkeeping and the compiled code. The reduced pool block size of 1024 (vs default 4096) in `liquidity_reward_balance_object_multiindex.hpp:25` limits the worst-case block allocation during replay.
+**Lifecycle:** created/modified by `adjust_liquidity_reward` during order matching, which is gated by `!has_hardfork(HIVE_HARDFORK_0_12__178)` (`database_market.cpp:326-340`, create at `database_vesting.cpp:88`), i.e. only during replay of pre-HF12 blocks. **At HF12 application the entire index is cleared**: `liquidity_reward_balance_idx.clear()` with comment "liquidity reward mechanism no longer active after HF12" (`database_hardfork.cpp:245-247`). On a synced mainnet node the index is **empty**: the only residual costs are the empty container + pool allocator bookkeeping and the compiled code. The reduced pool block size of 1024 (vs default 4096) in `liquidity_reward_balance_object_multiindex.hpp:25` limits the worst-case block allocation during replay.
 
 ---
 
 ### block_stats_object (DEAD enum slot — resolved history)
 
-**Source:** forward-declared at `hive_object_types.hpp:114`, enum slot 24 at `hive_object_types.hpp:73`, oid typedef at `:154`. **No definition exists.**
+**Source:** forward-declared at `hive_object_types.hpp:115`, enum slot 24 at `hive_object_types.hpp:74`, oid typedef at `:155`. **No definition exists.**
 
 History (from git archaeology of the inherited Steem history):
 - Introduced **2016-10-10** in Steem commit `4bb8af74a` ("Progress on syncing"), defined in `block_summary_object.hpp` alongside `block_summary_object`. It held one `block_id_type` per block with a unique `by_block_id` index (an unbounded catalog of all block IDs, with `block_num() = id + 1`).
 - Removed **2016-12-13** in Steem commit `d4ba29d3c` ("Remove block_stats_object #675", Michael Vandeberg) — the full class, index, and reflection were deleted, but the enum entry and forward declaration were retained so the numeric values of all subsequent object types (`reward_fund_object_type` = 25 onward) would not shift, which would have invalidated the reflected enum and any serialized references.
-- It is **permanently dead**, not reserved for future use. The modern `block_stats` class (`block_flow_control.hpp:18`) is an unrelated, non-chainbase telemetry struct measuring block processing times, reported via the `"block_stats"` notification (`block_flow_control.cpp:107`).
+- It is **permanently dead**, not reserved for future use. The modern `block_stats` class (`block_flow_control.hpp:18`) is an unrelated, non-chainbase telemetry struct measuring block processing times, reported via the `"block_stats"` notification (`block_flow_control.cpp:121`).
 
 ---
 
@@ -1155,23 +1156,23 @@ History (from git archaeology of the inherited Steem history):
 ### The comments_handler interface
 
 `comments_handler` (`external_storage/comments_handler.hpp:15-34`) abstracts what happens to a comment after payout:
-- `on_cashout(block_num, comment, comment_cashout)` — called by consensus when a comment is paid (`database_comment.cpp:479` in `process_comment_cashout`, and `database_comment.cpp:118` in HF19's `remove_old_cashouts`)
-- `on_irreversible_block(block_num)` — called from LIB processing (`database.cpp:3087`)
-- `get_comment(author_id, permlink, required)` — unified lookup used by all consensus comment accessors (`database.cpp:403-450`); returns the `comment` wrapper (`external_storage/comment.hpp`) which either points into SHM or owns a heap-reconstructed `comment_object`
+- `on_cashout(block_num, comment, comment_cashout)` — called by consensus when a comment is paid (`database_comment.cpp:473` in `process_comment_cashout`, and `database_comment.cpp:110` in HF19's `remove_old_cashouts`)
+- `on_irreversible_block(block_num)` — called from LIB processing (`database.cpp:3121`)
+- `get_comment(author_id, permlink, required)`: unified lookup used by every author+permlink comment accessor of the database (`database.cpp:404-451`; the by-id accessors read chainbase only, `database_comment.cpp:46-49`, `:84-92`); returns the `comment` wrapper (`external_storage/comment.hpp`) which either points into SHM or owns a heap-reconstructed `comment_object`
 
 ### The three implementations (chain plugin option `comment-archive`)
 
-Selection: `chain_plugin.cpp:796-815`; option declared at `chain_plugin.cpp:1515` — *"Type of comment archive to use: NONE means comments won't be archived, MEMORY keeps archived comments in memory, ROCKSDB stores them in RocksDB. Default: ROCKSDB"*. Default enum value confirmed at `chain_plugin.cpp:174` (`comment_archive_choice = comment_archive_type::ROCKSDB`). Changing the option requires a replay (`memory_comment_archive.cpp` open(): "did you change comment-archive config option? if so, you need to replay").
+Selection: `chain_plugin.cpp:818-837`; option declared at `chain_plugin.cpp:1540`: *"Type of comment archive to use: NONE means comments won't be archived, MEMORY keeps archived comments in memory, ROCKSDB stores them in RocksDB. Default: ROCKSDB"*. The option is declared only in builds with `USE_ALTERNATE_CHAIN_ID` (testnet and mirrornet, `chain_plugin.cpp:1539-1541`); a mainnet build always selects ROCKSDB (`:1604-1606`). Default enum value confirmed at `chain_plugin.cpp:176` (`comment_archive_choice = comment_archive_type::ROCKSDB`). Changing the option requires a replay (`memory_comment_archive.cpp` open(): "did you change comment-archive config option? if so, you need to replay").
 
 1. **NONE → `placeholder_comment_archive`** (`placeholder_comment_archive.cpp`): pre-1.28 behavior. `on_cashout` only counts stats; paid comments stay in the chainbase `comment_index` forever; lookup goes straight to the index.
 
-2. **MEMORY → `memory_comment_archive`** (`memory_comment_archive.hpp/.cpp`): on cashout, remembers `(block_num → comment_id)` in a volatile (process-memory) map; when those blocks become irreversible, each comment is **copied into a separate SHM structure and removed from the main `comment_index` via `remove_no_undo`** (`memory_comment_archive.cpp:42-46`). The archive structure is a named SHM object (`find_or_construct<archive_object_type>("memory_comment_archive")`) holding a **`hashed_unique` index over `comment_object`** keyed by the author+permlink hash, using an adaptive-pool allocator with 128K-object blocks (`memory_comment_archive.hpp:45-55`). An ABW comment explains the trade-off: the hashed index is fastest but rehashing takes minutes once in a while, so it cannot be used for the live index on witness nodes. Lookup checks the live index first, then the archive. Snapshot save/load is **not implemented** (`FC_ASSERT(false && "save_snapshot not implemented yet")`).
+2. **MEMORY -> `memory_comment_archive`** (`memory_comment_archive.hpp/.cpp`): on cashout, remembers `(block_num -> comment_id)` in a volatile (process-memory) map; when those blocks become irreversible, each comment is **copied into a separate SHM structure and removed from the main `comment_index` via `remove_no_undo`** (`memory_comment_archive.cpp:42-46`). The archive structure is a named SHM object (`find_or_construct<archive_object_type>("memory_comment_archive")`) holding a **`hashed_unique` index over `comment_object`** keyed by the author+permlink hash, using an adaptive-pool allocator with 128K-object blocks (`memory_comment_archive.hpp:45-55`). An ABW comment explains the trade-off: the hashed index is the fastest, but rehashing it once in a while takes minutes and a lot of space, so it cannot be used in live sync, especially not on witness nodes (`memory_comment_archive.hpp:49-50`). Lookup checks the live index first, then the archive. Snapshot save/load is **not implemented** (`FC_ASSERT(false && "save_snapshot not implemented yet")`).
 
-3. **ROCKSDB → `rocksdb_comment_archive`** (default; `rocksdb_comment_archive.hpp/.cpp`): on cashout, creates a **`volatile_comment_object`** (chainbase, under undo — so fork switches roll it back correctly) holding a copy of the comment's fields plus `block_number` (`rocksdb_comment_archive.cpp:51-59`). On LIB processing, once the volatile index holds ≥ 10,000 entries (`volatile_objects_limit`, `rocksdb_comment_archive.hpp:16`), every volatile entry at/below LIB is serialized as a `rocksdb_comment_object {comment_id, parent_comment, depth}` keyed by the 20-byte author+permlink hash and written to RocksDB; then **both the volatile object and the original `comment_object` are removed from chainbase** (`rocksdb_comment_archive.cpp:100-137`). Lookup: live chainbase index first, then RocksDB point-read reconstructing a heap `comment_object` (`get_comment_impl`, `rocksdb_comment_archive.cpp:81-97`). RocksDB files live next to the shared memory file; snapshots are supported via `rocksdb_snapshot`.
+3. **ROCKSDB -> `rocksdb_comment_archive`** (default; `rocksdb_comment_archive.hpp/.cpp`): on cashout, creates a **`volatile_comment_object`** (chainbase, under undo, so fork switches roll it back correctly) holding a copy of the comment's fields plus `block_number` (`rocksdb_comment_archive.cpp:51-59`). On LIB processing, once the volatile index holds at least `volatile_objects_limit` entries (10,000 while the node syncs, `rocksdb_comment_archive.hpp:16`; set to 0 at the end of syncing, `rocksdb_comment_archive.cpp:215-219`), every volatile entry at/below LIB is serialized as a `rocksdb_comment_object {comment_id, parent_comment, depth}` keyed by the 20-byte author+permlink hash and written to RocksDB; then **both the volatile object and the original `comment_object` are removed from chainbase** (`rocksdb_comment_archive.cpp:100-137`). Lookup: live chainbase index first, then RocksDB point-read reconstructing a heap `comment_object` (`get_comment_impl`, `rocksdb_comment_archive.cpp:82-98`). RocksDB files live next to the shared memory file; snapshots are supported via `rocksdb_snapshot`.
 
 ### volatile_comment_object (chainbase, space ID 21)
 
-`external_storage/comment_rocksdb_objects.hpp:19-61`:
+`external_storage/comment_rocksdb_objects.hpp:19-39`:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -1181,11 +1182,11 @@ Selection: `chain_plugin.cpp:796-815`; option declared at `chain_plugin.cpp:1515
 | `block_number` | `uint32_t` | Block of cashout (drives LIB migration) |
 | `author_and_permlink_hash` | `ripemd160` | Lookup key (private, get/set) |
 
-Indices: `by_id`, `by_block` `(block_number, id)`, `by_permlink` (unique hash). Registered dynamically via `HIVE_ADD_PLUGIN_INDEX` in the archive constructor (`rocksdb_comment_archive.cpp:24`) — so this index exists only on nodes running the ROCKSDB archive.
+Indices: `by_id`, `by_block` `(block_number, id)`, `by_permlink` (unique hash), defined since 1.28.8 in `external_storage/comment_rocksdb_objects_multiindex.hpp:9-24` (at 1.28.7 next to the object). Registered dynamically via `HIVE_ADD_PLUGIN_INDEX` in the archive constructor (`rocksdb_comment_archive.cpp:25`), so this index exists only on nodes running the ROCKSDB archive.
 
 ### Consequences
 
-- On a default-configured 1.28.7 node, the chainbase `comment_index` holds only comments inside (or within ~10k cashouts past) their 7-day payout window; the bulk of historical comments (hundreds of millions) live in RocksDB on disk, dramatically reducing `shared_memory.bin` size.
+- On a 1.28.8 node using the ROCKSDB archive (the default, and the only choice in mainnet builds), the chainbase `comment_index` holds only comments whose payout is still pending or not yet irreversible, plus, while the node syncs, up to about 10,000 paid-out comments awaiting migration (nothing migrates before HF19: until then every comment stays in `comment_index`, and at HF19 `remove_old_cashouts` hands all paid comments to the archive at once, `rocksdb_comment_archive.cpp:104-105`, `database_comment.cpp:94-112`); the bulk of historical comments live in RocksDB on disk, dramatically reducing `shared_memory.bin` size.
 - Consensus still depends on archived comments (e.g. replying to an old post must find the parent and detect permlink reuse), which is why `get_comment` transparently consults the archive and why changing archive modes requires replay.
 - The archived record retains only `{comment_id, parent_comment, depth}` + hash key — consistent with the in-memory `comment_object`; the permlink string itself is still unrecoverable from core state after cashout (only its hash).
 
@@ -1193,7 +1194,7 @@ Indices: `by_id`, `by_block` `(block_number, id)`, `by_permlink` (unique hash). 
 
 ## RC (Resource Credits) Objects
 
-All created at **HF20 application** (`database_hardfork.cpp:375-401`): `rc_resource_param_object`, the 24 `rc_usage_bucket_object`s, `rc_pool_object`, and both `rc_stats_object`s.
+All created at **HF20 application** (`database_hardfork.cpp:370-396`): `rc_resource_param_object`, the 24 `rc_usage_bucket_object`s, `rc_pool_object`, and both `rc_stats_object`s.
 
 ### rc_resource_param_object (Singleton)
 
@@ -1213,7 +1214,7 @@ Each `rc_resource_params` contains:
 
 **Indices:** Only `by_id` (singleton)
 
-**Lifecycle:** created at HF20; effectively constant afterward (parameters baked from `rc_curve_gen_params`); never removed.
+**Lifecycle:** created at HF20 from `libraries/jsonball/data/resource_parameters.json` (`database_hardfork.cpp:363-381`); afterwards only the `resource_new_accounts` entry changes: at each witness schedule update from HF20 it is set from the witnesses' median `account_subsidy_rd` when that differs, with its price curve regenerated from the `rc_curve_gen_params` defaults (`rc/rc_utility.cpp:864-882`, called at `witness_schedule.cpp:437-438`); never removed.
 
 ---
 
@@ -1248,7 +1249,7 @@ Global resource pools — consumed each block, regenerated per budget.
 
 ### rc_stats_object (Doubleton)
 
-**Source:** `rc/rc_objects.hpp:130`; instance ids fixed at `rc_objects.hpp:176-177`
+**Source:** `rc/rc_objects.hpp:130`; instance ids fixed at `rc_objects.hpp:179-180`
 
 Daily RC statistics. Two instances: `RC_PENDING_STATS_ID` (oid 0) accumulating the current day, `RC_ARCHIVE_STATS_ID` (oid 1) holding the previous day (served by `rc_api`).
 
@@ -1274,7 +1275,7 @@ Daily RC statistics. Two instances: `RC_PENDING_STATS_ID` (oid 0) accumulating t
 
 ### rc_direct_delegation_object
 
-**Source:** `rc/rc_objects.hpp:179`
+**Source:** `rc/rc_objects.hpp:182`
 
 Direct RC delegation from one account to another.
 
@@ -1293,15 +1294,15 @@ Direct RC delegation from one account to another.
 | `by_id` | `id` |
 | `by_from_to` | `(from, to)` |
 
-**Lifecycle:** created by the `delegate_rc` custom_json operation handler (`rc/rc_utility.cpp:67`); modified on re-delegation; removed on zero-delegation and when delegator's max RC drops (powerdown/delegation of underlying VESTS).
+**Lifecycle:** created by the `delegate_rc` custom_json operation handler (`rc/rc_utility.cpp:78`); modified on re-delegation; removed on zero-delegation and when delegator's max RC drops (powerdown/delegation of underlying VESTS).
 
 ---
 
 ### rc_expired_delegation_object
 
-**Source:** `rc/rc_objects.hpp:201`
+**Source:** `rc/rc_objects.hpp:205`
 
-Overflow RC delegations pending removal (when mass removal hits the per-block remove threshold).
+Overflow RC delegations pending removal (when the delegation removals for one VEST change reach the remove threshold).
 
 **Fields:**
 
@@ -1317,15 +1318,15 @@ Overflow RC delegations pending removal (when mass removal hits the per-block re
 | `by_id` | `id` |
 | `by_account` | `from` (unique) |
 
-**Lifecycle:** created when delegation-removal work exceeds the per-block object-removal budget (`rc/rc_utility.cpp:433`); drained by per-block processing of expired delegations; removed when fully processed.
+**Lifecycle:** created when the delegation removals for one VEST change reach the object-removal limit (`db.get_remove_threshold()`, one `remove_guard` per call, `rc/rc_utility.cpp:436-457`); drained by per-block processing of expired delegations, which has one such limit per block (`rc/rc_utility.cpp:617-656`); removed when fully processed.
 
 ---
 
 ### rc_usage_bucket_object (Multiton — 24)
 
-**Source:** `rc/rc_objects.hpp:222`
+**Source:** `rc/rc_objects.hpp:227`
 
-Fixed set of 24 time buckets for RC resource usage tracking. Each covers `HIVE_RC_BUCKET_TIME_LENGTH` = 1 hour (`config.hpp:483`); `HIVE_RC_WINDOW_BUCKET_COUNT` = 24 (`config.hpp:484`). Sum across all buckets = `rc_pool_object.usage_in_window`.
+Fixed set of 24 time buckets for RC resource usage tracking. Each covers `HIVE_RC_BUCKET_TIME_LENGTH` = 1 hour (`config.hpp:482`); `HIVE_RC_WINDOW_BUCKET_COUNT` = 24 (`config.hpp:483`). Sum across all buckets = `rc_pool_object.usage_in_window`.
 
 **Fields:**
 
@@ -1365,13 +1366,13 @@ The `dynamic_global_property_object` is the source of truth for:
 
 1. **Supply tracking**: `current_supply` (HIVE), `current_hbd_supply` (HBD), `total_vesting_shares` (VESTS), `total_vesting_fund_hive` (HIVE backing VESTS)
 2. **Price derivation**: VEST price = `total_vesting_shares / total_vesting_fund_hive`
-3. **Reward distribution**: `total_reward_fund_hive`, `content_reward_percent`, `vesting_reward_percent`, `proposal_fund_percent`
+3. **Reward distribution**: `content_reward_percent`, `vesting_reward_percent`, `proposal_fund_percent`; the content reward pool itself is `reward_fund_object.reward_balance` (1.28.8 removed the dgpo's `total_reward_fund_hive`; see the note under the dgpo field table)
 4. **HBD stability**: `hbd_print_rate`, `hbd_stop_percent`, `hbd_start_percent`, `hbd_interest_rate`
 5. **Block production**: `head_block_number`, `time`, `current_witness`, `maximum_block_size`
 6. **Witness participation**: `recent_slots_filled` (128-bit), `participation_count`
 7. **Account subsidies**: `available_account_subsidies`
 8. **DHF timing**: `next_maintenance_time`, `last_budget_time`, `dhf_interval_ledger`
-9. **Recurrent transfer limits**: `max_consecutive_recurrent_transfer_failures`, `max_open_recurrent_transfers`, `min_recurrent_transfers_recurrence`
+9. **Recurrent transfer limits**: `max_consecutive_recurrent_transfer_failures`, `max_open_recurrent_transfers`, `min_recurrent_transfers_recurrence`, which only mirror the `HIVE_*` constants that the chain code reads (Part 12, Key Discovery 5)
 10. **Mass-removal throttling**: `current_remove_threshold` caps how many objects automatic processing may remove per step (used with `remove_guard`, e.g. proposal/vote cleanup)
 
 ---
@@ -1380,9 +1381,9 @@ The `dynamic_global_property_object` is the source of truth for:
 
 ### Index registration
 
-Core indices are registered in 13 `initialize_core_indexes_NN()` functions spread across the `database_*.cpp` files (e.g. `database_comment.cpp:45-52`), called from `database_init.cpp`. **37 core indices** exist — one per defined core object type. Two further chainbase indices are conditional:
-- `volatile_comment_index` — added by `rocksdb_comment_archive` constructor when `comment-archive = ROCKSDB` (`rocksdb_comment_archive.cpp:24`)
-- `account_metadata_index` — added by the metadata plugin when enabled (`metadata_plugin.cpp:198`)
+Core indices are registered in 12 `initialize_core_indexes_NN()` functions (numbered 01 to 13; `_10` is commented out) spread across the `database_*.cpp` files (e.g. `database_comment.cpp:37-44`), which `initialize_core_indexes()` calls in order (`libraries/chain/index.cpp:19-34`) from `database::initialize_indexes()` (`database_init.cpp:60-64`). **37 core indices** exist: one per defined core object type. Two further chainbase indices are conditional:
+- `volatile_comment_index` - added by `rocksdb_comment_archive` constructor when the ROCKSDB archive is in use (the default, and the only choice in mainnet builds; `rocksdb_comment_archive.cpp:25`)
+- `account_metadata_index` — added by the metadata plugin when enabled (`metadata_plugin.cpp:199`)
 
 ### Pool allocator semantics (the "allocator hints")
 
@@ -1406,9 +1407,9 @@ The "(plus one internal)" refers to the multi-index container's internal header 
 
 ### Memory cost of the legacy objects (answers former open question)
 
-- **`liquidity_reward_balance_object`** is ~48 bytes of payload (id 4 + owner 4 + last_update 4 + pad, weight 16, 2×int64 16) plus three ordered-index node headers. **The index is cleared at HF12** (`database_hardfork.cpp:241-242`) and only repopulated transiently during replay of pre-HF12 blocks (one object per market-maker account active in the prior week). On a synced node: zero objects; residual cost is the empty container + pool bookkeeping (sub-KB).
+- **`liquidity_reward_balance_object`** is ~48 bytes of payload (id 4 + owner 4 + last_update 4 + pad, weight 16, 2 x int64 16) plus three ordered-index node headers. **The index is cleared at HF12** (`database_hardfork.cpp:246-247`) and only repopulated transiently during replay of pre-HF12 blocks (one object per account that took part in a qualifying order fill before HF12; nothing removes them before the HF12 clear). On a synced node: zero objects; residual cost is the empty container + pool bookkeeping (sub-KB).
 - **`comment_cashout_ex_object`** is ~64 bytes of payload (2×oid 8, 2×time 8, 2×share_type 16, 3×HBD_asset 24, reward_weight 2 + pad) plus two ordered-index node headers (~120–130 B total per object, node overhead estimated). Pre-HF19 one exists per live comment, so during replay the index grows to tens of millions of objects approaching the HF19 block — then is wiped in one shot by `remove_old_cashouts()`. On a synced node: zero objects.
-- The dominant residual cost of both is therefore **replay-time peak memory**, not steady-state waste. (Byte counts are computed from field layouts at the pinned commit; padding/node overhead are estimates, not measured.)
+- The dominant residual cost of both is therefore **replay-time peak memory**, not steady-state waste. (Byte counts are computed from the field layouts at 1.28.8, unchanged from 1.28.7; padding/node overhead are estimates, not measured.)
 
 ### Singleton/Doubleton/Multiton summary
 
@@ -1435,25 +1436,25 @@ The "(plus one internal)" refers to the multi-index container's internal header 
 
 ## Key Discoveries
 
-1. **Paid-out comments leave chainbase by default (1.28).** The `comment-archive` chain option (default ROCKSDB) migrates comments to RocksDB once their cashout is irreversible: `on_cashout` creates an undo-tracked `volatile_comment_object`; LIB processing (≥10k pending) writes `{comment_id, parent_comment, depth}` keyed by author+permlink hash to RocksDB and removes both objects from chainbase. Lookups transparently fall back to the archive via `database::get_comment` → `comments_handler::get_comment`. MEMORY mode instead keeps archived comments in a hashed SHM index; NONE preserves the old keep-everything behavior. Switching modes requires replay.
+1. **Paid-out comments leave chainbase by default (1.28).** The ROCKSDB comment archive (the default of the `comment-archive` chain option, which exists only in testnet and mirrornet builds; mainnet builds always use ROCKSDB) migrates comments to RocksDB once their cashout is irreversible: `on_cashout` creates an undo-tracked `volatile_comment_object`; LIB processing (once 10,000 are pending while the node syncs, at every irreversible block once live) writes `{comment_id, parent_comment, depth}` keyed by author+permlink hash to RocksDB and removes both objects from chainbase. Lookups transparently fall back to the archive via `database::get_comment` -> `comments_handler::get_comment`. MEMORY mode instead keeps archived comments in a hashed SHM index; NONE preserves the old keep-everything behavior. Switching modes requires replay.
 
-2. **RC mana is embedded in account_object**, not in a separate `rc_account_object`. The `rc_manabar`, `rc_adjustment`, `delegated_rc`, `received_rc`, and `last_max_rc` fields are directly on the account (`last_max_rc` is explicitly a debug leftover removable "once RC becomes part of consensus"). The old RC plugin's `rc_account_object` no longer exists.
+2. **RC mana is embedded in account_object**, not in a separate `rc_account_object`. The `rc_manabar`, `rc_adjustment`, `delegated_rc`, `received_rc`, and `last_max_rc` fields are directly on the account (`last_max_rc` is the maximum RC last recorded by the RC code, which adds to or caps `rc_manabar` against it when the maximum changes, `rc/rc_utility.cpp:468-488`; its source comment calls it a bug-catching aid that "can be removed once RC becomes part of consensus", see the account_object field table). The old RC plugin's `rc_account_object` no longer exists.
 
 3. **comment_object stores only a hash, not author+permlink strings.** `author_and_permlink_hash` = RIPEMD-160 of `permlink + "@" + author_id`. The permlink string lives only in `comment_cashout_object` (deleted at payout), so for cashed-out comments the permlink is unrecoverable from core state — including from the RocksDB archive, which stores the same hash-keyed minimal record.
 
 4. **comment_cashout_object shares its ID with comment_object** (1:0..1; same for the legacy `comment_cashout_ex_object`). The shared-id trick is documented in the constructors (`comment_object.hpp:125,280`).
 
-5. **comment_vote_objects are short-lived**: removed in bulk at the comment's payout (`database_comment.cpp:366-373`) and on comment deletion. The index only holds votes for comments inside the 7-day cashout window — this, plus the comment archive, is what keeps `shared_memory.bin` bounded.
+5. **comment_vote_objects are short-lived**: removed in bulk at the comment's payout (`database_comment.cpp:365-372`) and on comment deletion. The index only holds votes for comments inside the 7-day cashout window — this, plus the comment archive, is what keeps `shared_memory.bin` bounded.
 
 6. **block_stats_object is a fossil, not a reservation**: a real object in Steem from 2016-10-10 (one block_id per block) deleted on 2016-12-13 (steemit/steem#675); the enum slot survives only to keep later type IDs stable. The modern `block_stats` telemetry class in `block_flow_control.hpp` is unrelated.
 
-7. **account_metadata_object is plugin-level and OFF by default**: the metadata plugin is not in hived's default plugin set (`main.cpp:117-122`), so a default node tracks no JSON metadata. `memo_key` stays on `account_object` precisely because witnesses don't run the metadata plugin (`account_object.hpp:257`). The plugin reserves space ID 22 but the object keeps core ID 2 (it was moved out of core without changing its type id).
+7. **account_metadata_object is plugin-level and OFF by default**: the metadata plugin is not in hived's default plugin set (`programs/hived/main.cpp:117-122`), so a default node tracks no JSON metadata. `memo_key` stays on `account_object` precisely because witnesses don't run the metadata plugin (`account_object.hpp:282`). The plugin reserves space ID 22 but the object keeps core ID 2 (it was moved out of core without changing its type id).
 
-8. **Object IDs are 4-byte** (`oid`/`oid_ref` wrap `uint32_t`), and typed assets are 8-byte amounts with compile-time symbols — relevant when reasoning about object sizes and the id-vs-name trade-off (a name is 16 bytes, an id 4).
+8. **Object IDs are 4-byte** (`oid`/`oid_ref` wrap `uint32_t`), and typed assets are 8-byte amounts with compile-time symbols; since 1.28.8 the balance classes that hold funds in chain objects have the size of what they wrap (8 bytes for the `tiny_balance` types such as `HIVE_balance`, 16 for `balance` like `asset`: `tests/unit/tests/basic_tests.cpp:706-709`). This is relevant when reasoning about object sizes and the id-vs-name trade-off (a name is 16 bytes, an id 4).
 
-9. **Name-vs-id inconsistency is documented in-code, with reasons**: escrow's TODO carries ABW's counterargument (id would make lookup harder since operations address escrows by `(from_name, escrow_id)`); `change_recovery_account_request` notes that switching to ids would change `database_api.list_change_recovery_account_requests` responses. So the remaining name-based objects (escrow, savings_withdraw, witness_vote, proposal/proposal_vote, withdraw_route, recovery family, decline_voting) are blocked less by hardfork mechanics than by lookup ergonomics and API stability.
+9. **Name-vs-id inconsistency is documented in-code, with reasons**: escrow's TODO carries ABW's counterargument (id would make lookup harder since operations address escrows by `(from_name, escrow_id)`); `change_recovery_account_request` notes that switching to ids would change `database_api.list_change_recovery_account_requests` responses. Since 1.28.8 the source gives reasons for more of them: savings withdrawals and the limit order `seller` keep names because `database_api.list_savings_withdrawals` and `database_api.list_limit_orders` use them, withdraw routes because power down uses name order, and the owner authority history because of `database_api.list_owner_histories` (`savings_withdraw_object.hpp:54-55`, `limit_order_object.hpp:68`, `withdraw_vesting_route_object.hpp:16-17`, `account_object.hpp:511`). So the remaining name-based objects (escrow, savings_withdraw, limit_order seller, witness_vote, proposal/proposal_vote, withdraw_route, recovery family, decline_voting) are blocked less by hardfork mechanics than by lookup ergonomics and API stability.
 
-10. **Hardforks create and destroy whole index populations**: HF12 clears liquidity rewards; HF17 creates the reward fund; HF19 wipes all `comment_cashout_ex` objects and all paid `comment_cashout` objects (`remove_old_cashouts`); HF20 creates the five RC infrastructure objects (param/pool/2×stats/24 buckets); HF21/HF24 create treasury accounts; HF26 creates the future witness schedule (asserting it gets id 1).
+10. **Hardforks create and destroy whole index populations**: HF12 clears liquidity rewards; HF19 wipes all `comment_cashout_ex` objects and all paid `comment_cashout` objects (`remove_old_cashouts`); HF20 creates the RC infrastructure objects (param, pool, two stats, 24 buckets); HF21/HF24 create the treasury account if it does not exist yet; HF26 creates the future witness schedule (asserting it gets id 1). HF17 created the reward fund at 1.28.7; since 1.28.8 genesis creates it and HF17 only sets its `last_update` and seeds `recent_claims` (see the reward_fund_object Lifecycle).
 
 11. **Witness scheduling uses virtual time**: three `fc::uint128` fields (`virtual_last_update`, `virtual_position`, `virtual_scheduled_time`) implement proportional-to-votes scheduling for the timeshare slot.
 
@@ -1461,9 +1462,9 @@ The "(plus one internal)" refers to the multi-index container's internal header 
 
 13. **The whole chain shares a year-2106 timestamp horizon**: `fc::time_point_sec` stores `uint32_t utc_seconds` (`fc/time.hpp:78-90`), and `manabar.last_update_time` mirrors that as raw `uint32_t` (`util/manabar.hpp:35`). `manabar::regenerate_mana` would trip `FC_ASSERT(now >= last_update_time)` on wraparound, but no field anywhere in state survives 2106 without a (state-breaking, not consensus-urgent) migration. Not a practical concern for decades.
 
-14. **Field packing in account_object is deliberate** (`account_object.hpp:175`): members are ordered to minimize padding around the leading 4-byte id, which is why the declaration order looks scrambled relative to logical grouping.
+14. **Field packing in account_object is deliberate** (`account_object.hpp:200`): members are ordered to minimize padding around the leading 4-byte id, which is why the declaration order looks scrambled relative to logical grouping.
 
-15. **`EnableNoUndo` is a special-purpose chainbase feature used only by comment_object** — safe because comments are immutable and archived ≥7 days after creation, so no undo session can reference them; the chainbase doc comment explicitly warns it would be unsafe for `volatile_comment_object` (`chainbase.hpp:182-191`).
+15. **`EnableNoUndo` is a special-purpose chainbase feature used only by comment_object**, and only the MEMORY archive uses it (`memory_comment_archive.cpp:44`; the default ROCKSDB archive removes comments with the undoable `remove()`, `rocksdb_comment_archive.cpp:131`): safe because comments are immutable and archived >= 7 days after creation, so no undo session can reference them; the chainbase doc comment explicitly warns it would be unsafe for `volatile_comment_object` (`chainbase/util/object.hpp:26-35`).
 
 ---
 
@@ -1482,14 +1483,14 @@ The "(plus one internal)" refers to the multi-index container's internal header 
 | `escrow_object` | `detail/state/escrow_object.hpp` | `detail/state/escrow_object_multiindex.hpp` |
 | `savings_withdraw_object` | `detail/state/savings_withdraw_object.hpp` | `detail/state/savings_withdraw_object_multiindex.hpp` |
 | `recurrent_transfer_object` | `detail/state/recurrent_transfer_object.hpp` | `detail/state/recurrent_transfer_object_multiindex.hpp` |
-| RC objects | `rc/rc_objects.hpp` | same file (indices inline) |
-| `account_metadata_object` | `plugins/metadata/.../metadata_objects.hpp` | same file |
-| Comment archive | `external_storage/comments_handler.hpp`, `comment_rocksdb_objects.hpp`, `rocksdb_comment_archive.hpp`, `memory_comment_archive.hpp`, `placeholder_comment_archive.hpp` | `volatile_comment_index` inline |
-| Archive selection | `libraries/plugins/chain/chain_plugin.cpp:170-174, 796-815, 1515` | — |
+| RC objects | `rc/rc_objects.hpp` | `rc/rc_objects_multiindex.hpp` (since 1.28.8; inline at 1.28.7) |
+| `account_metadata_object` | `plugins/metadata/.../metadata_objects.hpp` | `plugins/metadata/.../metadata_objects_multiindex.hpp` (since 1.28.8; same file at 1.28.7) |
+| Comment archive | `external_storage/comments_handler.hpp`, `comment_rocksdb_objects.hpp`, `rocksdb_comment_archive.hpp`, `memory_comment_archive.hpp`, `placeholder_comment_archive.hpp` | `external_storage/comment_rocksdb_objects_multiindex.hpp` (`volatile_comment_index`, since 1.28.8; inline at 1.28.7) |
+| Archive selection | `libraries/plugins/chain/chain_plugin.cpp:172-176, 818-837, 1540` | — |
 | Object id / pool allocator | `chainbase/util/object_id.hpp`, `chainbase/pool_allocator.hpp` | — |
-| Index registration | `initialize_core_indexes_NN` in `database_*.cpp` (e.g. `database_comment.cpp:45`) | — |
-| HF cleanups | `database_hardfork.cpp:240-242` (HF12), `:278` (HF17), `:333` (HF19), `:375-401` (HF20), `:503-508` (HF26) | — |
-| Cashout/vote removal | `database_comment.cpp:102-120` (`remove_old_cashouts`), `:366-373` (vote removal), `:477-481` (cashout removal + archive call) | — |
+| Index registration | `initialize_core_indexes_NN` in `database_*.cpp` (e.g. `database_comment.cpp:37`) | — |
+| HF cleanups | `database_hardfork.cpp:245-247` (HF12), `:281-287` (HF17, sets the reward fund's `last_update` and seeds `recent_claims`; genesis creates the fund since 1.28.8), `:328` (HF19), `:370-396` (HF20), `:498-503` (HF26) | - |
+| Cashout/vote removal | `database_comment.cpp:94-112` (`remove_old_cashouts`), `:365-372` (vote removal), `:471-475` (cashout removal + archive call) | — |
 
 ---
 
@@ -1499,15 +1500,15 @@ The "(plus one internal)" refers to the multi-index container's internal header 
 
 2. **`account_metadata_object_type` (ID 2) couples the core enum to a plugin.** The object was moved into the metadata plugin while keeping its core type ID (changing it would break state). The plugin also reserves space ID 22 that this object doesn't use. Consequence: the core enum is not a reliable inventory of core-managed state, and one core ID is owned by optional code.
 
-3. **(Corrected from earlier revision)** `liquidity_reward_balance_object`'s `1024` is a *pool block size* (objects per allocation block), not pre-reserved memory — and it is *smaller* than the 4096 default, deliberately so for a dead index. The index is **cleared at HF12** (`database_hardfork.cpp:241-242`); it does not waste meaningful memory on a synced node, only transiently during pre-HF12 replay.
+3. **(Corrected from earlier revision)** `liquidity_reward_balance_object`'s `1024` is a *pool block size* (objects per allocation block), not pre-reserved memory — and it is *smaller* than the 4096 default, deliberately so for a dead index. The index is **cleared at HF12** (`database_hardfork.cpp:246-247`); it does not waste meaningful memory on a synced node, only transiently during pre-HF12 replay.
 
-4. **(Corrected from earlier revision)** `comment_cashout_ex_object`s do **not** linger after HF19: `remove_old_cashouts()` clears the entire index at HF19 application (`database_comment.cpp:105-106`). The remaining cost is the (empty) registered index, the compiled code paths, and the replay-time population before HF19.
+4. **(Corrected from earlier revision)** `comment_cashout_ex_object`s do **not** linger after HF19: `remove_old_cashouts()` clears the entire index at HF19 application (`database_comment.cpp:97-98`). The remaining cost is the (empty) registered index, the compiled code paths, and the replay-time population before HF19.
 
 5. **Inconsistent `account_id_type` vs `account_name_type` across objects persists**, but in-code comments show it's a conscious trade-off (escrow lookup ergonomics, API response stability) rather than mere debt. Migrating would save 12 bytes per reference and require a hardfork plus API versioning; nothing in the code signals active plans.
 
 6. **`witness_schedule_object` doubleton semantics changed at HF26**: id 0 = current schedule, id 1 = future schedule (created with an `FC_ASSERT` on its id). Code reading "the" schedule must pick the right instance; the allocator comment "dubleton (plus one internal)" documents the expected population.
 
-7. **The memory comment archive cannot snapshot**: `memory_comment_archive::save_snapshot/load_snapshot` are `FC_ASSERT(false, "not implemented yet")` (`memory_comment_archive.cpp:88-98`). Nodes using `comment-archive = MEMORY` cannot use state snapshots; ROCKSDB mode implements snapshot supplements. Operationally this makes MEMORY mode a second-class option.
+7. **The memory comment archive cannot snapshot**: `memory_comment_archive::save_snapshot/load_snapshot` are `FC_ASSERT( false && "... not implemented yet" )` (`memory_comment_archive.cpp:83-93`). Nodes using `comment-archive = MEMORY` (an option that only testnet and mirrornet builds have) cannot use state snapshots; ROCKSDB mode implements snapshot supplements. Operationally this makes MEMORY mode a second-class option.
 
 8. **Several "REMOVE" comments** mark fields kept only for APIs/tests: `account_object` (`created`, `block_created`, `last_account_update`, `last_vote_time`, `post_count`, `mined`, `block_last_account_recovery`), `comment_vote_object` (`last_update`). Removing them is a state-format change (replay/migration), not consensus-breaking.
 
@@ -1515,10 +1516,10 @@ The "(plus one internal)" refers to the multi-index container's internal header 
 
 ## Open Questions
 
-1. **Are there plans to migrate remaining `account_name_type` references to `account_id_type`?** The TODOs remain at this revision (escrow, savings_withdraw), now with documented counterarguments (lookup ergonomics, `database_api` response shapes). No migration scaffolding exists in the code; would need confirmation from the dev team whether anything is scheduled for a future HF. *(Partially answered: the blockers are documented; no plan is visible in source.)*
+1. **Are there plans to migrate remaining `account_name_type` references to `account_id_type`?** At 1.28.8 a "can be replaced with account_id_type" TODO remains on the escrow parties, with ABW's counterargument (`escrow_object.hpp:69-71`), `change_recovery_account_request_object::recovery_account` is still marked "could be changed to id" (`account_object.hpp:591`), and the dgpo's `current_witness` TODO reads "check if worth replacing with account_id_type (ABW: probably not)" (`global_property_object.hpp:208`); the savings-withdraw and limit-order TODOs of 1.28.7 became notes that the names must stay, and withdraw routes and owner histories gained such notes (Key Discovery 9). No migration scaffolding exists in the code; would need confirmation from the dev team whether anything is scheduled for a future HF. *(Partially answered: the blockers are documented; no plan is visible in source.)*
 
-2. **Is a split of the 50+-field `account_object` planned** (analogous to the authority/metadata splits)? The packing comment and REMOVE markers suggest awareness, and the metadata/memo_key comment shows the direction (move non-consensus data to plugins), but no concrete refactoring is visible at this commit.
+2. **Is a split of the 50+-field `account_object` planned** (analogous to the authority/metadata splits)? The packing comment and REMOVE markers suggest awareness, and the metadata/memo_key comment shows the direction (move non-consensus data to plugins), but no split is visible at 1.28.8, which made the account's fund and delegation members private behind getters but kept every field in the object.
 
-3. **What are the operational parameters of the RocksDB comment archive at scale** (compaction behavior, read latency for `get_comment` misses on old posts, disk footprint vs the SHM savings)? The code fixes `volatile_objects_limit = 10'000` and flushes write buffers per LIB batch, but real-world sizing data belongs to a deployment-focused zoom (candidate for a dedicated deep-dive on `external_storage/`).
+3. **What are the operational parameters of the RocksDB comment archive at scale** (compaction behavior, read latency for `get_comment` misses on old posts, disk footprint vs the SHM savings)? The code fixes `volatile_objects_limit = 10'000` while the node syncs (0 once live, `rocksdb_comment_archive.cpp:215-219`) and submits the RocksDB write batch after each LIB batch (`:137`); since 1.28.8 the periodic state flush only submits that write batch too, and a full RocksDB flush (`flushDb`) happens when the node closes or finishes syncing and when a state snapshot is written (also when the database is first created, `rocksdb_storage_provider.cpp:211`, and before a snapshot load replaces it, `rocksdb_snapshot.cpp:93`; `rocksdb_comment_archive.cpp:202-213`; `database.cpp:304`, `:863`; `rocksdb_snapshot.cpp:55`). Real-world sizing data belongs to a deployment-focused zoom (candidate for a dedicated deep-dive on `external_storage/`).
 
-4. **Why does the comment_cashout_logging plugin use space ID 666** while all other plugins use small sequential IDs? Cosmetic curiosity; no functional impact found.
+4. **Why does the comment_cashout_logging plugin use space ID 666** while all other plugins use small sequential IDs? Cosmetic curiosity; no functional impact found. *(Answered by code reading: the plugin only defines the macro, no chainbase object uses it, and `666 << 8` would not fit the 16-bit type number; see the Space ID table above. Same at 1.28.7.)*

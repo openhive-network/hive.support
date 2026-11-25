@@ -1,6 +1,6 @@
 # Hive Configuration Constants Reference
 
-Source: hive-core release 1.28.7. Constants from `libraries/protocol/include/hive/protocol/config.hpp` unless noted.
+Source: hive-core release 1.28.8. Constants from `libraries/protocol/include/hive/protocol/config.hpp` unless noted.
 
 Percentage values use basis-point encoding: `HIVE_100_PERCENT = 10,000`, `HIVE_1_PERCENT = 100`, `HIVE_1_BASIS_POINT = 1`.
 
@@ -17,13 +17,13 @@ Percentage values use basis-point encoding: `HIVE_100_PERCENT = 10,000`, `HIVE_1
 | `HIVE_ONE_DAY_SECONDS` | 86,400 | |
 | `HIVE_SECONDS_PER_YEAR` | 31,536,000 | |
 | `HIVE_MAX_TIME_UNTIL_EXPIRATION` | 3,600 s | Runtime expiration cap (1 hr); before HF28 also the hard limit on the `expiration` field |
-| `HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION` | 86,400 s | HF28+: max offset of the `expiration` field (1 day); the node still treats the tx as expired 1 hr after first validation (`database.cpp:2536-2548`) |
+| `HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION` | 86,400 s | HF28+: max offset of the `expiration` field (1 day); the node still treats the tx as expired 1 hr after first validation (`database.cpp:2550-2562`) |
 | `HIVE_CASHOUT_WINDOW_SECONDS` | 604,800 s | Post payout window (7 days) |
 | `HIVE_CASHOUT_WINDOW_SECONDS_PRE_HF12` | 86,400 s | 1 day |
 | `HIVE_CASHOUT_WINDOW_SECONDS_PRE_HF17` | 43,200 s | 12 hours |
 | `HIVE_SECOND_CASHOUT_WINDOW` | 2,592,000 s | 30 days |
 | `HIVE_MAX_CASHOUT_WINDOW_SECONDS` | 1,209,600 s | 14 days |
-| `HIVE_UPVOTE_LOCKOUT_SECONDS` | 43,200 s | 12 hours before cashout |
+| `HIVE_UPVOTE_LOCKOUT_SECONDS` | 43,200 s | 12 hours before cashout; since HF20 a vote in this window scales linearly to 0 rshares; before HF20 a vote that raised a vote's rshares was rejected within the last `HIVE_UPVOTE_LOCKOUT_HF17` (12 h on mainnet) before cashout from HF17, and within the last `HIVE_UPVOTE_LOCKOUT_HF7` (1 minute) before payout from HF7 (`hive_evaluator_social.cpp:384-389`) |
 | `HIVE_MIN_ROOT_COMMENT_INTERVAL` | 300 s | 5 min between root posts |
 | `HIVE_MIN_REPLY_INTERVAL` | 3 s | Between replies |
 | `HIVE_MIN_COMMENT_EDIT_INTERVAL` | 3 s | Between edits |
@@ -40,20 +40,20 @@ Percentage values use basis-point encoding: `HIVE_100_PERCENT = 10,000`, `HIVE_1
 | Constant | Value | Description |
 |----------|-------|-------------|
 | `HIVE_MAX_BLOCK_SIZE` | 2,097,152 B | 2 MB hard maximum |
-| `HIVE_MIN_BLOCK_SIZE_LIMIT` | 65,536 B | = MAX_TRANSACTION_SIZE |
-| `HIVE_MIN_BLOCK_SIZE` | 115 B | Minimum valid block |
-| `HIVE_MAX_TRANSACTION_SIZE` | 65,536 B | 64 KB |
-| `HIVE_MIN_TRANSACTION_SIZE_LIMIT` | 1,024 B | 1 KB |
-| `HIVE_MAX_MEMO_SIZE` | 2,048 | Characters |
-| `HIVE_MAX_PERMLINK_LENGTH` | 256 | Characters |
-| `HIVE_MAX_WITNESS_URL_LENGTH` | 2,048 | Characters |
-| `HIVE_MAX_URL_LENGTH` | 127 | Witness URL in operations |
+| `HIVE_MIN_BLOCK_SIZE_LIMIT` | 65,536 B | = MAX_TRANSACTION_SIZE; floor of the witness-voted `maximum_block_size` |
+| `HIVE_MIN_BLOCK_SIZE` | 115 B | A smaller block is only logged, not rejected (`database.cpp:2288-2289`) |
+| `HIVE_MAX_TRANSACTION_SIZE` | 65,536 B | 64 KB; not checked against transactions (the push path limits one to the voted `maximum_block_size` minus 256 bytes); only defines `HIVE_MIN_BLOCK_SIZE_LIMIT` (Part 02, section Transaction-Level Constraints) |
+| `HIVE_MIN_TRANSACTION_SIZE_LIMIT` | 1,024 B | 1 KB; not used by chain code (reported by `get_config`) |
+| `HIVE_MAX_MEMO_SIZE` | 2,048 | Bytes (a memo holds at most 2,047) |
+| `HIVE_MAX_PERMLINK_LENGTH` | 256 | Bytes (a permlink holds at most 255) |
+| `HIVE_MAX_WITNESS_URL_LENGTH` | 2,048 | Bytes (a witness URL holds at most 2,048) |
+| `HIVE_MAX_URL_LENGTH` | 127 | Not used by chain code (reported by `get_config`); witness URLs are checked against `HIVE_MAX_WITNESS_URL_LENGTH` (`hive_operations.cpp:280`, `:370`) |
 | `HIVE_MAX_SHARE_SUPPLY` | 10^15 | Max total HIVE supply |
 | `HIVE_MAX_SATOSHIS` | 2^62 - 1 | Max single asset field |
 | `HIVE_BLOCKCHAIN_PRECISION` | 1,000 | 10^3 (HIVE/HBD precision) |
-| `HIVE_BLOCK_GENERATION_POSTPONED_TX_LIMIT` | 5 | Max postponed txs per block |
-| `HIVE_PENDING_TRANSACTION_EXECUTION_LIMIT` | 200 ms | Time budget for pending txs |
-| `HIVE_MAX_UNDO_HISTORY` | 10,000 | Undo stack depth |
+| `HIVE_BLOCK_GENERATION_POSTPONED_TX_LIMIT` | 5 | Block production stops taking pending txs once more than 5 did not fit (node policy, `block_producer.cpp:164-165`) |
+| `HIVE_PENDING_TRANSACTION_EXECUTION_LIMIT` | 200 ms | Time budget for re-applying pending txs after a block; the rest are kept unapplied up to the mempool size limit (node policy, `db_with.hpp:109-110`) |
+| `HIVE_MAX_UNDO_HISTORY` | 10,000 | Head - LIB must stay below it, else the block being applied fails (Part 06, section Undo History and Reorg Depth Limits) |
 
 ## Witness / DPoS
 
@@ -68,7 +68,7 @@ Percentage values use basis-point encoding: `HIVE_100_PERCENT = 10,000`, `HIVE_1
 | `HIVE_MAX_RUNNER_WITNESSES_HF17` | 1 | Runner-up (post-HF17) |
 | `HIVE_HARDFORK_REQUIRED_WITNESSES` | 17 | 17/21 for HF activation |
 | `HIVE_MAX_ACCOUNT_WITNESS_VOTES` | 30 | Max votes per account |
-| `HIVE_WITNESS_SHUTDOWN_THRESHOLD` | 28,800 blocks | 1 day before shutdown |
+| `HIVE_WITNESS_SHUTDOWN_THRESHOLD` | 28,800 blocks | 1 day before shutdown, HF14-HF19 only (Part 06, section Missed Blocks) |
 | `HIVE_START_MINER_VOTING_BLOCK` | 864,000 | 30 days of blocks |
 | `HIVE_START_VESTING_BLOCK` | 201,600 | 7 days of blocks |
 | `HIVE_IRREVERSIBLE_THRESHOLD` | 7,500 | 75% for irreversibility |
@@ -84,8 +84,8 @@ Percentage values use basis-point encoding: `HIVE_100_PERCENT = 10,000`, `HIVE_1
 | `HIVE_VOTING_MANA_REGENERATION_SECONDS` | 432,000 s | 5 days full regen |
 | `HIVE_DELAYED_VOTING_TOTAL_INTERVAL_SECONDS` | 2,592,000 s | 30-day delay for new vests |
 | `HIVE_DELAYED_VOTING_INTERVAL_SECONDS` | 86,400 s | 1-day granularity |
-| `HIVE_INITIAL_VOTE_POWER_RATE` | 40 | Votes/day at full power |
-| `HIVE_REDUCED_VOTE_POWER_RATE` | 10 | Reduced rate |
+| `HIVE_INITIAL_VOTE_POWER_RATE` | 40 | Votes/day at full power (dgpo `vote_power_reserve_rate` until HF19) |
+| `HIVE_REDUCED_VOTE_POWER_RATE` | 10 | Reduced rate, since HF19 |
 
 ## Rewards
 
@@ -97,9 +97,9 @@ Percentage values use basis-point encoding: `HIVE_100_PERCENT = 10,000`, `HIVE_1
 | `HIVE_CONTENT_REWARD_PERCENT_HF16` | 7,500 | 75% to content |
 | `HIVE_CONTENT_REWARD_PERCENT_HF21` | 6,500 | 65% to content |
 | `HIVE_VESTING_FUND_PERCENT_HF16` | 1,500 | 15% to vesting |
-| `HIVE_MINER_PAY_PERCENT` | 100 | 1% to witnesses |
+| `HIVE_MINER_PAY_PERCENT` | 100 | 1%; not used by chain code: witnesses get what remains of inflation after the content, vesting and DHF shares (Part 07, section Distribution Splits) |
 | `HIVE_MIN_PAYOUT_HBD` | 0.020 HBD | Minimum payout threshold |
-| `HIVE_VOTE_DUST_THRESHOLD` | 50,000,000 | Min rshares for non-dust vote |
+| `HIVE_VOTE_DUST_THRESHOLD` | 50,000,000 | Before HF20 a vote with rshares not above it was rejected from HF13, except `abs_rshares == 1` before HF14 and weight-0 votes (vote removal) from HF14 (`hive_evaluator_social.cpp:368-375`); since HF20 it is subtracted from every vote's rshares |
 | `HIVE_DOWNVOTE_POOL_PERCENT_HF21` | 2,500 | 25% free downvote pool |
 
 ## HBD / Stablecoin
@@ -141,10 +141,10 @@ Percentage values use basis-point encoding: `HIVE_100_PERCENT = 10,000`, `HIVE_1
 | `HIVE_PROPOSAL_FUND_PERCENT_HF0` | 0 | No DHF before HF21 |
 | `HIVE_PROPOSAL_FUND_PERCENT_HF21` | 1,000 | 10% of inflation to DHF |
 | `HIVE_TREASURY_FEE` | 10,000 | 10 HBD proposal creation fee |
-| `HIVE_PROPOSAL_SUBJECT_MAX_LENGTH` | 80 | Characters |
+| `HIVE_PROPOSAL_SUBJECT_MAX_LENGTH` | 80 | Bytes |
 | `HIVE_PROPOSAL_MAX_IDS_NUMBER` | 5 | Max IDs per update/remove op |
 | `HIVE_PROPOSAL_FEE_INCREASE_DAYS` | 60 | Days before fee increases |
-| `HIVE_PROPOSAL_FEE_INCREASE_AMOUNT` | 1,000 | +1 HBD per 60 days |
+| `HIVE_PROPOSAL_FEE_INCREASE_AMOUNT` | 1,000 | Since HF24: +1 HBD per whole day of proposal duration beyond the first 60 days |
 | `HIVE_PROPOSAL_CONVERSION_RATE` | 5 | 0.05% (5 basis points) |
 | `HIVE_PROPOSAL_MAINTENANCE_PERIOD` | 3,600 s | Process proposals hourly |
 | `HIVE_PROPOSAL_MAINTENANCE_CLEANUP` | 86,400 s | 1 day |
@@ -157,7 +157,7 @@ Percentage values use basis-point encoding: `HIVE_100_PERCENT = 10,000`, `HIVE_1
 |----------|-------|-------------|
 | `HIVE_MIN_ACCOUNT_NAME_LENGTH` | 3 | Characters |
 | `HIVE_MAX_ACCOUNT_NAME_LENGTH` | 16 | Characters |
-| `HIVE_MIN_ACCOUNT_CREATION_FEE` | 1 | 0.001 HIVE (mainnet) |
+| `HIVE_MIN_ACCOUNT_CREATION_FEE` | 1 | 0.001 HIVE on every network since 1.28.8 (0 on testnet at 1.28.7) |
 | `HIVE_MAX_ACCOUNT_CREATION_FEE` | 1,000,000,000 | 1,000,000 HIVE |
 | `HIVE_CREATE_ACCOUNT_WITH_HIVE_MODIFIER` | 30 | Fee multiplier for creation-with-HIVE |
 | `HIVE_CREATE_ACCOUNT_DELEGATION_RATIO` | 5 | Delegation-to-fee ratio |
@@ -200,24 +200,24 @@ Percentage values use basis-point encoding: `HIVE_100_PERCENT = 10,000`, `HIVE_1
 | Constant | Value | Description |
 |----------|-------|-------------|
 | `HIVE_ADDRESS_PREFIX` | `"STM"` | Public key prefix (kept from Steem) |
-| `HIVE_NUM_HARDFORKS` | 28 | Total hardforks defined |
-| `HIVE_MAX_COMMENT_DEPTH` | 65,535 | Effectively unlimited (current) |
+| `HIVE_NUM_HARDFORKS` | 28 | Hardforks a build registers: 28 on mainnet builds; 29 on testnet and mirrornet builds since 1.28.8 (HF29 defined in 1.28.8 code, inactive on mainnet; Part 01, section HF29 (Defined in 1.28.8, Inactive on Mainnet)) |
+| `HIVE_MAX_COMMENT_DEPTH` | 65,535 | Consensus limit since HF17 |
 | `HIVE_MAX_COMMENT_DEPTH_PRE_HF17` | 6 | Very shallow |
-| `HIVE_SOFT_MAX_COMMENT_DEPTH` | 255 | Soft limit |
-| `HIVE_MAX_COMMENT_BENEFICIARIES` | 8 | Beneficiary routes per post |
-| `HIVE_BENEFICIARY_LIMIT` | 128 | Extended beneficiary limit |
-| `HIVE_COMMENT_TITLE_LIMIT` | 256 | Characters |
-| `HIVE_CUSTOM_OP_ID_MAX_LENGTH` | 32 | Characters |
+| `HIVE_SOFT_MAX_COMMENT_DEPTH` | 255 | Applied only when the node is in control (new transactions, blocks it produces); node policy |
+| `HIVE_MAX_COMMENT_BENEFICIARIES` | 8 | Beneficiary routes per comment, checked only when the node is in control (node policy) |
+| `HIVE_BENEFICIARY_LIMIT` | 128 | validate() allows at most 127 beneficiaries |
+| `HIVE_COMMENT_TITLE_LIMIT` | 256 | Bytes (a title holds at most 255) |
+| `HIVE_CUSTOM_OP_ID_MAX_LENGTH` | 32 | Bytes |
 | `HIVE_CUSTOM_OP_DATA_MAX_LENGTH` | 8,192 | Bytes |
-| `HIVE_CUSTOM_OP_BLOCK_LIMIT` | 5 | Max custom ops per block |
+| `HIVE_CUSTOM_OP_BLOCK_LIMIT` | 5 | Custom operations per account in a node's pending transactions (push path, node policy; Part 02, section Transaction-Level Constraints) |
 | `HIVE_MAX_RECURRENT_TRANSFER_END_DATE` | 730 days | 2 years |
 | `HIVE_MAX_RECURRENT_TRANSFERS_PER_BLOCK` | 1,000 | Processing limit per block |
 | `HIVE_MIN_RECURRENT_TRANSFERS_RECURRENCE` | 24 hr | Minimum interval |
 | `HIVE_MAX_OPEN_RECURRENT_TRANSFERS` | 255 | Per account |
 | `HIVE_MAX_CONSECUTIVE_RECURRENT_TRANSFER_FAILURES` | 10 | Before cancellation |
-| `HIVE_MAX_PENDING_TRANSFERS` | 255 | Max pending transfers |
+| `HIVE_MAX_PENDING_TRANSFERS` | 255 | Max open escrow transfers per account |
 | `HIVE_MAX_LIMIT_ORDER_EXPIRATION` | 2,419,200 s | 28 days |
-| `HIVE_GLOBAL_REMOVE_THRESHOLD` | 200 | 100 on testnet |
+| `HIVE_GLOBAL_REMOVE_THRESHOLD` | 200 | Default object-removal limit of throttled cleanups (dgpo `current_remove_threshold`); 20 on testnet |
 | `HIVE_INIT_MINER_NAME` | `"initminer"` | Genesis block producer |
 | `HIVE_MINER_ACCOUNT` | `"miners"` | Represents current witnesses |
 | `HIVE_NULL_ACCOUNT` | `"null"` | Black hole (no authority) |
@@ -228,7 +228,7 @@ Percentage values use basis-point encoding: `HIVE_100_PERCENT = 10,000`, `HIVE_1
 
 ## Testnet Overrides
 
-Source: `testnet_blockchain_configuration.hpp`. Key constants that differ from mainnet defaults.
+Source: the `IS_TEST_NET` branch of `protocol/config.hpp` and the defaults in `testnet_blockchain_configuration.hpp`; the testnet symbol names come from `asset_symbol.hpp:34-40`. Key constants that differ from mainnet defaults.
 
 | Constant | Mainnet | Testnet | Notes |
 |----------|---------|---------|-------|
@@ -242,7 +242,6 @@ Source: `testnet_blockchain_configuration.hpp`. Key constants that differ from m
 | `HIVE_FEED_INTERVAL_BLOCKS` | 1,200 (1 hour) | 20 | |
 | `HIVE_INIT_SUPPLY` | 0 | 243,000,000,000 | 243M HIVE |
 | `HIVE_HBD_INIT_SUPPLY` | 0 | 7,000,000,000 | 7M HBD |
-| `HIVE_MIN_ACCOUNT_CREATION_FEE` | 1 (0.001 HIVE) | 0 | |
-| `HIVE_GLOBAL_REMOVE_THRESHOLD` | 200 | 100 | |
+| `HIVE_GLOBAL_REMOVE_THRESHOLD` | 200 | 20 | |
 | Symbol names | HIVE/HBD | TESTS/TBD | |
-| Chain ID | `beeab0de00...00` (literal hex) | `sha256("testnet")` | Mainnet id is the literal value via the `fc::sha256` hex ctor (`config.hpp:142`), **not** a hash; testnet is a real `sha256::hash("testnet")` (`config.hpp:69`) |
+| Chain ID | `beeab0de00...00` (literal hex) | `18dcf0a285365fc58b71f18b3d3fec954aa0c141c44e4e5cb4cf777b9eab274e` | Mainnet id is the literal value via the `fc::sha256` hex ctor (`protocol/config.hpp:141`), **not** a hash; testnet's is `fc::sha256::hash("testnet")` (`protocol/config.hpp:72`), which hashes the fc-packed string (length byte 0x07, then `testnet`; fc `include/fc/io/raw.hpp:210`), not plain SHA-256 of `testnet` |

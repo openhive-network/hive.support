@@ -1,6 +1,6 @@
 # Hive API Reference
 
-Source: hive-core release 1.28.7. 18 API plugins registering methods + the built-in `jsonrpc` introspection API (19 method namespaces); 198 registered endpoints. JSON-RPC 2.0.
+Source: hive-core release 1.28.8. 18 API plugins registering methods + the built-in `jsonrpc` introspection API (19 method namespaces); 198 registered endpoints. JSON-RPC 2.0.
 
 ---
 
@@ -8,12 +8,12 @@ Source: hive-core release 1.28.7. 18 API plugins registering methods + the built
 
 | Transport | Config Flag | Default |
 |-----------|------------|---------|
-| HTTP | `--webserver-http-endpoint` | `127.0.0.1:8090` |
-| HTTPS | `--webserver-https-endpoint` | disabled |
-| WebSocket | `--webserver-ws-endpoint` | `127.0.0.1:8091` |
-| Unix Socket | `--webserver-unix-endpoint` | disabled |
+| HTTP | `--webserver-http-endpoint` | unset (not bound) |
+| HTTPS | `--webserver-https-endpoint` | unset (not bound) |
+| WebSocket | `--webserver-ws-endpoint` | unset (not bound) |
+| Unix Socket | `--webserver-unix-endpoint` | unset (not bound) |
 
-Thread pool: `--webserver-thread-pool-size` (default 16). WebSocket supports permessage-deflate compression. No per-client rate limiting at the node level (handle via reverse proxy).
+No endpoint has a default in hived (`webserver_plugin.cpp:739-750`); the sample configs set HTTP `127.0.0.1:8091` and WebSocket `127.0.0.1:8090` (`contrib/config-for-docker.ini:57-58`, `doc/example_config.ini:50-51`). Thread pool: `--webserver-thread-pool-size` (default 16). WebSocket permessage-deflate is off unless `--webserver-ws-deflate` is set, and then used only if the client requests it. No per-client rate limiting at the node level (handle via reverse proxy).
 
 ## Calling Convention
 
@@ -27,39 +27,41 @@ Two equivalent forms:
 {"jsonrpc":"2.0", "method":"call", "params":["database_api","find_accounts",{"accounts":["alice"]}], "id":1}
 ```
 
-JSON-RPC error codes: -32700 (parse), -32600 (invalid request), -32601 (method not found), -32602 (invalid params), -32603 (internal), -32000 (server), -32001 (no params), -32002 (param parse), -32003 (error during call).
+JSON-RPC error codes: -32700 (parse: a request that is not a JSON object; text that is not valid JSON gets -32000), -32600 (invalid request), -32601 (method not found: defined but not reached, an unknown API or method gets -32002), -32602 and -32603 (defined, never emitted), -32000 (server), -32001 (no params), -32002 (param parse), -32003 (error during call). Emission sites: Part 10, section JSON-RPC Framework.
 
 ---
 
 ## Plugin Overview
 
+Default Enabled? column: with no `--plugin` option and no config, hived runs only `chain`, `p2p`, `webserver`, `json_rpc`, `witness`, `account_by_key`, `account_by_key_api` and `state_snapshot` (`programs/hived/main.cpp:117-131`), so every other API starts only when named with `--plugin` or in `config.ini`, or when a plugin that requires it is enabled. "docker" marks an API that the sample `contrib/config-for-docker.ini` enables, "ahnode" one that only `contrib/config-for-ahnode.ini` adds (Part 10, section Default Plugin Configuration (three tiers)).
+
 | Plugin | Methods | Purpose | Default Enabled? |
 |--------|---------|---------|-----------------|
-| database_api | 51 | Direct chain state access (find/list pattern) | Yes |
-| condenser_api | 62 | Legacy API for Steem-era clients (delegates to other APIs) | Yes |
-| block_api | 3 | Block retrieval | Yes |
-| account_history_api | 4 | Account operation history, virtual ops enumeration | Yes (needs rocksdb plugin) |
-| account_by_key_api | 1 | Reverse lookup: public key to accounts | Yes (needs account_by_key plugin) |
-| network_broadcast_api | 1 | Transaction broadcast to network | Yes |
-| rc_api | 7 | Resource Credits: mana, costs, delegations | Yes |
-| market_history_api | 7 | Internal market OHLCV, ticker, order book | Requires market_history plugin |
-| wallet_bridge_api | 35 | Unified wallet convenience API (aggregates other APIs) | Yes |
-| reputation_api | 1 | Account reputation scores | Requires reputation plugin |
-| rewards_api | 1 | Reward curve simulation | Explicit enable |
-| transaction_status_api | 1 | Transaction lifecycle tracking | Requires transaction_status plugin |
-| chain_api | 1 | Direct transaction push (bypasses broadcast) | Yes |
-| node_status_api | 1 | Node sync status | Yes |
-| app_status_api | 1 | Application health status | Yes |
-| witness_api | 3 | Fast-confirm control (witness nodes only) | Witness nodes only |
-| network_node_api | 4 | P2P peer management | Explicit enable |
-| debug_node_api | 12 | Testing/debugging (NOT for production) | Never in production |
+| database_api | 51 | Direct chain state access (find/list pattern) | No (docker) |
+| condenser_api | 62 | Legacy API for Steem-era clients (delegates to other APIs) | No (docker) |
+| block_api | 3 | Block retrieval | No (docker) |
+| account_history_api | 4 | Account operation history, virtual ops enumeration | No (docker; needs `account_history_rocksdb`) |
+| account_by_key_api | 1 | Reverse lookup: public key to accounts | Yes (with `account_by_key`) |
+| network_broadcast_api | 1 | Transaction broadcast to network | No (docker) |
+| rc_api | 7 | Resource Credits: mana, costs, delegations | No (docker) |
+| market_history_api | 7 | Internal market OHLCV, ticker, order book | No (ahnode; needs `market_history`) |
+| wallet_bridge_api | 35 | Unified wallet convenience API (aggregates other APIs) | No (docker) |
+| reputation_api | 1 | Account reputation scores | No (ahnode; needs `reputation`) |
+| rewards_api | 1 | Reward curve simulation (a stub that always fails, see below) | No |
+| transaction_status_api | 1 | Transaction lifecycle tracking | No (docker; needs `transaction_status`) |
+| chain_api | 1 | Direct transaction push (bypasses broadcast) | No |
+| node_status_api | 1 | Node sync status | No (docker) |
+| app_status_api | 1 | Application health status | No |
+| witness_api | 3 | Fast-confirm control (witness nodes only) | No (needs `witness`) |
+| network_node_api | 4 | P2P peer management | No |
+| debug_node_api | 12 | Testing/debugging (NOT for production) | No (needs `debug_node`; never in production) |
 | jsonrpc | 2 | Introspection: list methods, get signatures | Always (built-in) |
 
 ---
 
 ## database_api (51 methods)
 
-Direct access to chain state objects. Uses find/list pattern: `find_*` does direct key lookup, `list_*` does ordered pagination.
+Direct access to chain state objects. Uses find/list pattern: `find_*` does direct key lookup, `list_*` does ordered pagination. The Returns column gives the payload type. Most methods wrap it in a named member of the return object (for example `get_reward_funds` returns `{funds: [...]}`, `database_api_args.hpp:123-126`); `get_config`, `get_version`, `get_dynamic_global_properties`, `get_witness_schedule`, `get_hardfork_properties`, `get_current_price_feed` and `get_feed_history` return the object itself (`database_api_args.hpp:88-138`; Part 10, section API Reference).
 
 Pagination: `{start: variant, limit: uint32, order: sort_order}`. Max limit: 1000.
 
@@ -68,11 +70,13 @@ Pagination: `{start: variant, limit: uint32, order: sort_order}`. Max limit: 100
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
 | get_config | (none) | variant_object | All consensus config constants |
-| get_version | (none) | variant_object | Version info + chain_id |
-| get_dynamic_global_properties | (none) | api_dynamic_global_property_object | 70+ fields: head block, supplies, rates, timing |
+| get_version | (none) | variant_object | Version info (incl. `node_type`) + chain_id |
+| get_dynamic_global_properties | (none) | api_dynamic_global_property_object | 43 keys incl. `id` since 1.28.8 (45 at 1.28.7; `total_reward_fund_hive` and `total_reward_shares2` removed, `database_api_objects.hpp:691-703`): head block, supplies, rates, timing |
 | get_witness_schedule | include_future?: bool | api_witness_schedule_object | Optional future schedule |
 | get_hardfork_properties | (none) | api_hardfork_property_object | HF history and versions |
-| get_reward_funds | (none) | vector\<api_reward_fund_object\> | All reward funds |
+| get_reward_funds | (none) | vector\<api_reward_fund_object\> | All reward funds; the reward pool (`reward_balance`, `recent_claims`) is read here |
+| get_current_price_feed | (none) | price | Current median feed price |
+| get_feed_history | (none) | api_feed_history_object | Current and market median, min/max, price history |
 
 ### Witnesses
 
@@ -87,7 +91,7 @@ Pagination: `{start: variant, limit: uint32, order: sort_order}`. Max limit: 100
 
 | Object | find_ Params | list_ Order Options |
 |--------|-------------|-------------------|
-| accounts | names: string[] | by_name, by_proxy, by_next_vesting_withdrawal |
+| accounts | accounts: string[], delayed_votes_active?: bool | by_name, by_proxy, by_next_vesting_withdrawal |
 | owner_histories | owner: string | by_account |
 | account_recovery_requests | accounts: string[] | by_account, by_expiration |
 | change_recovery_account_requests | accounts: string[] | by_account, by_effective_date |
@@ -104,7 +108,7 @@ Pagination: `{start: variant, limit: uint32, order: sort_order}`. Max limit: 100
 
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
-| get_comment_pending_payouts | [{author, permlink}, ...] | comment_pending_payout_info[] | Cashout: rshares, votes, payout timing |
+| get_comment_pending_payouts | comments: [[author, permlink], ...] | comment_pending_payout_info[] | Cashout: rshares, votes, payout timing |
 
 ### Market / Orders
 
@@ -118,9 +122,9 @@ Pagination: `{start: variant, limit: uint32, order: sort_order}`. Max limit: 100
 
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
-| find_proposals | ids: int64[] | api_proposal_object[] | By proposal ID |
-| list_proposals | start, limit, order, direction, status, last_id? | api_proposal_object[] | Orders: by_creator, by_start_date, by_end_date, by_total_votes |
-| list_proposal_votes | start, limit, order, direction, status | api_proposal_vote_object[] | Orders: by_voter_proposal, by_proposal_voter |
+| find_proposals | proposal_ids: int64[] | api_proposal_object[] | By proposal ID |
+| list_proposals | start, limit, order, order_direction, status, last_id? | api_proposal_object[] | Orders: by_creator, by_start_date, by_end_date, by_total_votes |
+| list_proposal_votes | start, limit, order, order_direction, status | api_proposal_vote_object[] | Orders: by_voter_proposal, by_proposal_voter |
 
 Proposal status filter: `all`, `inactive`, `active`, `expired`, `votable`.
 
@@ -137,10 +141,10 @@ Proposal status filter: `all`, `inactive`, `active`, `expired`, `votable`.
 | get_transaction_hex | trx | hex_string | Serialize transaction |
 | get_required_signatures | trx + available_keys | set\<pubkey\> | Which keys needed |
 | get_potential_signatures | trx | set\<pubkey\> | All possible signers |
-| verify_authority | trx, pack_type? | bool | Is properly signed? |
+| verify_authority | trx, pack? (default legacy) | {valid: true} | Throws (a JSON-RPC error) when the check fails (`database_api_crypto.cpp:74-89`) |
 | verify_account_authority | account, signers, level? | bool | level: owner/active/posting |
-| verify_signatures | hash, signatures, required_auths | bool | Low-level check |
-| is_known_transaction | txid | bool | In chain or mempool? |
+| verify_signatures | hash, signatures, required_owner, required_active, required_posting, required_witness, required_other | bool | Low-level check |
+| is_known_transaction | id | bool | In the unexpired-transaction index or the mempool? (`database.cpp:323-330`) |
 
 ---
 
@@ -155,13 +159,13 @@ Legacy API for Steem-era clients. All methods take positional args (`vector<vari
 Most condenser_api methods map 1:1 to database_api equivalents with legacy serialization applied. Key differences:
 - condenser_api uses positional args; database_api uses named params
 - condenser_api returns legacy_asset ("1.000 HIVE"); database_api returns NAI format ({amount, precision, nai})
-- condenser_api `get_accounts` returns extended_account (includes history); database_api `find_accounts` returns api_account_object
+- condenser_api `get_accounts` returns extended_account: the api_account_object plus `reputation` (only with reputation_api) and `witness_votes`; its `*_history` maps come back empty and its `feed`, `blog` and other optional members are left out of the JSON (`condenser_api.cpp:358-393`); database_api `find_accounts` returns api_account_object
 
 ### Version and Config (3)
 
 | Method | Parameters | Returns |
 |--------|-----------|---------|
-| get_version | (none) | {blockchain_version, hive_revision, fc_revision, chain_id} |
+| get_version | (none) | {blockchain_version, hive_revision, fc_revision, node_type, chain_id} |
 | get_config | (none) | variant_object |
 | get_hardfork_version | (none) | string (e.g. "1.27.0") |
 
@@ -169,7 +173,7 @@ Most condenser_api methods map 1:1 to database_api equivalents with legacy seria
 
 | Method | Parameters | Returns | Notes |
 |--------|-----------|---------|-------|
-| get_dynamic_global_properties | (none) | extended_dynamic_global_properties | Head block, supplies, rates |
+| get_dynamic_global_properties | (none) | extended_dynamic_global_properties | Head block, supplies, rates; 42 keys since 1.28.8 (44 at 1.28.7; the same two reward-fund fields removed, `condenser_api.hpp:1062-1075`) |
 | get_chain_properties | (none) | api_chain_properties | Median witness props |
 | get_current_median_history_price | (none) | legacy_price | HBD/HIVE price feed |
 | get_feed_history | (none) | api_feed_history_object | Price history with min/max/median |
@@ -231,7 +235,7 @@ Most condenser_api methods map 1:1 to database_api equivalents with legacy seria
 | get_block_header | (block_num) | block_header? | Legacy serialization |
 | get_block | (block_num) | legacy_signed_block? | Legacy format |
 | get_ops_in_block | (block_num, only_virtual?) | api_operation_object[] | |
-| get_account_history | (account, from, limit, op_filter_low?, op_filter_high?) | map | Bitmask operation filtering |
+| get_account_history | (account, from: uint64, limit, op_filter_low?, op_filter_high?) | map | Bitmask operation filtering |
 | is_known_transaction | (txid) | bool | |
 
 ### Transactions (6)
@@ -242,7 +246,7 @@ Most condenser_api methods map 1:1 to database_api equivalents with legacy seria
 | get_transaction_hex | (trx) | hex_string |
 | get_required_signatures | (trx, available_keys) | set\<pubkey\> |
 | get_potential_signatures | (trx) | set\<pubkey\> |
-| verify_authority | (trx) | bool |
+| verify_authority | (trx) | bool (true, or a JSON-RPC error) |
 | verify_account_authority | (account, signers, level?) | bool |
 
 ### Voting and Content (4)
@@ -254,10 +258,11 @@ Most condenser_api methods map 1:1 to database_api equivalents with legacy seria
 | find_proposals | (ids: int64[]) | api_proposal_object[] |
 | list_proposal_votes | (start, limit, order, direction?, status?) | proposal_vote_object[] |
 
-### Market (7)
+### Market (8)
 
 | Method | Parameters | Returns |
 |--------|-----------|---------|
+| get_open_orders | (account) | api_limit_order_object[] |
 | get_ticker | (none) | ticker |
 | get_volume | (none) | volume |
 | get_order_book | (depth?: uint32) | order_book |
@@ -331,7 +336,7 @@ Methods: `get_version`, `get_witness_schedule`, `get_current_median_history_pric
 - `get_account_reputations` -- paginated reputation scores
 
 ### rewards_api (1 method)
-- `simulate_curve_payouts` -- simulate payouts under different reward curves
+- `simulate_curve_payouts` -- declared to simulate payouts under different reward curves, but a stub at 1.28.7 and 1.28.8: it always fails with `FC_ASSERT( false, "Not supported" )` (`rewards_api.cpp:23-26`), i.e. JSON-RPC -32003
 
 ### transaction_status_api (1 method)
 - `find_transaction` -- transaction lifecycle status: unknown, within_mempool, within_reversible_block, within_irreversible_block, expired_reversible, expired_irreversible, too_old
@@ -370,6 +375,6 @@ Methods: `get_version`, `get_witness_schedule`, `get_current_median_history_pric
 
 4. **Pagination** -- database_api `list_*` methods use cursor-based pagination with `{start, limit, order}`. Max limit is 1000. condenser_api limits vary per method.
 
-5. **Optional plugins** -- a condenser_api method whose soft-dependency plugin (market_history, reputation, rc, account_history, block, ...) is not enabled throws `FC_ASSERT("X_plugin not enabled.")`, surfaced as JSON-RPC error -32003, so "plugin missing" is distinguishable from "no data" (empty result). The only silent degradation is the reputation field inside `get_accounts` (`condenser_api.cpp:379`). Unknown api/method names come back as -32002 (via `find_api_method`), not the nominal -32601.
+5. **Optional plugins** -- a condenser_api method whose soft-dependency plugin (market_history, reputation, rc, account_history, block, ...) is not enabled throws `FC_ASSERT("X_plugin not enabled.")`, surfaced as JSON-RPC error -32003, so "plugin missing" is distinguishable from "no data" (empty result). The only silent degradations are account enrichments: the reputation field inside `get_accounts` (`condenser_api.cpp:379`), and the account `json_metadata` / `posting_json_metadata`, which stay empty without the `metadata` plugin (`database_api_objects_constructors.cpp:264-268`). Unknown api/method names come back as -32002 (via `find_api_method`), not the nominal -32601.
 
-6. **wallet_bridge_api shortcuts** -- Some methods (`get_account`, `list_accounts`, `get_open_orders`, `get_reward_fund`) bypass database_api and query chain DB directly for efficiency.
+6. **wallet_bridge_api shortcuts** -- Some methods (`get_account`, `list_accounts`, `get_open_orders`, `get_reward_fund`) bypass database_api and query the chain DB directly.

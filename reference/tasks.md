@@ -1,7 +1,7 @@
 # Task Index - developer task -> reading path
 
 Find the task, read the path in order (compact reference first, findings only when you need
-the mechanism), check the rules, verify with the recipe. Paths are relative to the KB root;
+the mechanism), check the rules, verify with the recipe. Paths starting with `research/` are relative to the KB root, the others to `reference/`;
 "(Section)" names a heading inside the file. Rules live in `reference/rules/`; recipes in
 `reference/verify.md`.
 
@@ -29,7 +29,8 @@ the mechanism), check the rules, verify with the recipe. Paths are relative to t
 - Read: `operations.md` (Index Table: the Authority column; then the operation's entry) ->
   `wax/signing.md` (Authorities) -> `state-objects.md` (account_object: owner / active /
   posting / memo keys)
-- Deeper: `research/hive-core/findings/03-operation-validation.md` (required authorities),
+- Deeper: `research/hive-core/findings/02-operations-catalog.md` (the Required Authority column of each
+  operation table), `research/hive-core/findings/01-protocol-foundation.md` (Authority Model; Key Discovery 14),
   `hardforks.md` (Key Hardfork Details: HF28 strict / mixed authorities)
 - Rules: HC-001, HC-008 (`rules/hive-core.md`); WAX-003 (role key resolution, `rules/wax.md`)
 - Verify: `verify.md` section 2
@@ -83,8 +84,8 @@ the mechanism), check the rules, verify with the recipe. Paths are relative to t
 
 - Read: `rc.md` (Overview; Cost Calculation; Mana Regeneration; Special Cases; API
   Endpoints) -> `api.md` (rc_api)
-- Deeper: `research/hive-core/findings/08-resource-credits.md`,
-  `research/hive-core/findings/15-rc-consensus.md` (why RC is mempool-only)
+- Deeper: `research/hive-core/findings/08-resource-credits.md` (Non-Consensus Status: RC is non-consensus until HF29,
+  inactive on mainnet), `research/hive-core/findings/15-rc-consensus.md` (what each node state enforces)
 - Rules: HC-004 (`rules/hive-core.md`)
 - Verify: `verify.md` section 1 step 3
 

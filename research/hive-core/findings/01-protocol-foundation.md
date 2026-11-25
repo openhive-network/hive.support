@@ -2,7 +2,7 @@
 
 ## Summary
 
-This document captures the complete protocol foundation of the Hive blockchain as defined in the C++ source code under `libraries/protocol/`, with chain-layer extensions (`libraries/chain/`) where the protocol layer delegates behavior (block IDs, signature validation rules, genesis state). Hive operates on a 3-second block interval with 21 witnesses, using three native assets (HIVE, HBD, VESTS) encoded via a Numeric Asset Identifier (NAI) system. The protocol layer defines ~190 consensus constants covering timing, economics, authority, and resource limits, all verified directly from `config.hpp` and related headers at release 1.28.7 (`1584099c3`).
+This document captures the complete protocol foundation of the Hive blockchain as defined in the C++ source code under `libraries/protocol/`, with chain-layer extensions (`libraries/chain/`) where the protocol layer delegates behavior (block IDs, signature validation rules, genesis state). Hive operates on a 3-second block interval with 21 witnesses, using three native assets (HIVE, HBD, VESTS) encoded via a Numeric Asset Identifier (NAI) system. The protocol layer defines ~190 consensus constants covering timing, economics, authority, and resource limits, all verified directly from `config.hpp` and related headers at release 1.28.8 (`274384a8a`).
 
 ## Key Discoveries
 
@@ -18,32 +18,32 @@ This document captures the complete protocol foundation of the Hive blockchain a
 
 ### 3. HIVE_MAX_SATOSHIS is 2^62 - 1
 - **What**: `HIVE_MAX_SATOSHIS = 4611686018427387903` which is exactly `(2^62 - 1)`. This is the maximum amount any single asset field can hold. Meanwhile `HIVE_MAX_SHARE_SUPPLY` is `1,000,000,000,000,000` (10^15) — the maximum total supply of HIVE tokens. The `share_type` is `safe<int64_t>`, providing overflow checking.
-- **Where**: `config.hpp:355-356`, `types.hpp:76`
+- **Where**: `config.hpp:354-355`, `types.hpp:71`
 - **Impact**: The satoshis cap at 2^62-1 ensures that multiplication in `uint128_t` during price calculations never overflows.
 
 ### 4. Chain ID is "beeab0de", and Signature Validation Switches Chain ID at HF24's *Actual* Time
 - **What**: `HIVE_CHAIN_ID = fc::sha256("beeab0de0000...")` (vanity hex), `OLD_CHAIN_ID` = empty sha256 (the Steem chain ID), mirrornet uses `"42000..."`, testnet uses `sha256::hash("testnet")`. Signature validation is time-dependent: transactions in blocks with timestamp ≤ `HIVE_HARDFORK_1_24_ACTUAL_TIME = 1602703884` (2020-10-14 — the *actual* delayed activation moment, not the scheduled `HIVE_HARDFORK_1_24_TIME = 1601992800` / 2020-10-06) validate against `OLD_CHAIN_ID`; later ones against `HIVE_CHAIN_ID`. New (mempool) transactions always use `HIVE_CHAIN_ID`. A comment also records that ECDSA canonicality checking was unified to a single mode (`bip_0062`) between HF27 and HF28.
-- **Where**: `config.hpp:136-143`, `full_transaction.cpp:450-493`, `hardfork.d/1_24.hf:17-27`
+- **Where**: `protocol/config.hpp:71-72, 135-142`, `full_transaction.cpp:450-493`, `hardfork.d/1_24.hf:17-27`
 - **Impact**: Chain ID is mixed into transaction signature digests, preventing cross-chain replay. Replaying pre-fork Steem history requires the old (empty) chain ID — hived handles this automatically by block timestamp.
 
 ### 5. Version Comparison Has Major-Version Compatibility Hack
-- **What**: The `version` comparison template treats major versions 0 and 1 as equivalent (`0.HARDFORK == 1.HARDFORK`). This was added for HF24 (the Steem→Hive fork) where the major version changed from 0 to 1, but some witnesses still ran nodes reporting 0.x.
+- **What**: The `version` comparison template has a compatibility branch for comparisons between major versions 0 and 1 (`version.hpp:56-61`). This was added for HF24 (the Steem->Hive fork) where the major version changed from 0 to 1, but some witnesses still ran nodes reporting 0.x.
 - **Where**: `version.hpp:48-75` (masking logic at `version.hpp:56-61`)
 - **Impact**: `version(0, 23, 0) == version(1, 23, 0)` returns true. This is a permanent backward-compatibility quirk.
 
 ### 6. HBD Hard Limit Changed Significantly Across Hardforks
 - **What**: The HBD-to-market-cap ratio at which printing stops changed dramatically: HF14 (2%→5%), HF20 (9%→10%), HF26 (20%→20% start/stop, identical). An artificial price floor kicks in at 10% pre-HF26 and 30% post-HF26.
-- **Where**: `config.hpp:339-346`
-- **Impact**: HF26 effectively doubled the "start reducing" threshold from 10% to 20% and raised the hard limit from 10% to 30%.
+- **Where**: `config.hpp:338-345`
+- **Impact**: HF26 raised the "start reducing" threshold from 9% to 20% and the stop threshold from 10% to 20% (HF20 values `protocol/config.hpp:340-341`, set at HF26 by `database_hardfork.cpp:495-496`), and the hard limit from 10% to 30% (`protocol/config.hpp:344-345`, `database.cpp:2506-2508`).
 
-### 7. `HIVE_HARDFORK_1_28_BLOCK` Does Not Match Actual Activation Block
-- **What**: `HIVE_HARDFORK_1_28_BLOCK = 100000000` (`hardfork_block.hpp:30`). All other `HIVE_HARDFORK_*_BLOCK` constants record the actual mainnet block at which each hardfork activated — these constants are NOT used in the activation mechanism (which is time-based via `process_hardforks()` at `database_hardfork.cpp:114`; requires `next_hardfork_time <= head_block_time()` plus witness supermajority for HF5+). The HF28 constant was set before activation and never updated. HF28 actually activated at block 101,319,928 (2025-11-19). HF28 carries real behavior changes behind hardfork guards — notably `HIVE_HARDFORK_1_28_ALLOW_STRICT_AND_MIXED_AUTHORITIES` and `HIVE_HARDFORK_1_28_ALLOW_REDUNDANT_SIGNATURES` (see Discovery 14).
-- **Where**: `hardfork_block.hpp:30`, `database_hardfork.cpp:114-145`, `config.hpp:66/135/140`
-- **Impact**: Minor code inconsistency. The constant could be updated to 101319928 to match all other entries in `hardfork_block.hpp`.
+### 7. `HIVE_HARDFORK_1_28_BLOCK` Did Not Match the Actual Activation Block (Fixed in 1.28.8)
+- **What**: Through 1.28.7, `HIVE_HARDFORK_1_28_BLOCK` was 100000000, a value set before activation and not updated afterwards, while all other `HIVE_HARDFORK_*_BLOCK` constants record the actual mainnet block at which each hardfork activated. Since 1.28.8 (commit `3e72e1bf1`, "fix HF28 activation block and add future activation block for HF29 for mirrornet") it is 101319928 (`hardfork_block.hpp:30`), the block at which HF28 actually activated (2025-11-19), and `HIVE_HARDFORK_1_29_BLOCK = 150000000` (`hardfork_block.hpp:31`) was added as a placeholder, not an activation block: HF29 is defined in 1.28.8 but inactive on mainnet (see the HF29 section under Version and Hardfork System). These constants are NOT used in the activation mechanism (which is time-based via `process_hardforks()` at `database_hardfork.cpp:119`; requires `next_hardfork_time <= head_block_time()` plus witness supermajority for HF5+); their only reader is the `hardfork_blocks` table of the `blockchain_converter` (`programs/blockchain_converter/converter.cpp:309-312`), which is built only with `HIVE_CONVERTER_BUILD`, the mirrornet build (`programs/blockchain_converter/CMakeLists.txt:1-19`). In the same release the binary version is 1.28.8 on mainnet and 1.29.0 on testnet and mirrornet builds. HF28 carries real behavior changes behind hardfork guards, notably `HIVE_HARDFORK_1_28_ALLOW_STRICT_AND_MIXED_AUTHORITIES` and `HIVE_HARDFORK_1_28_ALLOW_REDUNDANT_SIGNATURES` (see Discovery 14).
+- **Where**: `hardfork_block.hpp:30-31`, `database_hardfork.cpp:119-150`, `protocol/config.hpp:69/134/139`
+- **Impact**: Resolved in 1.28.8 by `3e72e1bf1`: since then the HF28 constant matches the actual activation block, like the HF1-HF27 entries in `hardfork_block.hpp`. The HF29 entry (150,000,000) is the converter's HF29 threshold for converted chains (`converter.cpp:597-603`; Part 09, section HF29 (Defined in 1.28.8, Inactive on Mainnet)), not a mainnet activation block, and says nothing about when HF29 activates on mainnet.
 
 ### 8. Transaction Expiration: 1 Hour Runtime Cap, 24 Hour Field Limit Since HF28
-- **What**: `HIVE_MAX_TIME_UNTIL_EXPIRATION = 3600` seconds (1 hour) and `HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION = 86400` (1 day) (`config.hpp:232-233`). Before HF28 the transaction `expiration` field had to be within 1 hour of head block time. Since HF28 (`HIVE_HARDFORK_1_28_EXPIRATION_TIME`) the field may be up to 24 hours ahead, and the node sets the transaction's runtime expiration to `min(expiration, now + 1 hour)` at first validation (`database.cpp:2536-2548`).
-- **Where**: `config.hpp:232-233`
+- **What**: `HIVE_MAX_TIME_UNTIL_EXPIRATION = 3600` seconds (1 hour) and `HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION = 86400` (1 day) (`config.hpp:228-229`). Before HF28 the transaction `expiration` field had to be within 1 hour of head block time. Since HF28 (`HIVE_HARDFORK_1_28_EXPIRATION_TIME`) the field may be up to 24 hours ahead, and the node sets the transaction's runtime expiration to `min(expiration, now + 1 hour)` at first validation (`database.cpp:2550-2562`).
+- **Where**: `config.hpp:228-229`
 - **Impact**: A pre-signed transaction can carry an expiration up to 24 hours out (HF28+), but any node that first validates it treats it as expired 1 hour later; before HF28 the field itself was limited to 1 hour.
 
 ### 9. Block ID is SHA-224 of the *Signed* Header with Block Number Spliced In; Block Digest is SHA-256 of the *Unsigned* Header
@@ -53,37 +53,37 @@ This document captures the complete protocol foundation of the Hive blockchain a
 
 ### 10. Genesis VESTS Price is 1:1 (in Display Units); HF1 Multiplied All VESTS by 1,000,000
 - **What**: `dynamic_global_property_object::get_vesting_share_price()` returns `VEST_price(1000000, 1000)` — 1,000,000 VESTS-satoshis (= 1.000000 VESTS) per 1,000 HIVE-satoshis (= 1.000 HIVE) — whenever the vesting pools are empty, i.e. at genesis. At HF1 (block 905,693), `perform_vesting_share_split(1000000)` multiplied `total_vesting_shares`, every account's `vesting_shares`, `withdrawn`, `to_withdraw`, and proxied votes by 10^6 (the "vesting share split"). Testnet's configurable initial price defaults to `VEST_price(1800, 1000)` *pre-split*, with an explicit warning that HF1 will multiply the VEST side by 1,000,000.
-- **Where**: `libraries/chain/include/hive/chain/detail/state/global_property_object.hpp:87-92`, `database_hardfork.cpp:189-191`, `database_comment.cpp:612-667`, `testnet_blockchain_configuration.hpp:260-270`
+- **Where**: `libraries/chain/include/hive/chain/detail/state/global_property_object.hpp:94-99`, `database_hardfork.cpp:194-196`, `database_comment.cpp:595-657`, `testnet_blockchain_configuration.hpp:260-270`
 - **Impact**: Resolves the genesis-ratio question: 1 HIVE = 1 VESTS at genesis, ×10^6 at HF1; ever since, the effective ratio floats as `total_vesting_shares / total_vesting_fund_hive` in the dgpo.
 
 ### 11. `hf_21_stall_block` Replays a Real HF21 Overflow Bug; "iceberg" is the Blockchain Converter Plugin
 - **What**: At HF21 the downvote manabar was introduced. Its original `max_mana` computation, `effective_vests * downvote_pool_percent / HIVE_100_PERCENT`, was done in plain `int64_t` and **overflowed for very large vesting balances — and that overflow made it into the mainnet chain**. `update_manabar()` therefore keeps the buggy arithmetic for blocks ≤ `HIVE_HF_21_STALL_BLOCK = 35,922,615` (mainnet constant; 829 blocks ≈ 41 minutes after HF21 activation at 35,921,786) and logs "NOTIFYALERT! max mana overflow made it in to the chain" if it triggers; after that block the corrected `uint128_t` math applies. Testnet and iceberg-enabled converter builds always use the fixed math (`#if defined(IS_TEST_NET) || defined(HIVE_CONVERTER_ICEBERG_PLUGIN_ENABLED)`). "iceberg" is the `iceberg_generate` plugin of `programs/blockchain_converter/` — it fabricates a valid chain from only a *range* of mainnet blocks (e.g. last 5M), creating missing accounts/comments on the fly; chains generated that way never contain the historic overflow, so the testnet-side knob (`configuration_data.hf_21_stall_block`, settable via the `alternate-chain-spec` JSON) can be removed once mirrornet block logs come from iceberg.
-- **Where**: `manabar.hpp:120-135`, `hardfork.d/0_21.hf:18-22`, `testnet_blockchain_configuration.hpp:284`, `chain_plugin.cpp:1760-1761`, `programs/blockchain_converter/README.md:308-324`
+- **Where**: `manabar.hpp:120-135`, `hardfork.d/0_21.hf:18-22`, `testnet_blockchain_configuration.hpp:283`, `chain_plugin.cpp:1784-1785`, `programs/blockchain_converter/README.md:308-324`
 - **Impact**: A consensus-relevant replay quirk: any reimplementation of mana regeneration must reproduce the int64 overflow for mainnet blocks 35,921,786–35,922,615 or it will fork on replay.
 
 ### 12. HF9 Hardcodes 151 Compromised Accounts and a Recovery Key
-- **What**: `hardfork.d/0_9.hf:15-172` contains a hardcoded `std::set` of 151 account names (`get_compromised_accounts()`). At HF9 application, each account's owner, active, and posting authorities are forcibly replaced with the single key `STM7sw22HqsXbz7D2CmJfmMwt9rimtk518dRzsR1f8Cgw52dQR1pR` (`HIVE_DEFAULT_HF_9_COMPROMISED_ACCOUNTS_PUBLIC_KEY_STR`, `config.hpp:18`). This was the consensus response to the July 2016 account-compromise incident on Steem. On testnet the key is configurable (`testnet_blockchain_configuration.hpp:73,133`).
-- **Where**: `config.hpp:18`, `hardfork.d/0_9.hf:15-172`, `database_hardfork.cpp:213-226`
+- **What**: `hardfork.d/0_9.hf:15-172` contains a hardcoded `std::set` of 151 account names (`get_compromised_accounts()`). At HF9 application, each account's owner, active, and posting authorities are forcibly replaced with the single key `STM7sw22HqsXbz7D2CmJfmMwt9rimtk518dRzsR1f8Cgw52dQR1pR` (`HIVE_DEFAULT_HF_9_COMPROMISED_ACCOUNTS_PUBLIC_KEY_STR`, `config.hpp:21`). This was the consensus response to the July 2016 account-compromise incident on Steem. On testnet the key is configurable (`testnet_blockchain_configuration.hpp:73,133`).
+- **Where**: `config.hpp:21`, `hardfork.d/0_9.hf:15-172`, `database_hardfork.cpp:218-231`
 - **Impact**: Precedent for protocol-level account intervention; the account list and key are consensus data that all replaying nodes apply identically.
 
 ### 13. Mainnet Genesis-Time Comments in config.hpp are Wrong
-- **What**: `HIVE_GENESIS_TIME = 1458835200` (`config.hpp:152`) carries the comment "Friday, January 1, 2016 12:00:00 AM UTC", but 1458835200 is actually **Thursday, March 24, 2016 16:00:00 UTC** (the comment was copy-pasted from the testnet branch at `config.hpp:71-72`, where 1451606400 *is* Jan 1, 2016). Next line, `HIVE_MINING_TIME = 1458838800` (`config.hpp:154`) says "Thursday, March 24, 2016 4:00:00 PM UTC", but 1458838800 is **17:00 UTC** — that comment describes the genesis value one line above. Both values are correct; both comments are wrong/shifted.
-- **Where**: `config.hpp:150-154` (mainnet), `config.hpp:71-72` (testnet)
+- **What**: `HIVE_GENESIS_TIME = 1458835200` (`config.hpp:151`) carries the comment "Friday, January 1, 2016 12:00:00 AM UTC", but 1458835200 is actually **Thursday, March 24, 2016 16:00:00 UTC** (the comment was copy-pasted from the testnet branch at `config.hpp:74-75`, where 1451606400 *is* Jan 1, 2016). Next line, `HIVE_MINING_TIME = 1458838800` (`config.hpp:153`) says "Thursday, March 24, 2016 4:00:00 PM UTC", but 1458838800 is **17:00 UTC** — that comment describes the genesis value one line above. Both values are correct; both comments are wrong/shifted.
+- **Where**: `config.hpp:149-153` (mainnet), `config.hpp:74-75` (testnet)
 - **Impact**: Documentation hazard only — but anyone citing genesis time from the comments gets the wrong date. Steem/Hive mainnet genesis: 2016-03-24T16:00:00Z; mining (PoW acceptance) began one hour later.
 
 ### 14. Authority Verification: Posting Isolation, Role Upgrade, and the HF28 "Strict and Mixed" Switch
-- **What**: The full verification algorithm lives in protocol `verify_authority_impl()`. Pre-HF28 behavior (`allow_strict_and_mixed_authorities = false`): (a) a transaction with any posting-required operation **may not** also require active/owner/witness/other authorities (`transaction_util.cpp:59-74`); (b) **role upgrade** — a posting requirement is satisfied by posting *or* active *or* owner authority (`transaction_util.cpp:101-104`), an active requirement by active *or* owner (`transaction_util.cpp:146-158`); (c) signatures not consumed by verification cause rejection via `tx_irrelevant_sig` ("Unnecessary signature(s) detected", `transaction_util.cpp:184-188, 250-252`). After HF28 both flags flip (`database.cpp:2612-2613`): mixing posting with active/owner in one transaction becomes legal, role checks become **strict** (an owner key no longer auto-satisfies active/posting requirements), and redundant signatures are tolerated. Also: `HIVE_MAX_AUTHORITY_MEMBERSHIP` (40) and `HIVE_MAX_SIG_CHECK_ACCOUNTS` (125) are passed as 0 (unlimited) for blocks before HF20 (`database.cpp:2621-2622`).
-- **Where**: `transaction_util.cpp:18-192`, `database.cpp:2598-2626`, `sign_state.hpp:167+` (weight accumulation/recursion)
+- **What**: The full verification algorithm lives in protocol `verify_authority_impl()`. Pre-HF28 behavior (`allow_strict_and_mixed_authorities = false`): (a) a transaction with any posting-required operation **may not** also require active/owner/witness/other authorities (`transaction_util.cpp:60-75`); (b) **role upgrade** — a posting requirement is satisfied by posting *or* active *or* owner authority (`transaction_util.cpp:102-105`), an active requirement by active *or* owner (`transaction_util.cpp:147-159`); (c) signatures not consumed by verification cause rejection via `tx_irrelevant_sig` ("Unnecessary signature(s) detected", `transaction_util.cpp:185-189, 251-253`). After HF28 both flags flip (`database.cpp:2626-2627`): mixing posting with active/owner in one transaction becomes legal, role checks become **strict** (an owner key no longer auto-satisfies active/posting requirements), and redundant signatures are tolerated. Also: `HIVE_MAX_AUTHORITY_MEMBERSHIP` (40) and `HIVE_MAX_SIG_CHECK_ACCOUNTS` (125) are passed as 0 (unlimited) for blocks before HF20 (`database.cpp:2635-2636`).
+- **Where**: `transaction_util.cpp:19-193`, `database.cpp:2612-2640`, `sign_state.hpp:167+` (weight accumulation/recursion)
 - **Impact**: Critical for wallet/signing implementations: before HF28 an owner key signed anything; since HF28 (live on mainnet since 2025-11-19) a transaction must carry signatures for the exact roles required, and posting+active mixing is possible.
 
 ### 15. Transactions Validate Against Their Actual Wire Bytes; Either Serialization is Accepted
 - **What**: `full_transaction_type::compute_sig_digest()` hashes `chain_id || <the exact serialized bytes the transaction arrived in>` (`full_transaction.cpp:110-116`) — not a re-serialization. A transaction may be packed in legacy or HF26 format; `is_legacy_pack()` detects which by re-packing under a legacy guard and comparing bytes (`full_transaction.cpp:263-284`). Duplicate signatures are rejected during key recovery (`tx_duplicate_sig`, `full_transaction.cpp:145-148`). Transaction IDs are likewise the first 20 bytes of SHA-256 over the actual serialized transaction (`full_transaction.cpp:93-108`; protocol equivalent `transaction.cpp:58-64`).
-- **Where**: `full_transaction.cpp:93-160, 263-284`, `misc_utilities.hpp:23-32`
+- **Where**: `full_transaction.cpp:93-160, 263-284`, `protocol/misc_utilities.hpp:23-32`
 - **Impact**: Signers choose a serialization; the chain honors whichever they signed. Tools recomputing tx IDs must serialize exactly as the transaction was packed on the wire.
 
 ### 16. Every config.hpp Constant is Exported via the API
-- **What**: `config.hpp:12-14` warns: "Every symbol defined here needs to be handled appropriately in get_config.cpp. This is checked by get_config_check.sh called from Dockerfile." The generated `get_config.d/get_config.cpp.in` materializes the full constant table served by `database_api.get_config`.
-- **Where**: `config.hpp:12-14`, `libraries/protocol/get_config.d/get_config.cpp.in`
+- **What**: `config.hpp:15-17` warns: "Every symbol defined here needs to be handled appropriately in get_config.cpp. This is checked by get_config_check.sh called from Dockerfile." The generated `get_config.d/get_config.cpp.in` materializes the full constant table served by `database_api.get_config`.
+- **Where**: `config.hpp:15-17`, `libraries/protocol/get_config.d/get_config.cpp.in`
 - **Impact**: The authoritative runtime view of all constants (including testnet overrides) is one API call away — useful for verifying a live node's compiled configuration.
 
 ---
@@ -96,18 +96,18 @@ All constants from `config.hpp` and related headers, organized by domain. Values
 
 | Constant | Value | Notes |
 |----------|-------|-------|
-| `HIVE_CHAIN_ID` | sha256 `beeab0de00...00` | Vanity chain ID since HF24 (`config.hpp:142`) |
-| `OLD_CHAIN_ID` | empty sha256 | Steem chain ID, used for sig validation of pre-HF24 blocks (`config.hpp:141`) |
-| Mirrornet chain ID | sha256 `42000...00` | `config.hpp:137` |
+| `HIVE_CHAIN_ID` | sha256 `beeab0de00...00` | Vanity chain ID since HF24 (`config.hpp:141`) |
+| `OLD_CHAIN_ID` | empty sha256 | Steem chain ID, used for sig validation of pre-HF24 blocks (`config.hpp:140`) |
+| Mirrornet chain ID | sha256 `42000...00` | `config.hpp:136` |
 | `HIVE_GENESIS_TIME` | 1458835200 | 2016-03-24T16:00:00Z (comment in source is wrong — see Discrepancy 6) |
 | `HIVE_MINING_TIME` | 1458838800 | 2016-03-24T17:00:00Z |
-| `HIVE_INIT_PUBLIC_KEY_STR` | `STM8GC13u...` | initminer key (`config.hpp:42`) |
+| `HIVE_INIT_PUBLIC_KEY_STR` | `STM8GC13u...` | initminer key (`config.hpp:45`) |
 | `HIVE_INIT_MINER_NAME` | `"initminer"` | Genesis witness account |
-| `HIVE_NUM_INIT_MINERS` | 1 | `config.hpp:220` |
-| `HIVE_INIT_SUPPLY` / `HIVE_HBD_INIT_SUPPLY` | 0 / 0 | Mainnet starts empty; supply mined (`config.hpp:49-50`) |
-| HF9 compromised-accounts key | `STM7sw22H...` | `config.hpp:18`, applied at HF9 to 151 accounts |
-| `HIVE_BLOCKCHAIN_VERSION` | 1.28.7 | `config.hpp:140` |
-| `HIVE_NUM_HARDFORKS` | 28 | `hardfork.d/0-preamble.hf:16-19` |
+| `HIVE_NUM_INIT_MINERS` | 1 | `config.hpp:216` |
+| `HIVE_INIT_SUPPLY` / `HIVE_HBD_INIT_SUPPLY` | 0 / 0 | Mainnet starts empty; supply mined (`config.hpp:52-53`) |
+| HF9 compromised-accounts key | `STM7sw22H...` | `protocol/config.hpp:21`, applied at HF9 to 151 accounts |
+| `HIVE_BLOCKCHAIN_VERSION` | 1.28.8 | Mainnet (`protocol/config.hpp:139`); testnet and mirrornet builds of 1.28.8 use 1.29.0 (`protocol/config.hpp:69`, `:134`) |
+| `HIVE_NUM_HARDFORKS` | 28 | Mainnet builds; 29 on `USE_ALTERNATE_CHAIN_ID` builds (testnet, mirrornet) since 1.28.8, which register HF29 (`hardfork.d/0-preamble.hf:15-20`) |
 
 ### Timing Constants
 
@@ -129,9 +129,9 @@ All constants from `config.hpp` and related headers, organized by domain. Values
 | `HIVE_CASHOUT_WINDOW_SECONDS` | 604,800 | seconds | 7 days (mainnet) |
 | `HIVE_CASHOUT_WINDOW_SECONDS_PRE_HF12` | 86,400 | seconds | 1 day |
 | `HIVE_CASHOUT_WINDOW_SECONDS_PRE_HF17` | 43,200 | seconds | 12 hours |
-| `HIVE_SECOND_CASHOUT_WINDOW` | 2,592,000 | seconds | 30 days (testnet: 3 days, `config.hpp:76`) |
+| `HIVE_SECOND_CASHOUT_WINDOW` | 2,592,000 | seconds | 30 days (testnet: 3 days, `config.hpp:79`) |
 | `HIVE_MAX_CASHOUT_WINDOW_SECONDS` | 1,209,600 | seconds | 14 days (testnet: 1 day) |
-| `HIVE_UPVOTE_LOCKOUT_HF7` | 60 | seconds | 1 minute (`config.hpp:160`) |
+| `HIVE_UPVOTE_LOCKOUT_HF7` | 60 | seconds | 1 minute (`config.hpp:159`) |
 | `HIVE_UPVOTE_LOCKOUT_SECONDS` | 43,200 | seconds | 12 hours before cashout |
 | `HIVE_UPVOTE_LOCKOUT_HF17` | 12 hours | fc::hours | Same as above, typed (testnet: 5 minutes) |
 | `HIVE_MIN_ROOT_COMMENT_INTERVAL` | 300 | seconds | 5 minutes between root posts |
@@ -144,7 +144,7 @@ All constants from `config.hpp` and related headers, organized by domain. Values
 | `HIVE_EARLY_VOTING_SECONDS_HF25` | 86,400 | seconds | 24 hours |
 | `HIVE_MID_VOTING_SECONDS_HF25` | 172,800 | seconds | 48 hours |
 | `HIVE_POST_AVERAGE_WINDOW` | 86,400 | seconds | 1 day |
-| `HIVE_POST_WEIGHT_CONSTANT` | (4×10000)² | — | Targets ~2 posts/day average (`config.hpp:251`) |
+| `HIVE_POST_WEIGHT_CONSTANT` | (4×10000)² | — | Targets ~2 posts/day average (`config.hpp:247`) |
 
 ### Witness Constants
 
@@ -162,8 +162,8 @@ All constants from `config.hpp` and related headers, organized by domain. Values
 | `HIVE_WITNESS_SHUTDOWN_THRESHOLD` | 28,800 | Blocks (1 day) before shutdown for missed blocks |
 | `HIVE_START_MINER_VOTING_BLOCK` | 864,000 | 30 days of blocks before miner voting starts |
 | `HIVE_START_VESTING_BLOCK` | 201,600 | 7 days of blocks |
-| `HIVE_VIRTUAL_SCHEDULE_LAP_LENGTH` | 2^64 − 1 | uint128(0, uint64_max) — pre-HF26 virtual-time lap (`config.hpp:383`) |
-| `HIVE_VIRTUAL_SCHEDULE_LAP_LENGTH2` | 2^128 − 1 | uint128 max — post-HF26 lap (`config.hpp:384`); algorithm in `witness_schedule.cpp` (Part 06) |
+| `HIVE_VIRTUAL_SCHEDULE_LAP_LENGTH` | 2^64 - 1 | uint128(0, uint64_max) - virtual-time lap before HF2 (`config.hpp:382`; switch on `HIVE_HARDFORK_0_2` at `witness_schedule.cpp:490-493` and `database_witness.cpp:82-85`) |
+| `HIVE_VIRTUAL_SCHEDULE_LAP_LENGTH2` | 2^128 - 1 | uint128 max - lap since HF2 (`config.hpp:383`); algorithm in `witness_schedule.cpp` (Part 06) |
 | `HIVE_IRREVERSIBLE_THRESHOLD` | 7,500 (75%) | Witness participation for LIB advance |
 
 ### Inflation & Rewards
@@ -182,14 +182,14 @@ All constants from `config.hpp` and related headers, organized by domain. Values
 | `HIVE_MIN_PAYOUT_HBD` | 0.020 HBD | Minimum payout threshold (`HBD_asset(20)`) |
 | `HIVE_VOTE_DUST_THRESHOLD` | 50,000,000 | Vote rshares below this are treated as dust |
 | `HIVE_DOWNVOTE_POOL_PERCENT_HF21` | 2,500 | 25% of upvote mana available as free downvotes |
-| `HIVE_HF21_CONVERGENT_LINEAR_RECENT_CLAIMS` | 503,600,561,838,938,636 | uint128 seed for HF21 convergent-linear curve (`config.hpp:267`) |
-| `HIVE_CONTENT_CONSTANT_HF0` | 2,000,000,000,000 | Reward curve constant (`config.hpp:299`) |
-| `HIVE_CONTENT_CONSTANT_HF21` | 2,000,000,000,000 | Same value, uint128 form (`config.hpp:268`) |
-| `HIVE_RECENT_RSHARES_DECAY_TIME_HF17` | 30 days | Reward fund recent-claims decay (`config.hpp:297`) |
-| `HIVE_RECENT_RSHARES_DECAY_TIME_HF19` | 15 days | `config.hpp:298` |
+| `HIVE_HF21_CONVERGENT_LINEAR_RECENT_CLAIMS` | 503,600,561,838,938,636 | uint128 seed for HF21 convergent-linear curve (`config.hpp:263`) |
+| `HIVE_CONTENT_CONSTANT_HF0` | 2,000,000,000,000 | Reward curve constant (`config.hpp:298`) |
+| `HIVE_CONTENT_CONSTANT_HF21` | 2,000,000,000,000 | Same value, uint128 form (`config.hpp:264`) |
+| `HIVE_RECENT_RSHARES_DECAY_TIME_HF17` | 30 days | Reward fund recent-claims decay (`config.hpp:296`) |
+| `HIVE_RECENT_RSHARES_DECAY_TIME_HF19` | 15 days | `config.hpp:297` |
 | `HIVE_INITIAL_VOTE_POWER_RATE` | 40 | Votes per day at full power |
 | `HIVE_REDUCED_VOTE_POWER_RATE` | 10 | Reduced rate |
-| `HIVE_MAX_RATION_DECAY_RATE` | 1,000,000 | `config.hpp:271` |
+| `HIVE_MAX_RATION_DECAY_RATE` | 1,000,000 | `config.hpp:267` |
 
 ### Legacy PoW Mining & Pre-HF16 APR Constants
 
@@ -197,16 +197,16 @@ These governed early-Steem economics; retained for replay correctness.
 
 | Constant | Value | Notes |
 |----------|-------|-------|
-| `HIVE_MINING_REWARD` | 1.000 HIVE | `HIVE_asset(1000)` per PoW (`config.hpp:282`) |
-| `HIVE_EQUIHASH_N` / `HIVE_EQUIHASH_K` | 140 / 6 | Equihash params for later PoW (`config.hpp:283-284`) |
-| `HIVE_MIN_CONTENT_REWARD` / `HIVE_MIN_CURATE_REWARD` / `HIVE_MIN_PRODUCER_REWARD` / `HIVE_MIN_POW_REWARD` | 1.000 HIVE | All alias `HIVE_MINING_REWARD` (`config.hpp:291-294`) |
-| `HIVE_APR_PERCENT_MULTIPLY_PER_BLOCK` | 0x5ccce802de5f | Fixed-point per-block APR multiplier (`config.hpp:305-308`) |
-| `HIVE_APR_PERCENT_SHIFT_PER_BLOCK` | 87 | `config.hpp:310` |
-| `HIVE_APR_PERCENT_MULTIPLY_PER_ROUND` | 0x79ccf5c73480 | `config.hpp:312-315` |
-| `HIVE_APR_PERCENT_SHIFT_PER_ROUND` | 83 | `config.hpp:317` |
-| `HIVE_APR_PERCENT_MULTIPLY_PER_HOUR` | 0x6cc139a15cbd | `config.hpp:321-324` |
-| `HIVE_APR_PERCENT_SHIFT_PER_HOUR` | 77 | `config.hpp:327` |
-| `HIVE_CURATE_APR_PERCENT` | 3,875 | Sums with below to 100% (`config.hpp:331-335`) |
+| `HIVE_MINING_REWARD` | 1.000 HIVE | `HIVE_asset(1000)` per PoW (`config.hpp:281`) |
+| `HIVE_EQUIHASH_N` / `HIVE_EQUIHASH_K` | 140 / 6 | Equihash params for later PoW (`config.hpp:282-283`) |
+| `HIVE_MIN_CONTENT_REWARD` / `HIVE_MIN_CURATE_REWARD` / `HIVE_MIN_PRODUCER_REWARD` / `HIVE_MIN_POW_REWARD` | 1.000 HIVE | All alias `HIVE_MINING_REWARD` (`config.hpp:290-293`) |
+| `HIVE_APR_PERCENT_MULTIPLY_PER_BLOCK` | 0x5ccce802de5f | Fixed-point per-block APR multiplier (`config.hpp:304-307`) |
+| `HIVE_APR_PERCENT_SHIFT_PER_BLOCK` | 87 | `config.hpp:309` |
+| `HIVE_APR_PERCENT_MULTIPLY_PER_ROUND` | 0x79ccf5c73480 | `config.hpp:311-314` |
+| `HIVE_APR_PERCENT_SHIFT_PER_ROUND` | 83 | `config.hpp:316` |
+| `HIVE_APR_PERCENT_MULTIPLY_PER_HOUR` | 0x6cc139a15cbd | `config.hpp:320-323` |
+| `HIVE_APR_PERCENT_SHIFT_PER_HOUR` | 77 | `config.hpp:326` |
+| `HIVE_CURATE_APR_PERCENT` | 3,875 | Sums with below to 100% (`config.hpp:330-334`) |
 | `HIVE_CONTENT_APR_PERCENT` | 3,875 | |
 | `HIVE_LIQUIDITY_APR_PERCENT` | 750 | |
 | `HIVE_PRODUCER_APR_PERCENT` | 750 | |
@@ -216,11 +216,11 @@ These governed early-Steem economics; retained for replay correctness.
 
 | Constant | Value | Notes |
 |----------|-------|-------|
-| `HIVE_LIQUIDITY_TIMEOUT_SEC` | 7 days | Volume resets after a week (`config.hpp:286`) |
-| `HIVE_MIN_LIQUIDITY_REWARD_PERIOD_SEC` | 60 s | Min time on books (`config.hpp:287`) |
-| `HIVE_LIQUIDITY_REWARD_PERIOD_SEC` | 3,600 s | `config.hpp:288` |
-| `HIVE_LIQUIDITY_REWARD_BLOCKS` | 1,200 | period/block interval (`config.hpp:289`) |
-| `HIVE_MIN_LIQUIDITY_REWARD` | 1,200.000 HIVE | `1000*blocks` satoshis (`config.hpp:290`) |
+| `HIVE_LIQUIDITY_TIMEOUT_SEC` | 7 days | Volume resets after a week (`config.hpp:285`) |
+| `HIVE_MIN_LIQUIDITY_REWARD_PERIOD_SEC` | 60 s | Min time on books (`config.hpp:286`) |
+| `HIVE_LIQUIDITY_REWARD_PERIOD_SEC` | 3,600 s | `config.hpp:287` |
+| `HIVE_LIQUIDITY_REWARD_BLOCKS` | 1,200 | period/block interval (`config.hpp:288`) |
+| `HIVE_MIN_LIQUIDITY_REWARD` | 1,200.000 HIVE | `1000*blocks` satoshis (`config.hpp:289`) |
 
 ### HBD (Hive Backed Dollars)
 
@@ -268,8 +268,8 @@ These governed early-Steem economics; retained for replay correctness.
 | `HIVE_MAX_WITHDRAW_ROUTES` | 10 | Max withdrawal destinations |
 | `HIVE_DELAYED_VOTING_TOTAL_INTERVAL_SECONDS` | 2,592,000 | 30 days — delay before new vests vote |
 | `HIVE_DELAYED_VOTING_INTERVAL_SECONDS` | 86,400 | 1 day granularity for delayed voting |
-| `HIVE_DELEGATION_RETURN_PERIOD_HF0` | 604,800 | = cashout window (`config.hpp:390`) |
-| `HIVE_DELEGATION_RETURN_PERIOD_HF20` | 432,000 | = mana regen, 5 days (`config.hpp:391`) |
+| `HIVE_DELEGATION_RETURN_PERIOD_HF0` | 604,800 | = cashout window (`config.hpp:389`) |
+| `HIVE_DELEGATION_RETURN_PERIOD_HF20` | 432,000 | = mana regen, 5 days (`config.hpp:390`) |
 
 ### Account/Authority Limits
 
@@ -277,11 +277,11 @@ These governed early-Steem economics; retained for replay correctness.
 |----------|-------|-------|
 | `HIVE_MIN_ACCOUNT_NAME_LENGTH` | 3 | Characters |
 | `HIVE_MAX_ACCOUNT_NAME_LENGTH` | 16 | Characters |
-| `HIVE_MIN_ACCOUNT_CREATION_FEE` | 1 | 0.001 HIVE (mainnet); 0 on testnet |
+| `HIVE_MIN_ACCOUNT_CREATION_FEE` | 1 | 0.001 HIVE on all networks since 1.28.8 (`config.hpp:274`); 0 on testnet at 1.28.7 |
 | `HIVE_MAX_ACCOUNT_CREATION_FEE` | 1,000,000,000 | 1,000,000 HIVE |
-| `HIVE_MAX_AUTHORITY_MEMBERSHIP` | 40 | Max keys+accounts in an authority; **41 on mirrornet converter builds** ("40 + second auth", `config.hpp:374-378`); enforced only post-HF20 (`database.cpp:2621`) |
+| `HIVE_MAX_AUTHORITY_MEMBERSHIP` | 40 | Max keys+accounts in an authority; **41 on mirrornet converter builds** ("40 + second auth", `config.hpp:373-377`); enforced only post-HF20 (`database.cpp:2635`) |
 | `HIVE_MAX_SIG_CHECK_DEPTH` | 2 | Max authority recursion depth |
-| `HIVE_MAX_SIG_CHECK_ACCOUNTS` | 125 | Max accounts checked during sig verification; enforced post-HF20 (`database.cpp:2622`) |
+| `HIVE_MAX_SIG_CHECK_ACCOUNTS` | 125 | Max accounts checked during sig verification; enforced post-HF20 (`database.cpp:2636`) |
 | `HIVE_MAX_PROXY_RECURSION_DEPTH` | 4 | Max witness vote proxy chain |
 | `HIVE_CREATE_ACCOUNT_WITH_HIVE_MODIFIER` | 30 | Multiplier for creation-with-HIVE fee |
 | `HIVE_CREATE_ACCOUNT_DELEGATION_RATIO` | 5 | Delegation-to-fee ratio |
@@ -291,12 +291,12 @@ These governed early-Steem economics; retained for replay correctness.
 
 | Constant | Value | Notes |
 |----------|-------|-------|
-| `HIVE_ACCOUNT_SUBSIDY_PRECISION` | 10,000 | = `HIVE_100_PERCENT` (`config.hpp:405`) |
-| `HIVE_WITNESS_SUBSIDY_BUDGET_PERCENT` | 12,500 (125%) | Per-witness pool budget boost (`config.hpp:409`) |
-| `HIVE_WITNESS_SUBSIDY_DECAY_PERCENT` | 210,000 (21×100%) | Witness pool decays once per round (`config.hpp:414`) |
-| `HIVE_DEFAULT_ACCOUNT_SUBSIDY_DECAY` | 347,321 | ≈ 5-day halflife (`config.hpp:417`) |
-| `HIVE_DEFAULT_ACCOUNT_SUBSIDY_BUDGET` | 797 | ≈ 0.5 accounts/block (`config.hpp:419`) |
-| `HIVE_DECAY_BACKSTOP_PERCENT` | 9,000 (90%) | `config.hpp:420` |
+| `HIVE_ACCOUNT_SUBSIDY_PRECISION` | 10,000 | = `HIVE_100_PERCENT` (`config.hpp:404`) |
+| `HIVE_WITNESS_SUBSIDY_BUDGET_PERCENT` | 12,500 (125%) | Per-witness pool budget boost (`config.hpp:408`) |
+| `HIVE_WITNESS_SUBSIDY_DECAY_PERCENT` | 210,000 (21×100%) | Witness pool decays once per round (`config.hpp:413`) |
+| `HIVE_DEFAULT_ACCOUNT_SUBSIDY_DECAY` | 347,321 | ≈ 5-day halflife (`config.hpp:416`) |
+| `HIVE_DEFAULT_ACCOUNT_SUBSIDY_BUDGET` | 797 | ≈ 0.5 accounts/block (`config.hpp:418`) |
+| `HIVE_DECAY_BACKSTOP_PERCENT` | 9,000 (90%) | `config.hpp:419` |
 
 ### Resource Dynamics (RD) Parameter Bounds
 
@@ -304,13 +304,13 @@ Used to validate witness-settable resource-pool dynamics (account subsidies; als
 
 | Constant | Value | Notes |
 |----------|-------|-------|
-| `HIVE_RD_MIN_DECAY_BITS` / `HIVE_RD_MAX_DECAY_BITS` | 6 / 32 | `config.hpp:393-394` |
-| `HIVE_RD_DECAY_DENOM_SHIFT` | 36 | `config.hpp:395` |
-| `HIVE_RD_MAX_POOL_BITS` | 64 | `config.hpp:396` |
-| `HIVE_RD_MAX_BUDGET` | min(2^34−1, 2^28−1, INT32_MAX) = 2^28−1 | Composite of `HIVE_RD_MAX_BUDGET_1/2/3` (`config.hpp:397-400`) |
-| `HIVE_RD_MIN_DECAY` | 64 | `1 << 6` (`config.hpp:401`) |
-| `HIVE_RD_MIN_BUDGET` | 1 | `config.hpp:402` |
-| `HIVE_RD_MAX_DECAY` | 0xFFFFFFFF | `config.hpp:403` |
+| `HIVE_RD_MIN_DECAY_BITS` / `HIVE_RD_MAX_DECAY_BITS` | 6 / 32 | `config.hpp:392-393` |
+| `HIVE_RD_DECAY_DENOM_SHIFT` | 36 | `config.hpp:394` |
+| `HIVE_RD_MAX_POOL_BITS` | 64 | `config.hpp:395` |
+| `HIVE_RD_MAX_BUDGET` | min(2^34−1, 2^28−1, INT32_MAX) = 2^28−1 | Composite of `HIVE_RD_MAX_BUDGET_1/2/3` (`config.hpp:396-399`) |
+| `HIVE_RD_MIN_DECAY` | 64 | `1 << 6` (`config.hpp:400`) |
+| `HIVE_RD_MIN_BUDGET` | 1 | `config.hpp:401` |
+| `HIVE_RD_MAX_DECAY` | 0xFFFFFFFF | `config.hpp:402` |
 
 ### Size Limits
 
@@ -320,12 +320,12 @@ Used to validate witness-settable resource-pool dynamics (account subsidies; als
 | `HIVE_MIN_TRANSACTION_SIZE_LIMIT` | 1,024 | 1 KB |
 | `HIVE_MAX_BLOCK_SIZE` | 2,097,152 | 2 MB hard maximum |
 | `HIVE_MIN_BLOCK_SIZE_LIMIT` | 65,536 | = `MAX_TRANSACTION_SIZE` |
-| `HIVE_MIN_BLOCK_SIZE` | 115 | Bytes — minimum valid block |
-| `HIVE_MAX_MEMO_SIZE` | 2,048 | Characters |
-| `HIVE_MIN_PERMLINK_LENGTH` | 0 | `config.hpp:351` |
-| `HIVE_MAX_PERMLINK_LENGTH` | 256 | Characters |
-| `HIVE_MAX_WITNESS_URL_LENGTH` | 2,048 | Characters |
-| `HIVE_MAX_URL_LENGTH` | 127 | For witness URL in operations |
+| `HIVE_MIN_BLOCK_SIZE` | 115 | Bytes; not a validity rule: a smaller block is only logged, not rejected (`database.cpp:2288-2289`) |
+| `HIVE_MAX_MEMO_SIZE` | 2,048 | Bytes |
+| `HIVE_MIN_PERMLINK_LENGTH` | 0 | `config.hpp:350` |
+| `HIVE_MAX_PERMLINK_LENGTH` | 256 | Bytes |
+| `HIVE_MAX_WITNESS_URL_LENGTH` | 2,048 | Bytes |
+| `HIVE_MAX_URL_LENGTH` | 127 | Not used by chain code (reported by `get_config`); witness URLs are checked against `HIVE_MAX_WITNESS_URL_LENGTH` (`hive_operations.cpp:280`, `:370`) |
 | `HIVE_MAX_SHARE_SUPPLY` | 10^15 | 1,000,000,000,000,000 |
 | `HIVE_MAX_SATOSHIS` | 2^62 - 1 | 4,611,686,018,427,387,903 |
 
@@ -354,17 +354,17 @@ Used to validate witness-settable resource-pool dynamics (account subsidies; als
 | `HIVE_MIN_RECURRENT_TRANSFERS_RECURRENCE` | 24 | Hours — minimum interval |
 | `HIVE_MAX_OPEN_RECURRENT_TRANSFERS` | 255 | Per account |
 | `HIVE_MAX_CONSECUTIVE_RECURRENT_TRANSFER_FAILURES` | 10 | Before cancellation |
-| `HIVE_MAX_PENDING_TRANSFERS` | 255 | Max pending transfers |
+| `HIVE_MAX_PENDING_TRANSFERS` | 255 | Max open escrow transfers per account: its only use is the `escrow_transfer` check on `pending_escrow_transfers` (`hive_evaluator_transfer.cpp:85`), so it does not limit recurrent or other transfers |
 
 ### DHF (Decentralized Hive Fund) / Proposals
 
 | Constant | Value | Notes |
 |----------|-------|-------|
 | `HIVE_TREASURY_FEE` | 10,000 | 10 HBD (10 × `BLOCKCHAIN_PRECISION`) |
-| `HIVE_PROPOSAL_SUBJECT_MAX_LENGTH` | 80 | Characters |
+| `HIVE_PROPOSAL_SUBJECT_MAX_LENGTH` | 80 | Bytes |
 | `HIVE_PROPOSAL_MAX_IDS_NUMBER` | 5 | Max IDs per update/remove operation |
 | `HIVE_PROPOSAL_FEE_INCREASE_DAYS` | 60 | Days after which fee increases |
-| `HIVE_PROPOSAL_FEE_INCREASE_AMOUNT` | 1,000 | 1 HBD per 60 days |
+| `HIVE_PROPOSAL_FEE_INCREASE_AMOUNT` | 1,000 | Since HF24: 1 HBD more per whole day of proposal duration beyond the first 60 days (`dhf_evaluator.cpp:46-55`) |
 | `HIVE_PROPOSAL_CONVERSION_RATE` | 5 | 0.05% (5 basis points) |
 | `HIVE_PROPOSAL_MAINTENANCE_PERIOD` | 3,600 | 1 hour — how often proposals are processed |
 | `HIVE_PROPOSAL_MAINTENANCE_CLEANUP` | 86,400 | 1 day |
@@ -375,9 +375,9 @@ Used to validate witness-settable resource-pool dynamics (account subsidies; als
 
 | Constant | Value | Notes |
 |----------|-------|-------|
-| `HIVE_CUSTOM_OP_ID_MAX_LENGTH` | 32 | Characters |
+| `HIVE_CUSTOM_OP_ID_MAX_LENGTH` | 32 | Bytes |
 | `HIVE_CUSTOM_OP_DATA_MAX_LENGTH` | 8,192 | Bytes |
-| `HIVE_CUSTOM_OP_BLOCK_LIMIT` | 5 | Max custom ops per account per block |
+| `HIVE_CUSTOM_OP_BLOCK_LIMIT` | 5 | Max `custom`, `custom_json` and `custom_binary` ops per account across a node's pending transactions: node policy on the push path, not a per-block validity rule (`database.cpp:598-621`, `:636-646`; Part 02, section Transaction-Level Constraints) |
 
 ### Comment Limits
 
@@ -389,7 +389,7 @@ Used to validate witness-settable resource-pool dynamics (account subsidies; als
 | `HIVE_MAX_COMMENT_BENEFICIARIES` | 8 | Max beneficiary routes per post |
 | `HIVE_BENEFICIARY_LIMIT` | 128 | Extended beneficiary limit |
 | `HIVE_COMMENT_TITLE_LIMIT` | 256 | Characters |
-| `HIVE_POST_REWARD_FUND_NAME` | `"post"` | Reward fund object name (`config.hpp:296`) |
+| `HIVE_POST_REWARD_FUND_NAME` | `"post"` | Reward fund object name (`config.hpp:295`) |
 
 ### Resource Credits (RC System)
 
@@ -423,16 +423,16 @@ The actual per-resource cost parameters (state bytes, execution time, bandwidth 
 | `OBSOLETE_TREASURY_ACCOUNT` | `"steem.dao"` | Old treasury |
 | `NEW_HIVE_TREASURY_ACCOUNT` | `"hive.fund"` | Current treasury (since HF24) |
 | `HIVE_PROXY_TO_SELF_ACCOUNT` | `""` | Empty string = vote directly |
-| `HIVE_ROOT_POST_PARENT` | `account_name_type()` | Canonical root-post parent (`config.hpp:451`) |
-| `"steem"` | — | Created at genesis as a system account with hardcoded key `STM65wH1...` (`database_init.cpp:270-291`, `misc_utilities.hpp:11`); historically mined, now official |
+| `HIVE_ROOT_POST_PARENT` | `account_name_type()` | Canonical root-post parent (`config.hpp:450`) |
+| `"steem"` | - | Created at genesis as a system account with hardcoded key `STM65wH1...` (`database_init.cpp:236-254`, `protocol/misc_utilities.hpp:11`); historically mined, now official |
 
 ### Node Behavior Margins (consensus-adjacent)
 
 | Constant | Value | Notes |
 |----------|-------|-------|
-| `HIVE_UP_TO_DATE_MARGIN__FAST_CONFIRM` | 60 s | Head-block recency for fast-confirm txs (`config.hpp:434`) |
-| `HIVE_UP_TO_DATE_MARGIN__BLOCK_STATS` | 20 s | `config.hpp:435` |
-| `HIVE_UP_TO_DATE_MARGIN__PENDING_TXS` | 20 s | `config.hpp:436` |
+| `HIVE_UP_TO_DATE_MARGIN__FAST_CONFIRM` | 60 s | Head-block recency for fast-confirm txs (`config.hpp:433`) |
+| `HIVE_UP_TO_DATE_MARGIN__BLOCK_STATS` | 20 s | `config.hpp:434` |
+| `HIVE_UP_TO_DATE_MARGIN__PENDING_TXS` | 20 s | `config.hpp:435` |
 
 ### Miscellaneous
 
@@ -443,7 +443,7 @@ The actual per-resource cost parameters (state bytes, execution time, bandwidth 
 | `HIVE_MAX_LIMIT_ORDER_EXPIRATION` | 2,419,200 | 28 days |
 | `HIVE_BLOCK_GENERATION_POSTPONED_TX_LIMIT` | 5 | Max postponed transactions per block |
 | `HIVE_PENDING_TRANSACTION_EXECUTION_LIMIT` | 200ms | Time budget for pending txs |
-| `HIVE_GLOBAL_REMOVE_THRESHOLD` | 200 | **20 on testnet** (`config.hpp:97/178`) |
+| `HIVE_GLOBAL_REMOVE_THRESHOLD` | 200 | **20 on testnet** (`config.hpp:96/174`) |
 | `HIVE_BLOCKCHAIN_PRECISION` | 1,000 | 10^3 — matches HBD precision |
 
 ---
@@ -500,7 +500,9 @@ Template-parameterized thin wrappers used in chain objects:
 - `HBD_price = tiny_price<HIVE_ASSET_NUM_HBD, HIVE_ASSET_NUM_HIVE>`
 - `VEST_price = tiny_price<HIVE_ASSET_NUM_VESTS, HIVE_ASSET_NUM_HIVE>`
 
-These are **not** used in operations (where the full `asset` type with explicit symbol is required for clarity) but are used in internal chain state for efficiency and type safety.
+These are **not** used as fields of regular operations, which carry the full `asset` type with explicit symbol for clarity (the header comment says they MUST NOT be used in operations, `asset.hpp:207-209`); virtual operations do declare `tiny_asset` fields (for example the four payouts of `author_reward_operation`, `hive_virtual_operations.hpp:44-47`). In internal chain state they are used for efficiency and type safety.
+
+Since 1.28.8, amounts that hold funds in chain objects are wrapped in balance classes of the chain layer (`libraries/chain/include/hive/chain/util/balance.hpp`): `tiny_balance<SYM>` (`HBD_balance`, `HIVE_balance`, `VEST_balance`, `balance.hpp:25-27`) around a `tiny_asset`, and `balance` around a full `asset` where the symbol varies (`balance.hpp:262-307`). Only the object classes named as friends may hold them: account, escrow, convert and collateralized convert requests, reward fund and dgpo for `tiny_balance`; escrow, savings withdrawal and limit order for `balance`. A balance reads as its asset but changes only through `transfer_from`/`transfer_to`, which move one delta between two balances and assert that neither ends negative (`balance.hpp:194-260`). Move-only `temp_balance`/`temp_tiny_balance` hold funds in flight and must be empty when destroyed (checked unless an exception is in flight, `balance.hpp:330-334`, `:376-380`), and only `dynamic_global_property_object` can issue or burn funds (`balance.hpp:309-381`). JSON and binary forms are those of the wrapped asset (`balance.hpp:385-422`). `tiny_asset` remains the type of counters and records, such as the dgpo `current_supply` and `total_vesting_shares` or the account's `delegated_vesting_shares`.
 
 ---
 
@@ -510,8 +512,8 @@ These are **not** used in operations (where the full `asset` type with explicit 
 
 | Type | Definition | Purpose |
 |------|-----------|---------|
-| `account_name_type` | `fixed_string<16>` | Account name — max 16 chars, stored inline (`types.hpp:70`) |
-| `share_type` | `safe<int64_t>` | Asset amounts with overflow checking (`types.hpp:76`) |
+| `account_name_type` | `fixed_string<16>` | Account name — max 16 chars, stored inline (`types.hpp:65`) |
+| `share_type` | `safe<int64_t>` | Asset amounts with overflow checking (`types.hpp:71`) |
 | `ushare_type` | `safe<uint64_t>` | Unsigned variant |
 | `weight_type` | `uint16_t` | Authority weights |
 | `chain_id_type` | `fc::sha256` | 256-bit chain identifier |
@@ -521,7 +523,7 @@ These are **not** used in operations (where the full `asset` type with explicit 
 | `digest_type` | `fc::sha256` | 256-bit digest (for signing) |
 | `signature_type` | `fc::ecc::compact_signature` | ECDSA compact signature (65 bytes) |
 | `private_key_type` | `fc::ecc::private_key` | ECDSA private key |
-| `public_key_type` | custom struct wrapping `fc::ecc::public_key_data` | With base58 encoding (`types.hpp:83-103`) |
+| `public_key_type` | custom struct wrapping `fc::ecc::public_key_data` | With base58 encoding (`types.hpp:78-98`) |
 | `custom_id_type` | `fixed_string<32>` | Custom operation ID string |
 | `contribution_id_type` | `uint32_t` | For DHF/proposal contributions |
 
@@ -535,7 +537,7 @@ Custom struct wrapping `fc::ecc::public_key_data` (33 bytes — compressed EC po
 
 ### Password-Based Key Derivation
 
-`collect_potential_keys()` (`transaction_util.cpp:379-408`) documents the canonical Hive key derivation: for a candidate password string, role keys are derived as `private_key = regenerate(sha256(account_name + role + password))` for roles `owner`, `active`, `posting`, `memo`. The same helper also accepts raw WIF and extended private keys.
+`collect_potential_keys()` (`transaction_util.cpp:380-409`) documents the canonical Hive key derivation: for a candidate password string, role keys are derived as `private_key = regenerate(sha256(account_name + role + password))` for roles `owner`, `active`, `posting`, `memo`. The same helper also accepts raw WIF and extended private keys.
 
 ### Extensions Types
 
@@ -577,19 +579,19 @@ Additionally, `witness` authority (the witness signing key) is tracked separatel
 
 ### Verification Algorithm (`transaction_util.cpp`, `sign_state.hpp`)
 
-Collection: `transaction::get_required_authorities()` (`transaction.cpp:90-98`) folds every operation's `get_required_{active,owner,posting,witness}_authorities()` / `get_required_authorities()` (declared per-operation; no-op defaults in `base_operation`, `base.hpp:13-23`) into a `required_authorities_type`.
+Collection: `transaction::get_required_authorities()` (`transaction.cpp:90-98`) folds every operation's `get_required_{active,owner,posting}_authorities()`, `get_required_witness_signatures()` and `get_required_authorities()` (declared per-operation; no-op defaults in `base_operation`, `base.hpp:13-23`) into five collections: active, owner, posting, witness and other authorities.
 
-Verification: `verify_authority()` (`transaction_util.cpp:18-192`) walks the requirements against a `sign_state` seeded with the public keys recovered from the transaction's signatures. `sign_state::check_authority_impl()` (`sign_state.hpp:167+`) accumulates key weights, recursing into `account_auths` up to `max_recursion_depth` and counting membership/account limits.
+Verification: `verify_authority()` (`transaction_util.cpp:196-266`, which turns problems into exceptions; the algorithm is `verify_authority_impl()` at `:19-193`) walks the requirements against a `sign_state` seeded with the public keys recovered from the transaction's signatures. `sign_state::check_authority_impl()` (`sign_state.hpp:167+`) accumulates key weights, recursing into `account_auths` up to `max_recursion_depth` and counting membership/account limits.
 
 Semantics (pre-HF28; mainnet has been post-HF28 since 2025-11-19, see the strict/mixed switch below):
-- **Posting isolation**: operations requiring posting authority cannot share a transaction with operations requiring active/owner/witness/other authority (`transaction_util.cpp:59-74`).
-- **Role upgrade**: posting requirement satisfied by posting, active, or owner authority (`transaction_util.cpp:101-104`); active requirement satisfied by active or owner (`transaction_util.cpp:146-158`); owner requirement only by owner (`transaction_util.cpp:162-166`).
-- **Witness requirement**: satisfied iff the transaction is signed with the witness's current signing key (`transaction_util.cpp:168-182`).
-- **No redundant signatures**: leftover signatures not needed by any requirement throw `tx_irrelevant_sig` (`transaction_util.cpp:184-188`).
+- **Posting isolation**: operations requiring posting authority cannot share a transaction with operations requiring active/owner/witness/other authority (`transaction_util.cpp:60-75`).
+- **Role upgrade**: posting requirement satisfied by posting, active, or owner authority (`transaction_util.cpp:102-105`); active requirement satisfied by active or owner (`transaction_util.cpp:147-159`); owner requirement only by owner (`transaction_util.cpp:163-167`).
+- **Witness requirement**: satisfied iff the transaction is signed with the witness's current signing key (`transaction_util.cpp:169-183`).
+- **No redundant signatures**: leftover signatures not needed by any requirement throw `tx_irrelevant_sig` (`transaction_util.cpp:185-189`).
 
-At HF28 (`database.cpp:2612-2613`): `HIVE_HARDFORK_1_28_ALLOW_STRICT_AND_MIXED_AUTHORITIES` removes the posting-isolation rule **and** the role-upgrade paths (strict per-role matching), and `HIVE_HARDFORK_1_28_ALLOW_REDUNDANT_SIGNATURES` stops rejecting unused signatures.
+At HF28 (`database.cpp:2626-2627`): `HIVE_HARDFORK_1_28_ALLOW_STRICT_AND_MIXED_AUTHORITIES` removes the posting-isolation rule **and** the role-upgrade paths (strict per-role matching), and `HIVE_HARDFORK_1_28_ALLOW_REDUNDANT_SIGNATURES` stops rejecting unused signatures.
 
-Limits passed by the chain: `HIVE_MAX_SIG_CHECK_DEPTH = 2`, and — only for blocks after HF20 — `HIVE_MAX_AUTHORITY_MEMBERSHIP = 40` and `HIVE_MAX_SIG_CHECK_ACCOUNTS = 125` (passed as 0/unlimited pre-HF20, `database.cpp:2620-2622`).
+Limits passed by the chain: `HIVE_MAX_SIG_CHECK_DEPTH = 2`, and — only for blocks after HF20 — `HIVE_MAX_AUTHORITY_MEMBERSHIP = 40` and `HIVE_MAX_SIG_CHECK_ACCOUNTS = 125` (passed as 0/unlimited pre-HF20, `database.cpp:2634-2636`).
 
 ### Multi-sig
 
@@ -597,8 +599,8 @@ Multi-signature is built into the authority model:
 - An authority can have up to **40 members** (`HIVE_MAX_AUTHORITY_MEMBERSHIP`) — combination of keys and accounts
 - Account auths allow delegation: account B's authority can be part of account A's authority
 - Max recursion depth for account authority resolution: **2** (`HIVE_MAX_SIG_CHECK_DEPTH`)
-- Max accounts checked during signature verification: **125** (`HIVE_MAX_SIG_CHECK_ACCOUNTS`)
-- The wallet-side helper `signing_keys_collector` (`transaction_util.cpp:410-553`) walks account_auths breadth-first per role (switching to the active role below the first level for owner/active chains) to gather all candidate signing keys
+- Max account authorities checked during signature verification: **125** (`HIVE_MAX_SIG_CHECK_ACCOUNTS`), counted per required authority before HF28 and across the whole transaction since HF28 (`sign_state.hpp:88-91, 116-117`)
+- The wallet-side helper `signing_keys_collector` (`transaction_util.cpp:411-554`) walks account_auths breadth-first per role (switching to the active role below the first level for owner/active chains) to gather all candidate signing keys
 
 ### Account Name Validation
 
@@ -756,7 +758,7 @@ Triple encoding: `major.hardfork.release` packed in `uint32_t`:
 - Bits [16-23]: hardfork version (minor)
 - Bits [0-15]: release version
 
-Current: `version(1, 28, 7)` -> `0x011C0007`. Major versions 0 and 1 compare equal (`version.hpp:48-75`, see Discovery 5).
+Current: `version(1, 28, 8)` -> `0x011C0008` on mainnet builds of 1.28.8; testnet and mirrornet builds of 1.28.8 use `version(1, 29, 0)` -> `0x011D0000` (`protocol/config.hpp:139`, `:69`, `:134`). Comparisons between major versions 0 and 1 go through a compatibility branch (`version.hpp:48-75`, see Discovery 5).
 
 ### Hardfork Version
 
@@ -796,7 +798,19 @@ hardfork_version(version v) { v_num = v.v_num & 0xFFFF0000; }
 | HF 1.25 | 55,235,767 | |
 | HF 1.26 | 68,676,505 | |
 | HF 1.27 | 69,050,084 | |
-| HF 1.28 | 100,000,000 (code; actual activation: 101,319,928) | 2025-11-19. Strict/mixed authority + redundant signature changes |
+| HF 1.28 | 101,319,928 | 2025-11-19. Strict/mixed authority + redundant signature changes; the code constant said 100,000,000 through 1.28.7 (Discovery 7) |
+| HF 1.29 | 150,000,000 (placeholder in code, not an activation block) | Defined in 1.28.8, inactive on mainnet (next section) |
+
+### HF29 (Defined in 1.28.8, Inactive on Mainnet)
+
+Since 1.28.8, `hardfork.d/1_29.hf` defines `HIVE_HARDFORK_1_29` = 29 with version 1.29 and a placeholder default time `HIVE_HARDFORK_1_29_DEFAULT_TIME` = 4102444800 (2100-01-01T00:00:00Z) (`hardfork.d/1_29.hf:1-19`). HF29 runs no one-time migration (`apply_hardfork()` has no HF29 case, `database_hardfork.cpp:505-511`); it only turns on five switches named `HIVE_HARDFORK_1_29_<NAME>` (`hardfork.d/1_29.hf:21-30`):
+- `ALLOW_MODIFY_LAST_RECURRENT_TRANSFER`: a recurrent transfer may be modified or deleted with `executions == 1`; before HF29 the evaluator requires at least 2 on every path, and creation always does (`hive_evaluator_transfer.cpp:976-978, 991-996, 1011-1016`; Part 12, section Hardfork-conditional behavior (verified evolution)).
+- `FIX_ENFORCEMENT_OF_AUTHORITY_SIZE_ON_RECOVERY_REQUEST`: `request_account_recovery` checks the size of the new owner authority on every request path (`hive_evaluator_account.cpp:500-506`). A 1.28.8 node already applies this check to new transactions submitted to it (API or P2P) and to blocks it produces (`is_in_control()`, `database.hpp:176`).
+- `FIX_LIMIT_ORDER_ASSETS`: `limit_order_create` and `limit_order_create2` accept only the HIVE:HBD market (`hive_evaluator_transfer.cpp:540-546, 578-584`). As with the previous switch, a 1.28.8 node already rejects other markets in new transactions submitted to it and in blocks it produces.
+- `RC_IS_CONSENSUS`: the RC payer and balance checks assert in every mode, which makes RC part of consensus (`rc/rc_utility.cpp:507-508, 567`; Part 15, section What it would take to flip the switch). Before HF29 they assert only when the node is in control, the balance check also when it re-applies its pending transactions (Part 15). Three RC invariant checks assert only under HF29 in mainnet builds and are otherwise logged as `NOTIFYALERT` (`:354, 391, 419`); testnet and mirrornet builds assert them unconditionally (`:350, 388, 416`).
+- `VALIDATE_ALL_PROPOSAL_IDS`: stricter validation of the proposal ids listed in `remove_proposal`; for example a proposal already flagged for removal counts as nonexistent, so listing it again fails (`hardfork.d/1_29.hf:29-30`; unit test `tests/unit/tests/proposal_tests.cpp:3705-3707`).
+
+Every `.hf` file is concatenated into `hardfork.hpp` for every build (`libraries/protocol/CMakeLists.txt:2, 13-21`), but only builds with `USE_ALTERNATE_CHAIN_ID`, i.e. testnet and mirrornet (`cmake/hive_options.cmake:31-35`), set `HIVE_NUM_HARDFORKS` to 29 and register HF29 (`hardfork.d/0-preamble.hf:15-20`, `database_hardfork.cpp:112-116`); there HF29's time comes from the `hardfork_schedule` of the `alternate-chain-spec` when it covers hardfork 29, otherwise it is the 2100 default (`testnet_blockchain_configuration.cpp:66-75`). Those builds need a 1.29 binary version (1.29.0) because on open the node asserts that the binary's hardfork version equals the version of the last registered hardfork (`database.cpp:261`). A mainnet build keeps `HIVE_NUM_HARDFORKS` = 28, and when a witness-voted next hardfork is due, `process_hardforks()` applies it only if `last_hardfork < HIVE_NUM_HARDFORKS` (`database_hardfork.cpp:128-133`). A 1.28.8 mainnet node therefore cannot activate HF29: every `has_hardfork( HIVE_HARDFORK_1_29_* )` check is false and the pre-HF29 rules apply, apart from the checks a switch above says a 1.28.8 node already applies. Activation mechanics: Part 09, section How Hardforks Activate (live consensus).
 
 ### HBD Interest Calculation
 
@@ -817,9 +831,9 @@ required_collateral = needed_hive * 200% / 100%
 
 The 200% collateral ratio (`HIVE_CONVERSION_COLLATERAL_RATIO = 2 * HIVE_100_PERCENT`) and 5% fee (`HIVE_COLLATERALIZED_CONVERSION_FEE = 5 * HIVE_1_PERCENT`) are consensus constants.
 
-### Genesis State (chain layer — `database_init.cpp:177-307`)
+### Genesis State (chain layer — `database_init.cpp:178-335`)
 
-`init_genesis()` creates: `miners`, `null`, `temp` (threshold 0 = wildcard), `initminer` (with witness object, schedule `miner`), and the `steem` system account (officially created at genesis since it had been used as a system account before being mined; key `STM65wH1...`, `database_init.cpp:270-291`). Testnet/iceberg builds additionally create both treasury accounts at genesis (`database_init.cpp:213-230`). The dgpo starts with `current_witness = initminer` and all supplies zero on mainnet.
+`init_genesis()` creates: `miners`, `null`, `temp` (threshold 0 = wildcard), `initminer` (with witness object, schedule `miner`), and the `steem` system account (officially created at genesis since it had been used as a system account before being mined; key `STM65wH1...`, `database_init.cpp:236-254`). Testnet/iceberg builds additionally create both treasury accounts at genesis (`database_init.cpp:203-208`). The dgpo starts with `current_witness = initminer` and all supplies zero on mainnet. Since 1.28.8 genesis also creates the `"post"` `reward_fund_object` with an empty balance and `last_update` = genesis time, asserting that it gets id 0 (`database_init.cpp:258-262`); at 1.28.7 HF17 created it. For the fund, HF17 since 1.28.8 only sets its `last_update` to the HF17 block time and, outside testnet builds, its `recent_claims` to `HIVE_HF_17_RECENT_CLAIMS` (`database_hardfork.cpp:281-287`).
 
 ---
 
@@ -828,37 +842,37 @@ The 200% collateral ratio (`HIVE_CONVERSION_COLLATERAL_RATIO = 2 * HIVE_100_PERC
 ### Configuration Constants
 
 **Q: What is the block interval?**
-A: 3 seconds (`HIVE_BLOCK_INTERVAL = 3`). Source: `config.hpp:56`
+A: 3 seconds (`HIVE_BLOCK_INTERVAL = 3`). Source: `config.hpp:59`
 
 **Q: What is the maximum transaction size?**
-A: 65,536 bytes / 64 KB (`HIVE_MAX_TRANSACTION_SIZE = 1024*64`). Source: `config.hpp:364`
+A: The witness-voted `maximum_block_size` minus 256 bytes: the transaction push path rejects anything larger (`process_non_fast_confirm_transaction`, `database.cpp:566-572`). `HIVE_MAX_TRANSACTION_SIZE` (65,536 bytes = 64 KB, `config.hpp:363`) is not checked against transactions; in the code it is used only as `HIVE_MIN_BLOCK_SIZE_LIMIT` (`config.hpp:364`), the floor that validation applies to the voted `maximum_block_size` (`hive_operations.cpp:317`, `hive_operations.hpp:430`). The `get_config` API still reports it, like every `config.hpp` constant (`generate_get_config.cmake:53-59`).
 
 **Q: What is the maximum block size?**
-A: 2,097,152 bytes / 2 MB (`HIVE_MAX_BLOCK_SIZE = 2*1024*1024`). Source: `config.hpp:366`. Witness-voted `maximum_block_size` in dgpo cannot exceed it.
+A: 2,097,152 bytes / 2 MB (`HIVE_MAX_BLOCK_SIZE = 2*1024*1024`). Source: `config.hpp:365`. Witness-voted `maximum_block_size` in dgpo cannot exceed it.
 
 **Q: What is the transaction expiration window?**
-A: 1 hour of runtime validity (`HIVE_MAX_TIME_UNTIL_EXPIRATION`, `config.hpp:232`); since HF28 the `expiration` field itself may be up to 24 hours ahead (`HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION`, `config.hpp:233`; `database.cpp:2536-2548`)
+A: 1 hour of runtime validity (`HIVE_MAX_TIME_UNTIL_EXPIRATION`, `config.hpp:228`); since HF28 the `expiration` field itself may be up to 24 hours ahead (`HIVE_MAX_TIME_UNTIL_SIGNATURE_EXPIRATION`, `config.hpp:229`; `database.cpp:2550-2562`)
 
 **Q: What are the cashout windows?**
-A: Currently 7 days (604,800s). Was 1 day pre-HF12, 12 hours pre-HF17. Source: `config.hpp:155-159`
+A: Currently 7 days (604,800s), fixed at creation since HF17. Before HF17 the cashout time was not fixed at creation: from HF12 a new root post started 12 hours ahead (earlier posts and all replies started with none), and votes re-averaged it toward now + 1 day (now + 12 hours between HF12 and HF13); HF12-HF17 also had a second cashout 30 days later. Source: `protocol/config.hpp:154-158`; `hive_evaluator_social.cpp:249-254`, `:435-439`; Part 07, section Cashout Process
 
 **Q: What are the inflation rate parameters?**
-A: Starts at 9.78% (`978`), decreases by 0.01% every 250,000 blocks, stops at 0.95% (`95`). 65% to content, 10% to proposals (DHF), remaining to witnesses/vesting. Source: `config.hpp:257-265`
+A: Starts at 9.78% (`978`), decreases by 0.01% every 250,000 blocks, stops at 0.95% (`95`). 65% to content, 10% to proposals (DHF), remaining to witnesses/vesting. Source: `config.hpp:253-261`
 
 **Q: What are the witness-related constants?**
-A: 21 total, 20 elected + 1 runner-up (post-HF17). 17/21 required for hardfork activation. 30 max votes per account. Source: `config.hpp:62, 223-231`
+A: 21 total, 20 elected + 1 runner-up (post-HF17). 17/21 required for hardfork activation. 30 max votes per account. Source: `protocol/config.hpp:65, 219-227, 249`
 
 **Q: What are the vesting withdrawal parameters?**
-A: 13 weekly intervals (was 104 pre-HF16). Each interval = 7 days (same as cashout window). Max 10 withdrawal routes. Source: `config.hpp:236-239`
+A: 13 weekly intervals (was 104 pre-HF16). Each interval = 7 days (same as cashout window). Max 10 withdrawal routes. Source: `config.hpp:232-235`
 
 **Q: What are the HBD interest rate bounds?**
-A: Default 10% APR. Witnesses set the rate (median of witness properties). Compounds monthly (every 30 days). Source: `config.hpp:255, 363`
+A: Default 10% APR. Witnesses set the rate (median of witness properties). Compounds monthly (every 30 days). Source: `config.hpp:251, 362`
 
 **Q: What are the DHF constants?**
-A: 10 HBD creation fee, 80-char subject, maintenance every hour, 1 HBD fee increase every 60 days. Source: `config.hpp:462-469`
+A: 10 HBD creation fee, 80-char subject, maintenance every hour (`HIVE_PROPOSAL_MAINTENANCE_PERIOD` = 3600 s, `config.hpp:168`; testnet-configurable, `:90`), and since HF24 1 HBD more per whole day of proposal duration beyond the first 60 days (`dhf_evaluator.cpp:46-55`). Source: `config.hpp:461-468`
 
 **Q: What constants differ between mainnet and testnet?**
-A: Key differences (testnet defaults from `config.hpp:64-126` and `testnet_blockchain_configuration.hpp:27-88`):
+A: Key differences (testnet defaults from `protocol/config.hpp:67-125` and `testnet_blockchain_configuration.hpp:27-88`):
 
 | Constant | Mainnet | Testnet default |
 |----------|---------|-----------------|
@@ -874,13 +888,16 @@ A: Key differences (testnet defaults from `config.hpp:64-126` and `testnet_block
 | Governance vote expiration | 365 days | 5 days |
 | Feed interval | 1,200 blocks | 20 blocks |
 | Max feed age | 7 days | 10,080 s (60·24·7) |
-| Account creation fee min | 1 (0.001 HIVE) | 0 |
 | `HIVE_GLOBAL_REMOVE_THRESHOLD` | 200 | 20 |
 | Start miner voting block | 864,000 | 30 |
 | Initial supply | 0 HIVE / 0 HBD | 243M HIVE / 7M HBD |
 | Initial vesting price | n/a (1:1 via dgpo default) | `VEST_price(1800, 1000)` pre-HF1-split |
-| Chain ID | beeab0de... | sha256("testnet") (CLI-overridable) |
+| Chain ID | beeab0de... | `fc::sha256::hash("testnet")` (`protocol/config.hpp:72`): SHA-256 of the fc-packed string (length byte 0x07, then `testnet`; `fc/io/raw.hpp:210`, `:294-297`), `18dcf0a285365fc58b71f18b3d3fec954aa0c141c44e4e5cb4cf777b9eab274e` (the default `--chain-id` asserted in `tests/python/functional/cli_wallet/test_wallet_cli.py:72`), not plain SHA-256 of `testnet` (CLI-overridable) |
 | HF times / initminer key / HF9 key | fixed | all configurable via `alternate-chain-spec` |
+| `HIVE_BLOCKCHAIN_VERSION` | 1.28.8 | 1.29.0 (also mirrornet) |
+| `HIVE_NUM_HARDFORKS` | 28 | 29 (also mirrornet) (`hardfork.d/0-preamble.hf:15-20`), HF29 registered (`database_hardfork.cpp:112-116`) |
+
+Since 1.28.8 the account creation fee bounds no longer differ: every network uses `HIVE_MIN_ACCOUNT_CREATION_FEE` = 1 and `HIVE_MAX_ACCOUNT_CREATION_FEE` = 1,000,000,000 (`config.hpp:274-275`); at 1.28.7 the testnet minimum was 0.
 
 **Q: Any suspicious constants?**
 A: See Discrepancies — misleading `HIVE_BLOCKCHAIN_PRECISION` comment, misleading `HIVE_ADDRESS_PREFIX` name, *wrong* mainnet genesis-time comments, HF26 start==stop, and the converter-only 41-member authority limit.
@@ -905,7 +922,7 @@ A: `fixed_string<16>` — max 16 characters. RFC 1035 DNS-like rules: lowercase,
 A: `safe<int64_t>` — wraps `int64_t` with overflow checking. Throws on overflow/underflow. Max value: `INT64_MAX`. For calculations requiring larger numbers, `uint128_t` and `uint256_t` are available.
 
 **Q: How are public keys represented?**
-A: 33-byte compressed secp256k1 points (`fc::ecc::public_key_data`) wrapped in `public_key_type`; base58 with `STM` prefix + 4-byte RIPEMD-160 checksum (`types.hpp:83-103`).
+A: 33-byte compressed secp256k1 points (`fc::ecc::public_key_data`) wrapped in `public_key_type`; base58 with `STM` prefix + 4-byte RIPEMD-160 checksum (`types.hpp:78-98`).
 
 ### Authority Model
 
@@ -913,7 +930,7 @@ A: 33-byte compressed secp256k1 points (`fc::ecc::public_key_data`) wrapped in `
 A: Declared per-operation via `get_required_*_authorities()`; full catalog in Part 02. The protocol-layer *enforcement* (role upgrade, posting isolation, HF28 strict/mixed switch) is documented in the Authority Model section above.
 
 **Q: How does multi-sig work at the protocol level?**
-A: Weighted threshold over up to 40 keys/accounts, recursive account authorities to depth 2, ≤125 accounts touched per verification; weight accumulation in `sign_state::check_authority_impl` (`sign_state.hpp:167+`).
+A: Weighted threshold over up to 40 keys/accounts, recursive account authorities to depth 2, at most 125 account authorities checked (per required authority before HF28, per transaction since HF28); weight accumulation in `sign_state::check_authority_impl` (`sign_state.hpp:167+`).
 
 ### Block Structure
 
@@ -933,21 +950,21 @@ All sub-questions answered in the Transaction Structure section above (fields, T
 
 | Component | File | Line(s) | Purpose |
 |-----------|------|---------|---------|
-| Block interval constant | `config.hpp` | 56 | `HIVE_BLOCK_INTERVAL = 3` |
-| All timing constants | `config.hpp` | 56-207 | Block, cashout, recovery, feed timings |
-| Genesis & mining times | `config.hpp` | 150-154 | Values correct, comments wrong (see Discrepancy 6) |
-| All economic constants | `config.hpp` | 215-346 | Inflation, rewards, HBD limits |
-| Legacy APR/PoW/liquidity constants | `config.hpp` | 282-335 | Pre-HF16 economics, Equihash 140/6 |
-| All size limits | `config.hpp` | 348-399 | Transaction, block, name, URL sizes and miscellaneous limits |
-| Authority membership (converter quirk) | `config.hpp` | 374-378 | 40 mainnet, 41 mirrornet converter |
-| Witness virtual schedule laps | `config.hpp` | 383-384 | 2^64−1 / 2^128−1; algorithm in `witness_schedule.cpp` |
-| Resource dynamics bounds | `config.hpp` | 393-403 | `HIVE_RD_*` budget/decay bounds |
-| Account subsidy constants | `config.hpp` | 405-420 | HF20 subsidy budget/decay |
-| Special accounts | `config.hpp` | 441-458 | null, temp, miners, proxy-to-self, root-post-parent, treasury pair (resolved via `database::get_treasury_name()`) |
-| DHF constants | `config.hpp` | 460-469 | Proposal system |
-| RC constants | `config.hpp` | 479-494 | Resource credits (timing only; costs in `libraries/chain/rc/`) |
-| get_config export warning | `config.hpp` | 12-14 | Every constant exposed via `database_api.get_config` |
-| HF9 recovery key | `config.hpp` | 18 | + account list `hardfork.d/0_9.hf:15-172`, applied `database_hardfork.cpp:213-226` |
+| Block interval constant | `config.hpp` | 59 | `HIVE_BLOCK_INTERVAL = 3` |
+| All timing constants | `config.hpp` | 59-203 | Block, cashout, recovery, feed timings |
+| Genesis & mining times | `config.hpp` | 149-153 | Values correct, comments wrong (see Discrepancy 6) |
+| All economic constants | `config.hpp` | 211-345 | Inflation, rewards, HBD limits |
+| Legacy APR/PoW/liquidity constants | `config.hpp` | 281-334 | Pre-HF16 economics, Equihash 140/6 |
+| All size limits | `config.hpp` | 347-398 | Transaction, block, name, URL sizes and miscellaneous limits |
+| Authority membership (converter quirk) | `config.hpp` | 373-377 | 40 mainnet, 41 mirrornet converter |
+| Witness virtual schedule laps | `config.hpp` | 382-383 | 2^64−1 / 2^128−1; algorithm in `witness_schedule.cpp` |
+| Resource dynamics bounds | `config.hpp` | 392-402 | `HIVE_RD_*` budget/decay bounds |
+| Account subsidy constants | `config.hpp` | 404-419 | HF20 subsidy budget/decay |
+| Special accounts | `config.hpp` | 440-457 | null, temp, miners, proxy-to-self, root-post-parent, treasury pair (resolved via `database::get_treasury_name()`) |
+| DHF constants | `config.hpp` | 459-468 | Proposal system |
+| RC constants | `config.hpp` | 478-493 | Resource credits: regeneration and bucket timing, stats frequency, account-creation adjustment, delegation limit (costs in `libraries/chain/rc/`) |
+| get_config export warning | `config.hpp` | 15-17 | Every constant exposed via `database_api.get_config` |
+| HF9 recovery key | `protocol/config.hpp` | 21 | + account list `hardfork.d/0_9.hf:15-172`, applied `database_hardfork.cpp:218-231` |
 | NAI bit layout | `asset_symbol.hpp` | 9-32 | Precision bits, shift, NAI encoding, reserved space |
 | Asset precisions | `asset_symbol.hpp` | 20-22 | HBD=3, HIVE=3, VESTS=6 |
 | Legacy symbol bytes | `asset_symbol.hpp` | 36-53 | STEEM/SBD/TESTS/TBD/HIVE/HBD/VESTS |
@@ -956,18 +973,19 @@ All sub-questions answered in the Transaction Structure section above (fields, T
 | `asset` struct | `asset.hpp` | 21-96 | Amount + symbol with operator overloads |
 | `price` struct | `asset.hpp` | 139-186 | Base/quote pair |
 | `tiny_asset` / `tiny_price` | `asset.hpp` | 218-322 | Typed thin wrappers |
+| Balance wrappers (chain, since 1.28.8) | `util/balance.hpp` | 25-27, 262-381 | `tiny_balance` / `balance` for funds held in chain objects, temp balances |
 | NAI Damm checksum | `asset.cpp` | 80-126 | 8-digit Damm algorithm |
 | Asset symbol validation | `asset.cpp` | 261-283 | NAI range + control bit checks |
 | Price multiplication | `asset.cpp` | 310-325 | uint128 cross-multiplication |
-| Core type aliases | `types.hpp` | 66-81 | All fundamental typedefs |
-| `public_key_type` | `types.hpp` | 83-103 | Key data + base58 encoding |
-| Authority struct | `authority.hpp` | 7-55 | Threshold + key/account maps |
+| Core type aliases | `types.hpp` | 61-76 | All fundamental typedefs |
+| `public_key_type` | `types.hpp` | 78-98 | Key data + base58 encoding |
+| Authority struct | `authority.hpp` | 7-57 | Threshold + key/account maps |
 | Account name validation | `authority.cpp` | 58-122 | RFC 1035 with Hive rules |
-| Authority verification | `transaction_util.cpp` | 18-192 | Posting isolation, role upgrade, HF28 flags |
-| Chain verify_authority call | `database.cpp` | 2598-2626 | HF28 flags, HF20 limits |
+| Authority verification | `transaction_util.cpp` | 19-193 | Posting isolation, role upgrade, HF28 flags |
+| Chain verify_authority call | `database.cpp` | 2612-2640 | HF28 flags, HF20 limits |
 | sign_state recursion | `sign_state.hpp` | 167+ | Weight accumulation, depth/membership limits |
-| Password key derivation | `transaction_util.cpp` | 379-408 | sha256(account+role+password) |
-| Signing key collector | `transaction_util.cpp` | 410-553 | Wallet-side authority walk |
+| Password key derivation | `transaction_util.cpp` | 380-409 | sha256(account+role+password) |
+| Signing key collector | `transaction_util.cpp` | 411-554 | Wallet-side authority walk |
 | Block header | `block_header.hpp` | 15-31 | previous, timestamp, witness, merkle root, block_num() |
 | Block number extraction | `block.cpp` | 13-16 | `endian_reverse_u32(id._hash[0])` |
 | Protocol merkle root (test-only) | `block.cpp` | 18-46 | Pairwise hashing; production in full_block |
@@ -989,19 +1007,22 @@ All sub-questions answered in the Transaction Structure section above (fields, T
 | Version struct | `version.hpp` | 15-77 | Major.HF.release in uint32; 0≡1 hack at 48-75 |
 | Hardfork version | `version.hpp` | 79-102 | Masks release bits |
 | HF version vote | `version.hpp` | 104-111 | HF version + activation time |
-| Hardfork blocks | `hardfork_block.hpp` | 3-30 | All 28 HF activation blocks |
-| HF count | `hardfork.d/0-preamble.hf` | 16-19 | `HIVE_NUM_HARDFORKS = 28` |
+| Hardfork blocks | `hardfork_block.hpp` | 3-31 | Activation blocks of HF1-HF28 (HF28 = 101,319,928 since 1.28.8) and an HF29 placeholder (150,000,000); read only by the mirrornet converter |
+| HF count | `hardfork.d/0-preamble.hf` | 15-20 | `HIVE_NUM_HARDFORKS` = 28 on mainnet, 29 with `USE_ALTERNATE_CHAIN_ID` |
+| HF29 definition | `hardfork.d/1_29.hf` | 1-31 | Defined in 1.28.8, inactive on mainnet: placeholder time 2100-01-01, five switches |
+| HF29 registration | `database_hardfork.cpp` | 112-116 | Only with `USE_ALTERNATE_CHAIN_ID` (testnet, mirrornet) |
 | HF21 stall block | `hardfork.d/0_21.hf` | 18-22 | 35,922,615 mainnet; testnet-configurable |
 | HF21 overflow replay | `manabar.hpp` | 120-135 | int64 overflow reproduced ≤ stall block |
 | HF24 times | `hardfork.d/1_24.hf` | 17-27 | Scheduled vs ACTUAL (1602703884) |
-| Chain IDs | `config.hpp` | 136-143 | Mainnet "beeab0de...", mirrornet "4200...", testnet |
+| Chain IDs | `config.hpp` | 71-72, 135-142 | Mainnet "beeab0de...", mirrornet "4200...", testnet |
 | HBD interest calc | `hbd_interest.hpp` | 8-23 | Balance-seconds / year * rate |
 | Collateral estimation | `hive_collateral.hpp` | 8-26 | `estimate_hive_collateral()` formula |
-| Genesis init | `database_init.cpp` | 177-307 | System accounts, initminer, "steem", dgpo |
-| Genesis vesting price | `chain/.../detail/state/global_property_object.hpp` | 87-92 | `VEST_price(1000000,1000)` on empty pools |
-| HF1 vesting split | `database_hardfork.cpp` / `database_comment.cpp` | 189-191 / 612-667 | ×1,000,000 across all VESTS state |
-| Testnet overrides | `testnet_blockchain_configuration.hpp` | 27-285 | All configurable defaults |
-| Alternate chain spec loader | `chain_plugin.cpp` | ~1704-1764 | JSON overrides incl. `hf_21_stall_block` |
+| Genesis init | `database_init.cpp` | 178-335 | System accounts, initminer, "steem", dgpo, "post" reward fund (since 1.28.8) |
+| Genesis vesting price | `chain/.../detail/state/global_property_object.hpp` | 94-99 | `VEST_price(1000000,1000)` on empty pools |
+| HF1 vesting split | `database_hardfork.cpp` | 194-196 | multiplied by 1,000,000 across all VESTS state |
+| HF1 vesting split (body) | `database_comment.cpp` | 595-657 | `perform_vesting_share_split()` |
+| Testnet overrides | `testnet_blockchain_configuration.hpp` | 27-284 | All configurable defaults |
+| Alternate chain spec loader | `chain_plugin.cpp` | ~1731-1788 | JSON overrides incl. `hf_21_stall_block` |
 | RC cost parameters (pointer) | `libraries/chain/rc/` | — | `resource_count.cpp`, `resource_sizes.*`, `rc_curve.cpp`, `rc_objects.hpp` (Part 08) |
 | Witness scheduling (pointer) | `libraries/chain/witness_schedule.cpp` | — | Virtual-time algorithm (Part 06) |
 
@@ -1010,7 +1031,7 @@ All sub-questions answered in the Transaction Structure section above (fields, T
 ## Discrepancies and Potential Issues
 
 ### 1. `HIVE_BLOCKCHAIN_PRECISION` Naming
-- **File**: `config.hpp:371`
+- **File**: `config.hpp:370`
 - **Issue**: Comment says "actually HBD precision" but the value (1000) is the same 10^3 precision used for both HIVE and HBD. The comment is misleading — it should say "HBD/HIVE precision" or better yet, use `HIVE_PRECISION_HIVE` directly.
 
 ### 2. HF 0.17 and 0.18 Activation Gap
@@ -1018,23 +1039,23 @@ All sub-questions answered in the Transaction Structure section above (fields, T
 - **Issue**: HF17 at block 10,629,455 and HF18 at block 10,629,486 — only 31 blocks apart (~93 seconds). This is effectively simultaneous and suggests HF18 was a hotfix or companion change to HF17. (Historical reason not derivable from this code; would need Steem-era release notes.)
 
 ### 3. Public Key Prefix Still "STM" (Steem)
-- **File**: `config.hpp:212`
+- **File**: `config.hpp:208`
 - **Issue**: `HIVE_ADDRESS_PREFIX = "STM"` — the old Steem prefix is retained for backward compatibility. This is intentional (changing it would break all existing keys) but worth noting for documentation. Note: the constant name is misleading — "STM" prefixes public keys (e.g., `STM7abc...`), not addresses. On Hive, an address is an account name (username).
 
 ### 4. `HIVE_INIT_SUPPLY` is 0 on Mainnet
-- **File**: `config.hpp:49-50`
+- **File**: `config.hpp:52-53`
 - **Issue**: Mainnet initial HIVE and HBD supply are both 0, while testnet defaults to 243M HIVE and 7M HBD. The mainnet genesis block relied on the mining mechanism to create initial supply. This is correct behavior but often surprising to newcomers.
 
 ### 5. `HF26 START == STOP` for HBD Printing
-- **File**: `config.hpp:343-344`
+- **File**: `config.hpp:342-343`
 - **Issue**: `HIVE_HBD_START_PERCENT_HF26 = HIVE_HBD_STOP_PERCENT_HF26 = 2000` (20%). When start equals stop, there is no gradual reduction — it's a binary on/off at exactly 20% market cap. This is likely intentional but contrasts with all previous hardforks which had a gradual reduction range.
 
 ### 6. Mainnet Genesis/Mining Time Comments Are Wrong
-- **File**: `config.hpp:152, 154`
-- **Issue**: `HIVE_GENESIS_TIME = 1458835200` is commented "Friday, January 1, 2016 12:00:00 AM UTC" but the value is **Thursday, 2016-03-24 16:00:00 UTC** (the comment belongs to the *testnet* genesis 1451606400 at `config.hpp:71-72`). `HIVE_MINING_TIME = 1458838800` is commented "March 24, 2016 4:00:00 PM UTC" but the value is **17:00 UTC**. Values are consensus-correct; only the comments mislead.
+- **File**: `config.hpp:151, 153`
+- **Issue**: `HIVE_GENESIS_TIME = 1458835200` is commented "Friday, January 1, 2016 12:00:00 AM UTC" but the value is **Thursday, 2016-03-24 16:00:00 UTC** (the comment belongs to the *testnet* genesis 1451606400 at `config.hpp:74-75`). `HIVE_MINING_TIME = 1458838800` is commented "March 24, 2016 4:00:00 PM UTC" but the value is **17:00 UTC**. Values are consensus-correct; only the comments mislead.
 
 ### 7. Converter Builds Quietly Change a Consensus Limit
-- **File**: `config.hpp:374-378`
+- **File**: `config.hpp:373-377`
 - **Issue**: `HIVE_MAX_AUTHORITY_MEMBERSHIP` is 41 ("40 + second auth") when `HIVE_CONVERTER_BUILD` is defined. Intentional for mirrornet (the converter appends an extra authority member so it can re-sign history), but it means mirrornet consensus differs from mainnet in this limit.
 
 ---
@@ -1051,6 +1072,6 @@ All sub-questions answered in the Transaction Structure section above (fields, T
 
 5. **Exact RC cost parameter values** — protocol layer defines only timing; the cost model (per-op resource counts, size tables, curve parameters, pool budgets) lives in `libraries/chain/rc/` and is covered in Part 08.
 
-6. **Witness scheduling algorithm details** — `HIVE_VIRTUAL_SCHEDULE_LAP_LENGTH(2)` constants are protocol-side (`config.hpp:383-384`); the virtual-time algorithm in `witness_schedule.cpp` is covered in Part 06.
+6. **Witness scheduling algorithm details** — `HIVE_VIRTUAL_SCHEDULE_LAP_LENGTH(2)` constants are protocol-side (`config.hpp:382-383`); the virtual-time algorithm in `witness_schedule.cpp` is covered in Part 06.
 
 7. **Why was HF18 only 31 blocks after HF17?** Not derivable from this codebase (needs Steem-era release history). Kept as historical curiosity; no consensus impact today.
